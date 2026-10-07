@@ -45,6 +45,9 @@ function checkFiller(doc, violations) {
 function checkImages(doc, id, violations) {
   if (!IMAGE_CATEGORIES.has(categoryOf(id))) return;
   const imgs = imageFields(doc);
+  // Face-free person cards are the intended visual for real people (no portrait
+  // rights) — a worldcup that uses them needs no photo.
+  if (/"use"\s*:\s*"(PersonCard|BlockAvatar)"/.test(JSON.stringify(doc.view ?? {}))) return;
   // worldcup matchups must reference an image source; flag if NONE present.
   if (imgs.length === 0) {
     violations.push({ type: "missing-image", note: "worldcup with no image field — candidates render without photos" });

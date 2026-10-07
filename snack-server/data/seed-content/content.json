@@ -1,0 +1,98 @@
+{
+  "_about": "Hand-curated content bank. getContent() serves it when the LLM is unavailable (no key / error), sampled per call so plays still vary. People appear as names only (face-free cards).",
+  "worldcup": {
+    "야식": [
+      { "name": "치킨", "q": "Fried chicken", "emoji": "🍗" },
+      { "name": "피자", "q": "Pizza", "emoji": "🍕" },
+      { "name": "떡볶이", "q": "Tteokbokki", "emoji": "🌶️" },
+      { "name": "족발", "q": "Jokbal", "emoji": "🐷" },
+      { "name": "보쌈", "q": "Bossam", "emoji": "🥬" },
+      { "name": "라면", "q": "Ramyeon", "emoji": "🍜" },
+      { "name": "짜장면", "q": "Jajangmyeon", "emoji": "🍝" },
+      { "name": "짬뽕", "q": "Jjamppong", "emoji": "🥵" },
+      { "name": "순대", "q": "Sundae (sausage)", "emoji": "🌭" },
+      { "name": "곱창", "q": "Gopchang", "emoji": "🔥" },
+      { "name": "삼겹살", "q": "Samgyeopsal", "emoji": "🥓" },
+      { "name": "햄버거", "q": "Hamburger", "emoji": "🍔" },
+      { "name": "김밥", "q": "Gimbap", "emoji": "🍙" },
+      { "name": "만두", "q": "Mandu (food)", "emoji": "🥟" },
+      { "name": "탕수육", "q": "Tangsuyuk", "emoji": "🍖" },
+      { "name": "닭발", "q": "Chicken feet", "emoji": "🐔" },
+      { "name": "파전", "q": "Pajeon", "emoji": "🥞" },
+      { "name": "냉면", "q": "Naengmyeon", "emoji": "🥶" },
+      { "name": "돈가스", "q": "Tonkatsu", "emoji": "🍛" },
+      { "name": "마라탕", "q": "Malatang", "emoji": "🌶️" }
+    ],
+    "한국 여자 배우": [
+      { "name": "김혜수" }, { "name": "전지현" }, { "name": "송혜교" }, { "name": "손예진" },
+      { "name": "김태리" }, { "name": "한효주" }, { "name": "박보영" }, { "name": "김고은" },
+      { "name": "신민아" }, { "name": "공효진" }, { "name": "한소희" }, { "name": "김지원" },
+      { "name": "박은빈" }, { "name": "전도연" }, { "name": "고윤정" }, { "name": "이영애" },
+      { "name": "김혜윤" }, { "name": "한지민" }
+    ],
+    "한국 남자 배우": [
+      { "name": "송강호" }, { "name": "이병헌" }, { "name": "황정민" }, { "name": "마동석" },
+      { "name": "현빈" }, { "name": "공유" }, { "name": "이정재" }, { "name": "박서준" },
+      { "name": "송중기" }, { "name": "박보검" }, { "name": "이민호" }, { "name": "손석구" },
+      { "name": "정해인" }, { "name": "남주혁" }, { "name": "강동원" }, { "name": "조인성" },
+      { "name": "하정우" }, { "name": "변우석" }
+    ],
+    "한국 예능인 방송인": [
+      { "name": "유재석" }, { "name": "강호동" }, { "name": "신동엽" }, { "name": "이수근" },
+      { "name": "김구라" }, { "name": "박나래" }, { "name": "장도연" }, { "name": "조세호" },
+      { "name": "양세형" }, { "name": "김종국" }, { "name": "하하" }, { "name": "전현무" },
+      { "name": "이경규" }, { "name": "김숙" }, { "name": "송은이" }, { "name": "안영미" },
+      { "name": "지석진" }, { "name": "김준호" }
+    ],
+    "한국 여자 연예인": [
+      { "name": "아이유" }, { "name": "수지" }, { "name": "장원영" }, { "name": "카리나" },
+      { "name": "김태리" }, { "name": "한소희" }, { "name": "손예진" }, { "name": "송혜교" },
+      { "name": "전지현" }, { "name": "김고은" }, { "name": "윈터" }, { "name": "안유진" },
+      { "name": "제니" }, { "name": "지수" }, { "name": "태연" }, { "name": "박보영" }
+    ],
+    "한국 남자 연예인": [
+      { "name": "차은우" }, { "name": "박보검" }, { "name": "송중기" }, { "name": "공유" },
+      { "name": "현빈" }, { "name": "이민호" }, { "name": "정해인" }, { "name": "박서준" },
+      { "name": "뷔" }, { "name": "정국" }, { "name": "지민" }, { "name": "손석구" },
+      { "name": "남주혁" }, { "name": "강동원" }, { "name": "이도현" }, { "name": "변우석" }
+    ],
+    "누구나 아는 유명 일본 애니 캐릭터 (짱구 도라에몽 피카츄 나루토 루피)": [
+      { "name": "짱구" }, { "name": "도라에몽" }, { "name": "피카츄" }, { "name": "나루토" },
+      { "name": "루피" }, { "name": "손오공" }, { "name": "코난" }, { "name": "토토로" },
+      { "name": "강백호" }, { "name": "탄지로" }, { "name": "고죠 사토루" }, { "name": "세일러문" },
+      { "name": "아톰" }, { "name": "이누야샤" }, { "name": "에렌" }, { "name": "아냐" }
+    ],
+    "미국 만화 애니 캐릭터": [
+      { "name": "미키 마우스" }, { "name": "스폰지밥" }, { "name": "호머 심슨" }, { "name": "버즈 라이트이어" },
+      { "name": "우디" }, { "name": "슈렉" }, { "name": "엘사" }, { "name": "스파이더맨" },
+      { "name": "아이언맨" }, { "name": "배트맨" }, { "name": "슈퍼맨" }, { "name": "벅스 버니" },
+      { "name": "스누피" }, { "name": "올라프" }, { "name": "미니언" }, { "name": "톰" }
+    ]
+  },
+  "ox": [
+    { "s": "한글은 세종대왕이 만들었다.", "a": true },
+    { "s": "대한민국의 수도는 부산이다.", "a": false },
+    { "s": "'김장 문화'는 유네스코 인류무형문화유산이다.", "a": true },
+    { "s": "한국의 국화는 장미다.", "a": false },
+    { "s": "'갑분싸'는 '갑자기 분위기 싸해짐'의 줄임말이다.", "a": true },
+    { "s": "한국 지폐 중 가장 큰 단위는 10만원권이다.", "a": false },
+    { "s": "추석은 음력 8월 15일이다.", "a": true },
+    { "s": "제주도는 한국에서 가장 큰 섬이다.", "a": true },
+    { "s": "'얼죽아'는 '얼어 죽어도 아이스 아메리카노'의 줄임말이다.", "a": true },
+    { "s": "한국의 국가 전화번호는 +81이다.", "a": false },
+    { "s": "'TMI'는 'Too Much Information'의 줄임말이다.", "a": true },
+    { "s": "독도는 강원도에 속한다.", "a": false }
+  ],
+  "choseong": [
+    { "answer": "기린", "hint": "목이 아주 긴 동물", "distractors": ["사슴", "하마", "낙타"] },
+    { "answer": "수박", "hint": "여름에 먹는 초록 줄무늬 과일", "distractors": ["포도", "딸기", "참외"] },
+    { "answer": "우산", "hint": "비 올 때 펴서 쓰는 물건", "distractors": ["모자", "가방", "신발"] },
+    { "answer": "시계", "hint": "시간을 알려주는 물건", "distractors": ["거울", "안경", "반지"] },
+    { "answer": "축구", "hint": "공을 발로 차 골을 넣는 스포츠", "distractors": ["야구", "농구", "배구"] },
+    { "answer": "냉면", "hint": "여름에 시원하게 먹는 국수", "distractors": ["국밥", "만두", "김밥"] },
+    { "answer": "호랑이", "hint": "줄무늬가 있는 큰 고양잇과 동물", "distractors": ["코끼리", "원숭이", "고양이"] },
+    { "answer": "비행기", "hint": "하늘을 나는 탈것", "distractors": ["자동차", "자전거", "유람선"] },
+    { "answer": "냉장고", "hint": "음식을 차갑게 보관하는 가전", "distractors": ["세탁기", "선풍기", "청소기"] },
+    { "answer": "무지개", "hint": "비 온 뒤 하늘에 뜨는 일곱 빛깔", "distractors": ["별자리", "소나기", "반딧불"] }
+  ]
+}

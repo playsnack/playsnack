@@ -125,33 +125,17 @@
             ],
             "children": [
               {
-                "id": "topImg",
-                "image": "{phase == 'result' ? undefined : (current[matchIndex * 2] ? '/api/img?strict=1&q=' + current[matchIndex * 2].q : '')}",
-                "width": 358,
-                "height": 300,
+                "id": "optionACard",
+                "use": "PersonCard",
                 "x": 0,
                 "y": 0,
-                "focus": "top"
-              },
-              {
-                "id": "topShade",
-                "box": "free",
-                "width": 358,
-                "height": 76,
-                "x": 0,
-                "y": 224,
-                "opacity": 0.5,
-                "fill": "#000000"
-              },
-              {
-                "id": "topName",
-                "text": "{phase == 'result' ? '' : (current[matchIndex * 2] ? current[matchIndex * 2].name : '')}",
-                "width": 322,
-                "x": 18,
-                "y": 250,
-                "size": 24,
-                "font": "display",
-                "color": "#ffffff"
+                "width": "fill",
+                "height": "fill",
+                "props": {
+                  "name": "{current[matchIndex * 2] ? current[matchIndex * 2].name : ''}",
+                  "group": "{current[matchIndex * 2] && current[matchIndex * 2].group ? current[matchIndex * 2].group : ''}",
+                  "rookie": "{current[matchIndex * 2] ? current[matchIndex * 2].rookie == true : false}"
+                }
               }
             ]
           },
@@ -224,33 +208,17 @@
             ],
             "children": [
               {
-                "id": "botImg",
-                "image": "{phase == 'result' ? undefined : (current[matchIndex * 2 + 1] ? '/api/img?strict=1&q=' + current[matchIndex * 2 + 1].q : '')}",
-                "width": 358,
-                "height": 300,
+                "id": "optionBCard",
+                "use": "PersonCard",
                 "x": 0,
                 "y": 0,
-                "focus": "top"
-              },
-              {
-                "id": "botShade",
-                "box": "free",
-                "width": 358,
-                "height": 76,
-                "x": 0,
-                "y": 224,
-                "opacity": 0.5,
-                "fill": "#000000"
-              },
-              {
-                "id": "botName",
-                "text": "{phase == 'result' ? '' : (current[matchIndex * 2 + 1] ? current[matchIndex * 2 + 1].name : '')}",
-                "width": 322,
-                "x": 18,
-                "y": 250,
-                "size": 24,
-                "font": "display",
-                "color": "#ffffff"
+                "width": "fill",
+                "height": "fill",
+                "props": {
+                  "name": "{current[matchIndex * 2 + 1] ? current[matchIndex * 2 + 1].name : ''}",
+                  "group": "{current[matchIndex * 2 + 1] && current[matchIndex * 2 + 1].group ? current[matchIndex * 2 + 1].group : ''}",
+                  "rookie": "{current[matchIndex * 2 + 1] ? current[matchIndex * 2 + 1].rookie == true : false}"
+                }
               }
             ]
           }
@@ -283,11 +251,12 @@
             "color": "#d9ff00"
           },
           {
-            "id": "winnerImg",
-            "image": "{phase == 'result' ? (champion ? '/api/img?strict=1&q=' + champion.q : '') : undefined}",
-            "width": 260,
-            "height": 260,
-            "focus": "top"
+            "id": "winnerAvatar",
+            "use": "BlockAvatar",
+            "props": {
+              "seed": "{champion ? champion.name : ''}",
+              "size": 200
+            }
           },
           {
             "id": "winnerName",
@@ -355,5 +324,119 @@
         ]
       }
     ]
+  },
+  "components": {
+    "PersonCard": {
+      "props": {
+        "name": "",
+        "group": "",
+        "rookie": false
+      },
+      "view": {
+        "box": "column",
+        "pad": 16,
+        "gap": 12,
+        "align": "center",
+        "justify": "center",
+        "fill": "#16181C",
+        "stroke": {
+          "color": "#3A3F47",
+          "width": 2
+        },
+        "shadow": {
+          "x": 0,
+          "y": 6,
+          "blur": 0,
+          "color": "#000000"
+        },
+        "children": [
+          {
+            "use": "BlockAvatar",
+            "props": {
+              "seed": "{props.name}",
+              "size": 120
+            }
+          },
+          {
+            "text": "{props.name}",
+            "font": "display",
+            "size": 30,
+            "color": "#FFFFFF",
+            "align": "center",
+            "lines": 1
+          },
+          {
+            "box": "row",
+            "gap": 6,
+            "justify": "center",
+            "show": "props.group != '' || props.rookie",
+            "children": [
+              {
+                "use": "Chip",
+                "props": {
+                  "label": "{props.group}"
+                },
+                "show": "props.group != ''"
+              },
+              {
+                "use": "Chip",
+                "props": {
+                  "label": "신인"
+                },
+                "show": "props.rookie"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "BlockAvatar": {
+      "props": {
+        "seed": "",
+        "size": 120
+      },
+      "view": {
+        "box": "grid",
+        "columns": 5,
+        "width": "{props.size}",
+        "height": "{props.size}",
+        "each": "range(25)",
+        "children": [
+          {
+            "height": "{props.size / 5}",
+            "fill": "{floor(hash(props.seed) / pow(2, floor(index / 5) * 3 + min(index % 5, 4 - index % 5))) % 2 == 1 ? ['#FF5A5F','#4DA3FF','#FACC15','#B46CFF'][floor(hash(props.seed) / pow(2, 20)) % 4] : '#1E2127'}"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "justify": "center",
+        "align": "center",
+        "fill": "#1E2127",
+        "stroke": {
+          "color": "#3A3F47",
+          "width": 1
+        },
+        "children": [
+          {
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9AA3AF"
+          }
+        ]
+      }
+    }
   }
 }

@@ -476,7 +476,7 @@
             "width": 340,
             "size": 15,
             "weight": 700,
-            "color": "{phase == 'play' ? (roundAnswer < 0 ? '#d9ff00' : ((myAnswerRound === roundIdx && myAnswer === roundAnswer) ? '#7CFC00' : '#FF5A5F')) : '#d9ff00'}",
+            "color": "{phase == 'play' ? (roundAnswer < 0 ? '#d9ff00' : ((myAnswerRound === roundIdx && myAnswer === roundAnswer) ? '#22c55e' : '#FF5A5F')) : '#d9ff00'}",
             "align": "center"
           },
           {
@@ -486,7 +486,7 @@
             "pad": 12,
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (0 === roundAnswer ? '#2e7d32' : ((myAnswer === 0 && myAnswerRound === roundIdx) ? '#7a1f1f' : '#16181c')) : ((myAnswer === 0 && myAnswerRound === roundIdx) ? '#3a4d14' : '#1e2127')) : '#1e2127'}",
+            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (0 === roundAnswer ? '#18351f' : ((myAnswer === 0 && myAnswerRound === roundIdx) ? '#3a171a' : '#16181c')) : ((myAnswer === 0 && myAnswerRound === roundIdx) ? '#2a3a10' : '#1e2127')) : '#1e2127'}",
             "onTap": [
               {
                 "if": "phase == 'play'",
@@ -527,7 +527,7 @@
             "pad": 12,
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (1 === roundAnswer ? '#2e7d32' : ((myAnswer === 1 && myAnswerRound === roundIdx) ? '#7a1f1f' : '#16181c')) : ((myAnswer === 1 && myAnswerRound === roundIdx) ? '#3a4d14' : '#1e2127')) : '#1e2127'}",
+            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (1 === roundAnswer ? '#18351f' : ((myAnswer === 1 && myAnswerRound === roundIdx) ? '#3a171a' : '#16181c')) : ((myAnswer === 1 && myAnswerRound === roundIdx) ? '#2a3a10' : '#1e2127')) : '#1e2127'}",
             "onTap": [
               {
                 "if": "phase == 'play'",
@@ -568,7 +568,7 @@
             "pad": 12,
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (2 === roundAnswer ? '#2e7d32' : ((myAnswer === 2 && myAnswerRound === roundIdx) ? '#7a1f1f' : '#16181c')) : ((myAnswer === 2 && myAnswerRound === roundIdx) ? '#3a4d14' : '#1e2127')) : '#1e2127'}",
+            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (2 === roundAnswer ? '#18351f' : ((myAnswer === 2 && myAnswerRound === roundIdx) ? '#3a171a' : '#16181c')) : ((myAnswer === 2 && myAnswerRound === roundIdx) ? '#2a3a10' : '#1e2127')) : '#1e2127'}",
             "onTap": [
               {
                 "if": "phase == 'play'",
@@ -609,7 +609,7 @@
             "pad": 12,
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (3 === roundAnswer ? '#2e7d32' : ((myAnswer === 3 && myAnswerRound === roundIdx) ? '#7a1f1f' : '#16181c')) : ((myAnswer === 3 && myAnswerRound === roundIdx) ? '#3a4d14' : '#1e2127')) : '#1e2127'}",
+            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (3 === roundAnswer ? '#18351f' : ((myAnswer === 3 && myAnswerRound === roundIdx) ? '#3a171a' : '#16181c')) : ((myAnswer === 3 && myAnswerRound === roundIdx) ? '#2a3a10' : '#1e2127')) : '#1e2127'}",
             "onTap": [
               {
                 "if": "phase == 'play'",

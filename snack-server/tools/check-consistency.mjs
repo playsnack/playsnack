@@ -28,6 +28,12 @@ const GAME_ALLOWLIST = new Set([
   "#2a3a10", "#393114", // dim-lime / olive accent surfaces
   "#d7dce3", // light divider/text (lighter inkMuted)
   "#ffb4b4", // light error/red text
+  // Decorative, not semantic — reviewed 2026-10-07 (the Bite gate first saw these
+  // inside gradients/templates). Feedback colors were snapped to the roster instead.
+  "#2563eb", "#7c3aed", "#6b7280", "#cfd6df", // gacha rarity glows (rare / epic / common / frame)
+  "#5eead4", "#818cf8", "#fb7185", // colororder rainbow hero
+  "#63151d", "#2a0d11", // reaction "wait" panel dark-red gradient
+  "#7dd3fc", "#c084fc", // fortune wheel rim rainbow
 ]);
 const ALLOWED_COLOR = (hex) => ROSTER.has(hex) || GAME_ALLOWLIST.has(hex);
 const SPACING_KEYS = new Set(["pad", "gap"]);

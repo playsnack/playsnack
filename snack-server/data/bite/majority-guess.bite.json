@@ -462,7 +462,7 @@
             "width": 350,
             "size": 16,
             "weight": 700,
-            "color": "{phase == 'play' ? (roundAnswer < 0 ? '#d9ff00' : (myVoteRound === roundIdx && myVote === ('o' + roundAnswer) ? '#7CFC00' : '#FF5A5F')) : '#d9ff00'}",
+            "color": "{phase == 'play' ? (roundAnswer < 0 ? '#d9ff00' : (myVoteRound === roundIdx && myVote === ('o' + roundAnswer) ? '#22c55e' : '#FF5A5F')) : '#d9ff00'}",
             "align": "center"
           },
           {

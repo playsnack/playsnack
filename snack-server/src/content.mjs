@@ -186,7 +186,51 @@ const buildIdolcup = (gender) => buildPersonCup("idols", gender, "아이돌", (n
 // 서버(/api/img)가 "이름 (가수)" 먼저, 실패 시 "이름" bare 순으로 시도(disambig→bare 폴백).
 const buildSingercup = (gender) => buildPersonCup("singers", gender, "가수", (n) => `${n}|가수`);
 
+// Hand-curated bank (data/seed-content/content.json) served when the LLM can't
+// answer — no key, quota, network. Sampled per call so plays still vary.
+let BANK = null;
+const bank = () => {
+  if (BANK) return BANK;
+  try { BANK = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../data/seed-content/content.json"), "utf8")); }
+  catch { BANK = {}; }
+  return BANK;
+};
+// 초성 item {answer, hint, distractors} → puzzle with code-computed chosung + exact answer index.
+const toChoseong = (q) => {
+  if (!q || typeof q.answer !== "string" || typeof q.hint !== "string" || !Array.isArray(q.distractors)) return null;
+  const answer = q.answer.trim();
+  const distractors = [...new Set(q.distractors.filter((d) => typeof d === "string" && d.trim() && d.trim() !== answer).map((d) => d.trim()))].slice(0, 3);
+  if (!answer || distractors.length < 3) return null;
+  const options = sample([answer, ...distractors], 4);
+  return { chosung: hangulInitials(answer), hint: q.hint.trim(), options, answer: options.indexOf(answer) };
+};
+export function fallbackContent(kind, theme = "") {
+  const b = bank();
+  if (kind === "worldcup") {
+    const pool = b.worldcup?.[theme];
+    if (!Array.isArray(pool) || pool.length < 16) return null;
+    const picked = sample(pool, 16).map((c) => ({ q: c.name, emoji: "", ...c }));
+    return { candidates: picked, current: picked, seed: picked, title: `${theme} 월드컵`, _source: "bank" };
+  }
+  if (kind === "ox" && Array.isArray(b.ox) && b.ox.length >= 5) {
+    const items = sample(b.ox, 5);
+    return { questions: items.map((x) => x.s), answers: items.map((x) => x.a), _source: "bank" };
+  }
+  if (kind === "choseong" && Array.isArray(b.choseong)) {
+    const questions = sample(b.choseong, 5).map(toChoseong).filter(Boolean);
+    return questions.length >= 3 ? { questions, _source: "bank" } : null;
+  }
+  return null;
+}
+
 export async function getContent(kind, theme = "") {
+  const live = await getLiveContent(kind, theme);
+  if (!live?.error) return live;
+  // LLM unavailable → curated bank (if this kind/theme has one), else the error.
+  return fallbackContent(kind, theme) ?? live;
+}
+
+async function getLiveContent(kind, theme = "") {
   // Seed-backed worldcups (real data). No seed → null → fall back to the LLM `worldcup`
   // path with an equivalent theme so the app stays playable (graceful, T010/SC-006).
   if (kind === "songcup") return buildSongcup() ?? getContent("worldcup", "요즘 인기 가수");
@@ -219,14 +263,7 @@ export async function getContent(kind, theme = "") {
     // 초성: build the puzzle from the LLM's {answer,hint,distractors} so chosung is
     // CODE-COMPUTED from the answer and the answer index is exact — no drift.
     if (kind === "choseong" && Array.isArray(json.questions)) {
-      json.questions = json.questions.map((q) => {
-        if (!q || typeof q.answer !== "string" || typeof q.hint !== "string" || !Array.isArray(q.distractors)) return null;
-        const answer = q.answer.trim();
-        const distractors = [...new Set(q.distractors.filter((d) => typeof d === "string" && d.trim() && d.trim() !== answer).map((d) => d.trim()))].slice(0, 3);
-        if (!answer || distractors.length < 3) return null;
-        const options = sample([answer, ...distractors], 4);
-        return { chosung: hangulInitials(answer), hint: q.hint.trim(), options, answer: options.indexOf(answer) };
-      }).filter(Boolean);
+      json.questions = json.questions.map(toChoseong).filter(Boolean);
       if (json.questions.length < 3) return { error: "choseong validation failed (insufficient valid items)" };
     }
     json._bucket = bucket;

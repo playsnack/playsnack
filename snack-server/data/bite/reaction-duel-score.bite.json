@@ -448,7 +448,7 @@
             "gap": 12,
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (myReacted ? '#2a2d33' : (reactionGo ? '#2e7d32' : '#c0392b')) : '#c0392b'}",
+            "fill": "{phase == 'play' ? (myReacted ? '#2a2d33' : (reactionGo ? '#18351f' : '#c0392b')) : '#c0392b'}",
             "onTap": [
               {
                 "if": "phase == 'play'",

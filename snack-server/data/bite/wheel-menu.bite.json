@@ -225,7 +225,7 @@
                     "height": 188,
                     "x": 31,
                     "y": 31,
-                    "fill": "{pickedCount === 0 ? '#d9ff00' : '#fff3a3'}",
+                    "fill": "{pickedCount === 0 ? '#d9ff00' : '#facc15'}",
                     "radius": "full"
                   },
                   {

@@ -22,5 +22,7 @@ snack-server/data/*
 !snack-server/data/pools/
 # Bite conversions of the starter templates (B3) — versioned like templates/.
 !snack-server/data/bite/
+# Curated content bank served when the LLM is unavailable.
+!snack-server/data/seed-content/
 .vite/
 coverage/

@@ -476,7 +476,7 @@
                     "height": 18,
                     "x": 0,
                     "y": 0,
-                    "fill": "{phase == 'play' ? (coopTotal >= max(60, roster.length * 50) ? '#7CFC00' : '#d9ff00') : '#d9ff00'}"
+                    "fill": "{phase == 'play' ? (coopTotal >= max(60, roster.length * 50) ? '#22c55e' : '#d9ff00') : '#d9ff00'}"
                   }
                 ]
               }
