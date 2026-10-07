@@ -149,6 +149,42 @@ export const COMPONENTS = {
   },
 };
 
+// ── Person cards: a face-free way to show real people (no portrait rights).
+// The avatar is a 5×5 mirrored block pattern derived from the name, so the same
+// person always gets the same mark, in one of the option-roster colors.
+const AVATAR_COLORS = `['${DS.color.roster1}','${DS.color.roster2}','${DS.color.roster3}','${DS.color.roster4}']`;
+const AVATAR_BIT = "floor(index / 5) * 3 + min(index % 5, 4 - index % 5)";
+COMPONENTS.BlockAvatar = {
+  description: "Face-free avatar: a 5×5 mirrored pixel pattern + color derived from a name (same name → same mark). Use instead of photos of real people. props: seed (the name), size (px, multiple of 5).",
+  props: { seed: "", size: 120 },
+  view: {
+    box: "grid", columns: 5, width: "{props.size}", height: "{props.size}", each: "range(25)",
+    children: [{
+      height: "{props.size / 5}",
+      fill: `{floor(hash(props.seed) / pow(2, ${AVATAR_BIT})) % 2 == 1 ? ${AVATAR_COLORS}[floor(hash(props.seed) / pow(2, 20)) % 4] : '${T.surfaceTop}'}`,
+    }],
+  },
+};
+COMPONENTS.PersonCard = {
+  description: "Trading card for a real person WITHOUT a photo: BlockAvatar + big pixel name + chips. Fill the card's box (give the instance width/height). props: name, group (shown as a chip if set), rookie (bool → '신인' chip).",
+  props: { name: "", group: "", rookie: false },
+  view: {
+    box: "column", pad: 16, gap: 12, align: "center", justify: "center", fill: T.surface, ...radius,
+    stroke: { color: T.border, width: T.border2 }, shadow: HARD_SHADOW,
+    children: [
+      { use: "BlockAvatar", props: { seed: "{props.name}", size: 120 } },
+      { text: "{props.name}", font: "display", size: 30, color: T.text, align: "center", lines: 1 },
+      {
+        box: "row", gap: 6, justify: "center", show: "props.group != '' || props.rookie",
+        children: [
+          { use: "Chip", props: { label: "{props.group}" }, show: "props.group != ''" },
+          { use: "Chip", props: { label: "신인" }, show: "props.rookie" },
+        ],
+      },
+    ],
+  },
+};
+
 // Names the prompt is allowed to reference.
 export const COMPONENT_IDS = Object.keys(COMPONENTS);
 
@@ -156,20 +192,24 @@ export const COMPONENT_IDS = Object.keys(COMPONENTS);
 // actually uses are added, and a doc's own definition of a name wins.
 export function injectLibrary(doc) {
   if (!doc || typeof doc !== "object" || !doc.view) return doc;
-  const used = new Set();
-  const scan = (node) => {
+  const scan = (node, used) => {
     if (!node || typeof node !== "object") return;
     if (typeof node.use === "string") used.add(node.use);
-    (node.children ?? []).forEach(scan);
+    (node.children ?? []).forEach((c) => scan(c, used));
   };
-  scan(doc.view);
-  for (const def of Object.values(doc.components ?? {})) scan(def?.view);
-  const missing = [...used].filter((n) => !doc.components?.[n] && COMPONENTS[n]);
-  if (!missing.length) return doc;
-  doc.components = { ...(doc.components ?? {}) };
-  for (const n of missing) {
-    const { props, view } = COMPONENTS[n];
-    doc.components[n] = structuredClone({ props, view });
+  // Library components may use other library components (PersonCard → BlockAvatar,
+  // Chip), so keep adding until every referenced name is defined.
+  for (let round = 0; round < 4; round++) {
+    const used = new Set();
+    scan(doc.view, used);
+    for (const def of Object.values(doc.components ?? {})) scan(def?.view, used);
+    const missing = [...used].filter((n) => !doc.components?.[n] && COMPONENTS[n]);
+    if (!missing.length) break;
+    doc.components = { ...(doc.components ?? {}) };
+    for (const n of missing) {
+      const { props, view } = COMPONENTS[n];
+      doc.components[n] = structuredClone({ props, view });
+    }
   }
   return doc;
 }

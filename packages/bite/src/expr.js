@@ -74,6 +74,16 @@ export const FUNCS = {
   fmt: (c, n) => Number(n).toLocaleString("ko-KR"),
   pad: (c, n, w) => String(n).padStart(w, "0"),
   elapsed: (c, t) => c.now - t,
+  // Stable 32-bit FNV-1a hash of a value's text — the same name always gives the
+  // same number (deterministic avatars, colors, picks).
+  hash: (c, x) => {
+    let h = 0x811c9dc5;
+    for (const ch of String(x ?? "")) {
+      h ^= ch.codePointAt(0);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h;
+  },
 };
 
 // `Math.x(...)` is accepted as an alias of the bare function (LLM habit).

@@ -60,6 +60,11 @@ node snack-server/tools/gate-all.mjs             # templates: layout, content, c
 node snack-server/tools/gate-all.mjs --battery   # + AI generation reliability (needs an OpenAI key)
 ```
 
+## License
+
+© 2026 seukwoo. All rights reserved — the source is public to read, not to use, copy,
+modify, redistribute or host. See [`LICENSE`](LICENSE).
+
 ## Third-party
 
 Code: [jsep](https://github.com/EricSmekens/jsep) (MIT), [yoga-layout](https://github.com/facebook/yoga) (MIT),

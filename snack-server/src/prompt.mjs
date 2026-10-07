@@ -81,7 +81,7 @@ LIST: { "box": "column", "gap": 8, "each": "items", "children": [ { … "{item.n
   map/filter/find/some/every/sort. NO backtick template literals, NO assignment, NO \`new\`.
 - Names: your vars, \`phase\`, \`now\` (ms clock), \`item\`/\`index\` (inside each), \`props\` (inside components).
 - Functions are BARE: round(x, digits?) floor ceil abs min max pow sqrt clamp(x,lo,hi) lerp(a,b,t) remap(x,a1,b1,a2,b2)
-  random() randint(lo,hi) pick(arr) shuffle(arr) len(x) range(n) sum(arr) with(arr,i,v) str(x) num(x) fmt(n) pad(n,width) elapsed(t).
+  random() randint(lo,hi) pick(arr) shuffle(arr) len(x) range(n) sum(arr) with(arr,i,v) str(x) num(x) fmt(n) pad(n,width) elapsed(t) hash(x).
   Methods: arrays concat slice join includes indexOf map filter find some every reverse sort · strings slice includes split
   toUpperCase toLowerCase trim padStart · numbers toFixed toLocaleString.
 - Never name a variable like a function or a reserved name (phase, now, item, index, props, round, min, max, sum, …).

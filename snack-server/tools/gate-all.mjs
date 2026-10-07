@@ -46,6 +46,9 @@ results.push(run("verify-layout", "node", ["snack-server/tools/verify-layout.mjs
 results.push(run("engine-tests", "pnpm", ["-s", "bite:test"]));
 
 if (up) {
+  // The oracle plays the PROD build the server serves — rebuild it first so a
+  // stale bundle (older engine than the templates) can never fake a result.
+  results.push(run("player-build", "pnpm", ["-s", "player:build"]));
   // A — interaction oracle (needs server + prod build)
   results.push(run("oracle", "node", ["snack-server/tools/e2e-audit.mjs"]));
   // E — multiplayer sync

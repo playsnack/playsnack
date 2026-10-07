@@ -178,6 +178,7 @@ jsep 기반의 JS 식 부분집합.
 | 배열 | `len(x)` `range(n)` `sum(arr)` `with(arr, i, v)`(i번째를 바꾼 새 배열) |
 | 문자열 | `str(x)` `num(x)` `fmt(n)`(천 단위 콤마) `pad(n, 자리)` |
 | 시간 | `elapsed(t)` = `now - t` |
+| 해시 | `hash(x)` — 텍스트의 안정적인 32비트 정수(같은 이름 → 같은 아바타·색) |
 
 ### 4.4 메서드 화이트리스트
 - 배열: `length` `concat` `slice` `join` `includes` `indexOf` `map` `filter` `find` `some` `every` `reverse`(복사본 반환) `sort`(복사본 반환)

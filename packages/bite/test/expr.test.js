@@ -53,6 +53,14 @@ test("bare functions", () => {
   assert.equal(ev("elapsed(t)", { t: 250 }), 750);
 });
 
+test("hash is a stable unsigned 32-bit number", () => {
+  const a = ev("hash('장원영')");
+  assert.equal(a, ev("hash('장원영')"));
+  assert.notEqual(a, ev("hash('윈터')"));
+  assert.ok(Number.isInteger(a) && a >= 0 && a < 2 ** 32);
+  assert.equal(ev("hash('')"), 0x811c9dc5);
+});
+
 test("shuffle is deterministic with injected random and does not mutate", () => {
   const xs = [1, 2, 3, 4];
   const a = ev("shuffle(xs)", { xs });
