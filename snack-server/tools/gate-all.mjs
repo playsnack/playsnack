@@ -53,6 +53,10 @@ if (up) {
   results.push(run("oracle", "node", ["snack-server/tools/e2e-audit.mjs"]));
   // E — multiplayer sync
   results.push(run("multiclient-sim", "node", ["snack-server/tools/multiclient-sim.mjs"]));
+  // E′ — same sync checks in host mode (a client runs the room, the server only relays)
+  results.push(run("multiclient-sim-host", "env", ["SIM_RELAY=1", "node", "snack-server/tools/multiclient-sim.mjs"]));
+  // H3 — host leaves / hands off / goes silent → the room continues from its snapshot
+  results.push(run("host-handover", "node", ["snack-server/tools/host-handover-sim.mjs"]));
   // F — generation battery (optional; OpenAI)
   if (wantBattery) results.push(run("gen-battery", "node", ["snack-server/tools/gen-battery.mjs"]));
   else console.log("\n⏭  gen-battery skipped (pass --battery + OpenAI key to run)");

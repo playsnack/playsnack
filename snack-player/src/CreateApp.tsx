@@ -417,7 +417,7 @@ export function CreateApp() {
               style={textarea} rows={3}
             />
             <button style={cta} onClick={() => build(prompt)} disabled={!prompt.trim()}>✨ 만들기</button>
-            {phase === "error" && <div style={{ color: "#FF6B6B", marginTop: 12, font: "12px ui-monospace,monospace", whiteSpace: "pre-wrap" }}>{err}</div>}
+            {phase === "error" && <div style={{ color: "#FF6B6B", marginTop: 12, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{err}</div>}
             <div style={{ marginTop: 24, color: "#778", fontSize: 12, marginBottom: 8 }}>예시</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {EXAMPLES.map((ex) => (

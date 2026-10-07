@@ -45,6 +45,8 @@ importers:
         specifier: 8.19.0
         version: 8.19.0
 
+  packages/snack-room: {}
+
   snack-player:
     dependencies:
       '@snack/bite':
@@ -56,6 +58,9 @@ importers:
       '@snack/bite-pixi':
         specifier: workspace:*
         version: link:../packages/bite-pixi
+      '@snack/room':
+        specifier: workspace:*
+        version: link:../packages/snack-room
       pixi.js:
         specifier: ^8.0.0
         version: 8.19.0
@@ -90,6 +95,9 @@ importers:
       '@snack/bite-layout':
         specifier: workspace:*
         version: link:../packages/bite-layout
+      '@snack/room':
+        specifier: workspace:*
+        version: link:../packages/snack-room
       express:
         specifier: ^4.21.0
         version: 4.22.2

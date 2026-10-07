@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { BiteDoc } from "@snack/bite";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick } from "./identity";
+import { RelayTransport, ServerTransport, type RoomTransport } from "./roomTransport";
 
-// Realtime layer. Cold-loads the app from snack-server, opens a WS room, pipes
-// Bite `emit` -> WS action, and applies authoritative setVar broadcasts back
+// Realtime layer. Cold-loads the app from snack-server, joins its room through a
+// RoomTransport, pipes Bite `emit` -> room action, and applies authoritative setVar broadcasts back
 // into the runtime so every client sees live shared state (the moat).
 // Dev (vite :5290): server is a sibling origin on :4399.
 // Prod (player served BY snack-server): same origin, one port → one share link.
@@ -13,6 +14,10 @@ const WS_URL = (import.meta.env.DEV
   ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:4399`
   : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`) + "/ws";
 
+// Host mode (?host=1): a player's device runs the room, the server only relays.
+const RELAY_URL = WS_URL.replace(/\/ws$/, "/relay");
+const HOST_MODE = new URLSearchParams(location.search).has("host");
+
 type Runtime = { setVar: (id: string, v: unknown) => void };
 
 export function LiveApp({ slug }: { slug: string }) {
@@ -20,7 +25,7 @@ export function LiveApp({ slug }: { slug: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [participants, setParticipants] = useState(1);
   const runtimeRef = useRef<Runtime | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const roomRef = useRef<RoomTransport | null>(null);
   const sharedRef = useRef<Record<string, unknown> | null>(null);
   const fxRef = useRef<HTMLDivElement | null>(null);
   const [reactOpen, setReactOpen] = useState(false);
@@ -40,8 +45,7 @@ export function LiveApp({ slug }: { slug: string }) {
     ).onfinish = () => el.remove();
   };
   const sendReaction = (emoji: string) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "react", d: { emoji } }));
+    roomRef.current?.sendReaction(emoji);
     spawnReaction(emoji); // optimistic local
   };
 
@@ -66,12 +70,10 @@ export function LiveApp({ slug }: { slug: string }) {
 
   useEffect(() => {
     if (!doc) return;
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", d: { slug, anonId: getAnonId(), nick: getNick() } }));
-    ws.onmessage = (ev) => {
-      let m: { t: string; d: Record<string, unknown> };
-      try { m = JSON.parse(ev.data); } catch { return; }
+    const me = { slug, anonId: getAnonId(), nick: getNick() ?? "" };
+    const room: RoomTransport = HOST_MODE ? new RelayTransport(RELAY_URL, me, `${SERVER}/api/pack`, `${SERVER}/api/events`) : new ServerTransport(WS_URL, me);
+    roomRef.current = room;
+    room.onMessage((m) => {
       if (m.t === "state") {
         sharedRef.current = m.d.sharedState as Record<string, unknown>;
         applyShared(sharedRef.current);
@@ -83,8 +85,9 @@ export function LiveApp({ slug }: { slug: string }) {
       } else if (m.t === "reaction") {
         spawnReaction(m.d.emoji as string);
       }
-    };
-    return () => ws.close();
+    });
+    room.connect();
+    return () => room.close();
   }, [doc, slug]);
 
   const onReady = (rt: Runtime | undefined) => {
@@ -93,12 +96,7 @@ export function LiveApp({ slug }: { slug: string }) {
     applyShared(sharedRef.current); // seed from cold-load / latest authoritative state
   };
 
-  const onHostEvent = (e: { name: string; payload?: unknown }) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ t: "action", d: { name: e.name, payload: e.payload, clientMsgId: crypto.randomUUID() } }));
-    }
-  };
+  const onHostEvent = (e: { name: string; payload?: unknown }) => roomRef.current?.sendAction(e.name, e.payload);
 
   if (err) return <div style={msgStyle}>connect failed:\n{err}</div>;
   if (!doc) return <div style={msgStyle}>loading…</div>;

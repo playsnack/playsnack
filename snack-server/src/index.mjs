@@ -13,6 +13,8 @@ import { buildApp } from "./builder.mjs";
 import { listTemplates, getTemplateDoc, rateTemplate, markUsed, allTemplateDocs, templateMeta } from "./templates.mjs";
 import { getContent } from "./content.mjs";
 import { validate as validateBite } from "@snack/bite";
+import { createRoom, cleanNick } from "@snack/room";
+import { attachRelay } from "./relay.mjs";
 
 // Each starter template is also a canonical LIVE shared room at /p/tpl-<id> —
 // so the dashboard's "지금 N명 / leaderboard / votes" are real & shared. (Defined
@@ -70,61 +72,47 @@ const loadVoters = (slug) => {
   try { return new Map(Object.entries(JSON.parse(readFileSync(resolve(VOTES, `${slug}.json`), "utf8")))); }
   catch { return new Map(); }
 };
-const rooms = new Map();
-const room = (slug) => {
-  if (!rooms.has(slug)) rooms.set(slug, { voters: loadVoters(slug), sockets: new Set(), coop: 0, scores: new Map(), roster: new Map(),
-    // Synchronized game session (multi apps): lobby → countdown(3,2,1) → play → result.
-    // Server-driven so every client transitions on the SAME tick. `nicks` keeps the
-    // per-round score's owner name for a named leaderboard ("민준 52탭").
-    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0 }, nicks: new Map() });
-  return rooms.get(slug);
-};
-// Ordered list of present nicknames (anonId → nick). Powers "vote for a person
-// in the room" apps (best-award) — the candidates ARE the live participants.
-const rosterArr = (slug) => [...(rooms.get(slug)?.roster?.values() ?? [])].slice(0, 8);
 // Per-player selfie (set at the nickname onboarding step). Stored by anonId on
 // disk; photo apps (얼굴 지목판 등) use rosterPhotos[i] aligned with roster[i].
 const PHOTOS = resolve(__dirname, "../data/photos");
 mkdirSync(PHOTOS, { recursive: true });
 const photoPath = (id) => resolve(PHOTOS, String(id).replace(/[^a-zA-Z0-9-]/g, "").slice(0, 64) + ".jpg");
 const hasPhoto = (id) => { try { return existsSync(photoPath(id)); } catch { return false; } };
-// aligned with rosterArr (Map preserves insertion order → keys() ↔ values()).
-const rosterPhotosArr = (slug) =>
-  [...(rooms.get(slug)?.roster?.keys() ?? [])].slice(0, 8).map((id) => (hasPhoto(id) ? `/api/photo/${id}` : ""));
-const saveVoters = (slug) => {
-  try { writeFileSync(resolve(VOTES, `${slug}.json`), JSON.stringify(Object.fromEntries(room(slug).voters))); }
+const saveVoters = (slug, voters) => {
+  try { writeFileSync(resolve(VOTES, `${slug}.json`), JSON.stringify(Object.fromEntries(voters))); }
   catch { /* best-effort */ }
 };
-const tally = (slug) => {
-  const out = { ...(apps[slug]?.defaults ?? {}) };
-  for (const opt of room(slug).voters.values()) out[opt] = (out[opt] ?? 0) + 1;
-  return out;
+// ── Live rooms: one @snack/room engine per slug (roster, tallies, game session).
+// The server only wires it up — persistence, content, photos, points, transport.
+const rooms = new Map(); // slug → { engine, sockets: Map<peerId, ws> }
+let peerSeq = 0;
+const room = (slug) => {
+  let entry = rooms.get(slug);
+  if (entry) return entry;
+  const sockets = new Map();
+  const voters = loadVoters(slug);
+  const engine = createRoom({
+    defaults: () => apps[slug]?.defaults ?? {},
+    voters,
+    onVotersChanged: () => saveVoters(slug, voters),
+    getPack: (game, opts) => dynamicPack(game, opts),
+    photoUrl: (id) => (hasPhoto(id) ? `/api/photo/${id}` : ""),
+    onPoints: (anonId, nick, pts) => bumpUser(anonId, nick, pts),
+    onActivity: (kind, label) => logActivity(slug, kind, label),
+    broadcast: (t, d) => { for (const ws of sockets.values()) send(ws, t, d); },
+    send: (peerId, t, d) => { const ws = sockets.get(peerId); if (ws) send(ws, t, d); },
+  });
+  entry = { engine, sockets };
+  rooms.set(slug, entry);
+  return entry;
 };
-// Live leaderboard: top-10 per-player best scores, sorted desc (numbers only).
-const board = (slug) => [...room(slug).scores.values()].sort((a, b) => b - a).slice(0, 10);
-// Named race board for live game sessions: top-8 {nick, score}, sorted desc. Lets
-// the result screen say WHO won ("민준 52탭"), not just the winning number.
-const raceBoard = (slug) => {
-  const r = room(slug);
-  return [...r.scores.entries()]
-    .map(([id, score]) => ({ nick: r.nicks.get(id) || r.roster.get(id) || "게스트", score }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8);
+// Cold-load view of a room nobody is in yet (no engine created).
+const coldShared = (slug) => {
+  const votesByOption = { ...(apps[slug]?.defaults ?? {}) };
+  for (const opt of loadVoters(slug).values()) votesByOption[opt] = (votesByOption[opt] ?? 0) + 1;
+  return { votesByOption, coopTotal: 0, leaderboard: [] };
 };
 
-// ── Synchronized game session (multi apps) ──
-// A `start` host event from anyone in the lobby kicks off a server-timed
-// countdown(3,2,1) → play(duration) → result. The server broadcasts sessionPhase
-// + sessionCountdown via setVar so EVERY client transitions together (Bite apps
-// follow it with phase `tick` guards on sessionPhase). Per round the score/vote/coop
-// tallies reset so each game starts clean.
-const clearSessionTimers = (r) => { for (const t of r.session.timers) clearTimeout(t); r.session.timers = []; };
-const setPhase = (slug, phase, extra = {}) => {
-  const r = room(slug);
-  r.session.phase = phase;
-  broadcast(slug, "setVar", { id: "sessionPhase", value: phase });
-  for (const [k, v] of Object.entries(extra)) { if (k === "sessionCountdown") r.session.num = v; broadcast(slug, "setVar", { id: k, value: v }); }
-};
 // Round-based games (vote/quiz/bracket) draw synced content from server packs in
 // data/multi-content/<game>.json. The server is the single source of truth so every
 // client sees the SAME question/matchup in a round. Packs cached after first read.
@@ -166,245 +154,6 @@ const dynamicPack = async (game, opts = {}) => {
   } catch { /* fall through to static */ }
   return loadPack(game);
 };
-const shuffled = (a) => { const x = [...a]; for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; };
-
-// Advance a round-based session to round `i` (or the result screen when done).
-const startRound = (slug, i) => {
-  const r = room(slug);
-  if (i >= r.session.rounds.length) {
-    setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) });
-    return;
-  }
-  r.voters.clear(); // each round is a fresh vote
-  r.session.roundIdx = i;
-  setPhase(slug, "play", {
-    roundIdx: i, roundTotal: r.session.rounds.length, roundNum: i + 1,
-    roundContent: r.session.rounds[i], votesByOption: tally(slug),
-  });
-  r.session.timers.push(setTimeout(() => startRound(slug, i + 1), r.session.roundMs));
-};
-
-// QUIZ rounds: answer window (correct answer hidden) → reveal (broadcast answer + scores).
-const startQuizRound = (slug, i) => {
-  const r = room(slug);
-  if (i >= r.session.rounds.length) { setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) }); return; }
-  r.session.roundIdx = i;
-  r.session.answered = new Set();
-  r.session.accepting = true;
-  r.session.roundStart = Date.now();
-  const { answer, ...pub } = r.session.rounds[i]; // strip the answer — clients must not see it
-  void answer;
-  setPhase(slug, "play", { roundIdx: i, roundTotal: r.session.rounds.length, roundNum: i + 1, roundContent: pub, roundAnswer: -1 });
-  r.session.timers.push(setTimeout(() => revealQuizRound(slug, i), r.session.answerMs));
-};
-const revealQuizRound = (slug, i) => {
-  const r = room(slug);
-  r.session.accepting = false;
-  broadcast(slug, "setVar", { id: "roundAnswer", value: r.session.rounds[i].answer }); // now reveal correct
-  broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
-  broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
-  r.session.timers.push(setTimeout(() => startQuizRound(slug, i + 1), r.session.revealMs));
-};
-
-// NUNCHI: players race to claim the next number. A short collision window groups
-// near-simultaneous taps — solo tap claims the number; 2+ taps = all eliminated.
-// Last survivor(s) win. iAmOut is sent ONLY to the eliminated socket (targeted).
-const resolveNunchi = (slug) => {
-  const r = room(slug);
-  const p = r.session.pending || []; r.session.pending = [];
-  if (p.length === 0) return;
-  if (p.length === 1) {
-    const claimed = r.session.nunchiNum;
-    r.session.nunchiNum += 1;
-    broadcast(slug, "setVar", { id: "nunchiNum", value: r.session.nunchiNum });
-    broadcast(slug, "setVar", { id: "lastEvent", value: `${p[0].nick} 님이 ${claimed} 선점 ✋` });
-  } else {
-    for (const x of p) { r.session.eliminated.add(x.anonId); try { send(x.ws, "setVar", { id: "iAmOut", value: true }); } catch { /* */ } }
-    broadcast(slug, "setVar", { id: "eliminatedCount", value: r.session.eliminated.size });
-    broadcast(slug, "setVar", { id: "lastEvent", value: `💥 충돌! ${p.map((x) => x.nick).join(" · ")} 탈락` });
-  }
-  const survivors = r.roster.size - r.session.eliminated.size;
-  if (survivors <= 1 || r.session.nunchiNum > 20) endNunchi(slug);
-};
-const endNunchi = (slug) => {
-  const r = room(slug);
-  if (r.session.phase === "result") return;
-  clearSessionTimers(r);
-  const alive = [...r.roster.entries()].filter(([id]) => !r.session.eliminated.has(id)).map(([, n]) => n);
-  const winner = alive.length === 0 ? "전멸 😂 아무도 못 살아남았어요"
-    : alive.length === 1 ? `${alive[0]} 최후의 1인! 🏆`
-    : `${alive.join(" · ")} 공동 생존 🎉`;
-  setPhase(slug, "result", { nunchiWinner: winner });
-};
-
-// WORLDCUP bracket: 16강→8강→4강→결승. Each matchup the room votes A/B; more votes
-// advances. matchWinner flips 0/1 for a brief reveal between matchups.
-const roundNameFor = (n) => (n >= 16 ? "16강" : n >= 8 ? "8강" : n >= 4 ? "4강" : "결승");
-const buildMatchups = (cands) => { const m = []; for (let i = 0; i + 1 < cands.length; i += 2) m.push([cands[i], cands[i + 1]]); return m; };
-const startMatchup = (slug, i) => {
-  const r = room(slug); const bk = r.session.bracket;
-  if (!bk) return; // stale timer after teardown
-  if (i >= bk.matchups.length) { finishBracketRound(slug); return; }
-  bk.matchupIdx = i;
-  r.voters.clear();
-  const [a, b] = bk.matchups[i];
-  setPhase(slug, "play", {
-    roundContent: { a, b }, votesByOption: tally(slug), matchWinner: -1,
-    bracketLabel: `${roundNameFor(bk.roundCands.length)} · ${i + 1}/${bk.matchups.length}`,
-  });
-  r.session.timers.push(setTimeout(() => resolveMatchup(slug, i), r.session.matchupMs));
-};
-const resolveMatchup = (slug, i) => {
-  const r = room(slug); const bk = r.session.bracket;
-  if (!bk) return; // stale timer after teardown
-  const t = tally(slug); const winIdx = (t.o0 || 0) >= (t.o1 || 0) ? 0 : 1;
-  bk.winners.push(bk.matchups[i][winIdx]);
-  broadcast(slug, "setVar", { id: "matchWinner", value: winIdx }); // 2.2s reveal of who advances
-  r.session.timers.push(setTimeout(() => startMatchup(slug, i + 1), 2200));
-};
-const finishBracketRound = (slug) => {
-  const r = room(slug); const bk = r.session.bracket;
-  if (!bk) return; // stale timer after teardown
-  if (bk.winners.length <= 1) { setPhase(slug, "result", { champion: bk.winners[0] || null }); return; }
-  bk.roundCands = bk.winners;
-  bk.matchups = buildMatchups(bk.winners);
-  bk.winners = [];
-  startMatchup(slug, 0);
-};
-
-// MAJORITY-GUESS (눈치 배틀): blind-predict which option the ROOM picks most. Votes
-// are hidden during play; at reveal the majority is computed and everyone who voted
-// the majority option scores +100. Best room-reader wins across rounds.
-const startGuessRound = (slug, i) => {
-  const r = room(slug);
-  if (i >= r.session.rounds.length) { setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) }); return; }
-  r.voters.clear();
-  r.session.roundIdx = i;
-  setPhase(slug, "play", {
-    roundIdx: i, roundTotal: r.session.rounds.length, roundNum: i + 1,
-    roundContent: r.session.rounds[i], roundAnswer: -1, votesByOption: tally(slug),
-  });
-  r.session.timers.push(setTimeout(() => revealGuessRound(slug, i), r.session.roundMs));
-};
-const revealGuessRound = (slug, i) => {
-  void i;
-  const r = room(slug);
-  const t = tally(slug);
-  const majority = (t.o0 || 0) >= (t.o1 || 0) ? 0 : 1; // tie → o0
-  for (const [anonId, opt] of r.voters) {
-    if (opt === `o${majority}`) {
-      r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + 100);
-      r.nicks.set(anonId, r.roster.get(anonId) || r.nicks.get(anonId) || "게스트");
-    }
-  }
-  broadcast(slug, "setVar", { id: "votesByOption", value: t });       // reveal actual tally
-  broadcast(slug, "setVar", { id: "roundAnswer", value: majority });  // which side was the majority
-  broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
-  broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
-  r.session.timers.push(setTimeout(() => startGuessRound(slug, i + 1), r.session.revealMs));
-};
-
-const startSession = async (slug, opts) => {
-  const r = room(slug);
-  if (r.session.phase === "countdown" || r.session.phase === "play") return; // already running
-  if (typeof opts === "number") opts = { duration: opts };
-  opts = opts || {};
-  clearSessionTimers(r);
-  r.session.round += 1;
-  r.session.mode = "";
-  r.session.rounds = []; // reset so a stale timer (from a torn-down session) sees [] → result, never undefined.length
-  r.session.bracket = null;
-  const myGen = ++r.session.gen; // session generation: timers/awaits from older sessions become no-ops
-  // fresh game: clear tallies so scores/votes start at zero for everyone
-  r.scores.clear(); r.coop = 0; r.voters.clear();
-  broadcast(slug, "setVar", { id: "raceBoard", value: [] });
-  broadcast(slug, "setVar", { id: "leaderboard", value: [] });
-  broadcast(slug, "setVar", { id: "coopTotal", value: 0 });
-  broadcast(slug, "setVar", { id: "votesByOption", value: tally(slug) });
-  logActivity(slug, "start", "게임 시작");
-  const T = r.session.timers;
-  // Fetch FRESH content first — the lobby stays visible during this await, so the
-  // countdown→play timers below are all scheduled from one sync point and stay
-  // synced across clients (a mid-countdown await would desync play). dynamicPack
-  // falls back to the static pack on error; the per-hour cache + singleflight make
-  // this instant after the first start in the hour.
-  const pack = await dynamicPack(opts.game, opts);
-  // If the room was torn down (all left) or a newer start superseded us DURING the
-  // content fetch, abort — scheduling timers now would crash on a stale/empty session.
-  if (rooms.get(slug) !== r || r.session.gen !== myGen) return;
-  // countdown 3·2·1 (shared by all pack modes)
-  setPhase(slug, "countdown", { sessionCountdown: 3 });
-  T.push(setTimeout(() => setPhase(slug, "countdown", { sessionCountdown: 2 }), 1000));
-  T.push(setTimeout(() => setPhase(slug, "countdown", { sessionCountdown: 1 }), 2000));
-  if (opts.mode === "reaction") {
-    // REACTION DUEL: red WAIT → server flips green at a synced random moment →
-    // first/fastest tap after green scores by reaction-ms; tap-before-green = foul.
-    r.session.mode = "reaction";
-    r.session.reacted = new Set();
-    r.session.goAt = 0;
-    broadcast(slug, "setVar", { id: "reactionGo", value: false });
-    const delay = 1500 + Math.floor(Math.random() * 3000); // 1.5–4.5s of red
-    const playWindow = 4000; // window to react after green
-    T.push(setTimeout(() => setPhase(slug, "play", { sessionCountdown: 0, reactionGo: false }), 3000));
-    T.push(setTimeout(() => { // flip green — all clients at once
-      if (r.session.phase !== "play") return;
-      r.session.goAt = Date.now();
-      broadcast(slug, "setVar", { id: "reactionGo", value: true });
-    }, 3000 + delay));
-    T.push(setTimeout(() => setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) }), 3000 + delay + playWindow));
-  } else if (opts.mode === "nunchi") {
-    // NUNCHI: claim numbers 1,2,3… one at a time. Collision (≥2 simultaneous) = out.
-    r.session.mode = "nunchi";
-    r.session.nunchiNum = 1;
-    r.session.eliminated = new Set();
-    r.session.pending = [];
-    broadcast(slug, "setVar", { id: "nunchiNum", value: 1 });
-    broadcast(slug, "setVar", { id: "eliminatedCount", value: 0 });
-    broadcast(slug, "setVar", { id: "lastEvent", value: "1번부터! 겹치면 다 같이 탈락 😬" });
-    broadcast(slug, "setVar", { id: "iAmOut", value: false });
-    broadcast(slug, "setVar", { id: "nunchiWinner", value: "" });
-    T.push(setTimeout(() => setPhase(slug, "play", { sessionCountdown: 0 }), 3000));
-    T.push(setTimeout(() => endNunchi(slug), 3000 + 25000)); // 25s overall cap
-  } else if (opts.bracket && pack && pack.length >= 2) {
-    // WORLDCUP: pick the largest power-of-two pool (≤16) → seed the bracket.
-    const size = [16, 8, 4, 2].find((s) => s <= pack.length) || 2;
-    const cands = shuffled(pack).slice(0, size);
-    r.session.mode = "bracket";
-    r.session.matchupMs = Math.min(15000, Math.max(4000, Number(opts.matchupMs) || 8000));
-    r.session.bracket = { roundCands: cands, matchups: buildMatchups(cands), matchupIdx: 0, winners: [] };
-    T.push(setTimeout(() => startMatchup(slug, 0), 3000));
-  } else if (opts.mode === "guess" && pack && pack.length) {
-    // 눈치 배틀: blind-predict the room's majority each round.
-    const nRounds = Math.min(pack.length, Math.max(1, Number(opts.rounds) || 6));
-    r.session.rounds = shuffled(pack).slice(0, nRounds);
-    r.session.roundMs = Math.min(20000, Math.max(3000, Number(opts.roundMs) || 7000));
-    r.session.revealMs = Math.min(8000, Math.max(1500, Number(opts.revealMs) || 3500));
-    r.session.mode = "guess";
-    T.push(setTimeout(() => startGuessRound(slug, 0), 3000));
-  } else if (pack && pack.length && opts.quiz) {
-    // QUIZ: each round = answer window (answer hidden) → reveal (correct + scores).
-    const nRounds = Math.min(pack.length, Math.max(1, Number(opts.rounds) || 6));
-    r.session.rounds = shuffled(pack).slice(0, nRounds);
-    r.session.answerMs = Math.min(20000, Math.max(3000, Number(opts.answerMs) || 8000));
-    r.session.revealMs = Math.min(8000, Math.max(1500, Number(opts.revealMs) || 3000));
-    r.session.quiz = true;
-    T.push(setTimeout(() => startQuizRound(slug, 0), 3000));
-  } else if (pack && pack.length) {
-    // ROUND-BASED: server cycles synced content packs through play rounds.
-    const nRounds = Math.min(pack.length, Math.max(1, Number(opts.rounds) || 5));
-    r.session.rounds = shuffled(pack).slice(0, nRounds);
-    r.session.roundMs = Math.min(20000, Math.max(3000, Number(opts.roundMs) || 8000));
-    r.session.quiz = false;
-    T.push(setTimeout(() => startRound(slug, 0), 3000));
-  } else {
-    // SINGLE play window (tap-race / co-op): one play phase of `duration`.
-    const dur = Math.min(60000, Math.max(3000, Number(opts.duration) || 12000));
-    r.session.rounds = [];
-    T.push(setTimeout(() => setPhase(slug, "play", { sessionCountdown: 0 }), 3000));
-    T.push(setTimeout(() => setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) }), 3000 + dur));
-  }
-};
-
 // ── Global USER leaderboard (cross-room, by nickname). Each browser is one
 // player (anonId); they earn "snack points" from real activity: +1 per play
 // (score/vote/tally), +2 bonus for a new room-best (a record). Persisted to
@@ -419,7 +168,6 @@ const saveUsers = () => { if (!usersDirty) return; usersDirty = false;
   try { writeFileSync(USERS_FILE, JSON.stringify(Object.fromEntries(userStore))); } catch { /* best-effort */ }
 };
 setInterval(saveUsers, 4000).unref?.();
-const cleanNick = (n) => String(n ?? "").trim().slice(0, 16);
 const bumpUser = (anonId, nick, pts) => {
   if (!anonId) return;
   const u = userStore.get(anonId) || { nick: "", points: 0, plays: 0, updated: 0 };
@@ -446,8 +194,13 @@ function logActivity(slug, kind, label) {
   ACTIVITY.push({ slug, kind, label, t: Date.now() });
   if (ACTIVITY.length > ACTIVITY_CAP) ACTIVITY.shift();
 }
-const globalOnline = () => { let n = 0; for (const r of rooms.values()) n += r.sockets.size; return n; };
-const playingIn = (slug) => rooms.get(slug)?.sockets.size ?? 0;
+const globalOnline = () => {
+  let n = 0;
+  for (const r of rooms.values()) n += r.engine.size;
+  for (const r of relay.rooms.values()) n += r.peers.size;
+  return n;
+};
+const playingIn = (slug) => (rooms.get(slug)?.engine.size ?? 0) + relay.size(slug);
 const recentActivityCount = (slug, now) => ACTIVITY.reduce((n, a) => n + (a.slug === slug && now - a.t < TREND_WINDOW ? 1 : 0), 0);
 
 const app = express();
@@ -734,7 +487,43 @@ app.get("/api/apps/:slug", (req, res) => {
   const a = apps[req.params.slug];
   if (!a) return res.status(404).json({ error: "not found" });
   const slug = req.params.slug;
-  res.json({ doc: a.doc, sharedState: { votesByOption: tally(slug), coopTotal: room(slug).coop, leaderboard: board(slug) } });
+  const live = rooms.get(slug)?.engine.sharedState();
+  res.json({ doc: a.doc, sharedState: live ? { votesByOption: live.votesByOption, coopTotal: live.coopTotal, leaderboard: live.leaderboard } : coldShared(slug) });
+});
+
+// Round content for a host-mode room (the host's device asks; same packs the
+// server-run rooms use, LLM-fresh when available, curated otherwise).
+app.get("/api/pack", async (req, res) => {
+  const game = String(req.query.game || "");
+  const pack = game ? await dynamicPack(game, { theme: String(req.query.theme || "") || undefined }) : null;
+  res.set("Cache-Control", "no-store");
+  res.json({ pack });
+});
+
+// Host-mode rooms report player points and activity here (the room runs on a
+// player's device). Validated and capped like the server-run rooms' own events.
+const EVENT_KINDS = new Set(["join", "vote", "tally", "score", "start"]);
+const eventHits = new Map(); // ip → timestamps (last minute)
+app.post("/api/events", (req, res) => {
+  const ip = clientIp(req);
+  const now = Date.now();
+  const hits = (eventHits.get(ip) || []).filter((t) => now - t < 60_000);
+  if (hits.length >= 60) return res.status(429).json({ ok: false });
+  hits.push(now);
+  eventHits.set(ip, hits);
+  const slug = String(req.body?.slug ?? "").slice(0, 64);
+  const events = Array.isArray(req.body?.events) ? req.body.events.slice(0, 50) : [];
+  let applied = 0;
+  for (const e of events) {
+    if (e?.k === "pts" && typeof e.anonId === "string" && e.anonId.length <= 64) {
+      bumpUser(e.anonId, String(e.nick ?? ""), Math.max(0, Math.min(2, Math.floor(Number(e.pts) || 0))));
+      applied++;
+    } else if (e?.k === "act" && EVENT_KINDS.has(e.kind) && slug) {
+      logActivity(slug, e.kind, String(e.label ?? "").slice(0, 20));
+      applied++;
+    }
+  }
+  res.json({ ok: true, applied });
 });
 
 // ── Templates: starter gallery on the Create landing ──
@@ -815,139 +604,53 @@ if (existsSync(PLAYER_DIST)) {
 }
 
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+// Two realtime paths on one port: /ws = rooms run by this server, /relay = host
+// mode (a player's device runs the room; the relay only routes). Upgrades are
+// dispatched by path — a `server`-bound WebSocketServer would reject /relay.
+const wss = new WebSocketServer({ noServer: true });
+const relay = attachRelay(server, { path: "/relay" });
+server.on("upgrade", (req, socket, head) => {
+  const p = new URL(req.url, "http://x").pathname;
+  if (p === "/ws") wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws));
+  else if (p !== "/relay") socket.destroy();
+});
 
 const send = (ws, t, d) => { if (ws.readyState === 1) ws.send(JSON.stringify({ t, d })); };
 const broadcast = (slug, t, d) => { for (const ws of room(slug).sockets) send(ws, t, d); };
 
 wss.on("connection", (ws) => {
-  let slug = null, anonId = null, nick = null;
+  let slug = null;
+  const peerId = `peer${++peerSeq}`;
   ws.on("message", (buf) => {
     let msg; try { msg = JSON.parse(buf.toString()); } catch { return; }
     const { t, d } = msg;
     if (t === "hello") {
-      slug = String(d?.slug ?? ""); anonId = String(d?.anonId ?? ""); nick = String(d?.nick ?? "");
-      bumpUser(anonId, nick, 0); // register the player's nickname (no points yet)
-      const r = room(slug); r.sockets.add(ws);
-      r.roster.set(anonId, cleanNick(nick) || "게스트"); // join the live roster
-      r.nicks.set(anonId, cleanNick(nick) || "게스트"); // owner name for the race board
-      send(ws, "state", { sharedState: { votesByOption: tally(slug), coopTotal: r.coop, leaderboard: board(slug), roster: rosterArr(slug),
-        rosterPhotos: rosterPhotosArr(slug), sessionPhase: r.session.phase, sessionCountdown: r.session.num, raceBoard: raceBoard(slug) }, participants: r.sockets.size });
-      broadcast(slug, "participants", { count: r.sockets.size });
-      broadcast(slug, "setVar", { id: "roster", value: rosterArr(slug) }); // live candidate list
-      broadcast(slug, "setVar", { id: "rosterPhotos", value: rosterPhotosArr(slug) }); // aligned selfies
-      logActivity(slug, "join", "입장");
+      if (slug) return; // one room per socket
+      slug = String(d?.slug ?? "");
+      const r = room(slug);
+      r.sockets.set(peerId, ws);
+      r.engine.join(peerId, { anonId: d?.anonId, nick: d?.nick });
     } else if ((t === "action" || t === "react") && slug) {
-      // Light abuse guard: cap messages per socket (real abuse prevention —
-      // IP/account limits — is post-alpha per PLAN). anon dedup already caps
-      // a voter to one tallied vote.
+      // Light abuse guard: cap messages per socket (anon dedup already caps a
+      // voter to one tallied vote).
       const now = Date.now();
       ws.actionTimes = (ws.actionTimes || []).filter((x) => now - x < 1000);
       ws.actionTimes.push(now);
       if (ws.actionTimes.length > 15) {
         return send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: false, reason: "rate_limited" });
       }
-      if (t === "react") {
-        const e = String(d?.emoji ?? "").slice(0, 8);
-        if (e) broadcast(slug, "reaction", { emoji: e }); // ephemeral, not persisted
-        return;
-      }
-      if (d?.name === "vote" && d?.payload?.option != null) {
-        room(slug).voters.set(anonId, String(d.payload.option)); // dedup + re-vote
-        saveVoters(slug); // persist so results survive restart
-        bumpUser(anonId, nick, 1);
-        // 눈치 배틀(guess): keep the tally hidden until reveal so players predict blind.
-        if (room(slug).session.mode !== "guess") broadcast(slug, "setVar", { id: "votesByOption", value: tally(slug) });
-        logActivity(slug, "vote", "투표함");
-        send(ws, "actionAck", { clientMsgId: d.clientMsgId, accepted: true });
-      } else if (d?.name === "tally") {
-        // Co-op shared counter: every contribution ADDS to one room total
-        // (unlike vote, which is one-per-person). Drives a shared goal bar.
-        const delta = Number(d?.payload?.delta);
-        room(slug).coop += Number.isFinite(delta) ? delta : 1;
-        bumpUser(anonId, nick, 1);
-        broadcast(slug, "setVar", { id: "coopTotal", value: room(slug).coop });
-        logActivity(slug, "tally", "힘 보탬");
-        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
-      } else if (d?.name === "score") {
-        // Live competitive leaderboard: server keeps each player's BEST score and
-        // broadcasts the sorted top-10 (numbers). Clients show "누가 1등".
-        const s = Number(d?.payload?.score);
-        if (Number.isFinite(s)) {
-          const r = room(slug);
-          const wasTop = board(slug)[0] ?? 0;
-          const isRecord = s > (r.scores.get(anonId) ?? -Infinity);
-          if (isRecord) r.scores.set(anonId, s);
-          bumpUser(anonId, nick, isRecord ? 2 : 1); // +2 for a personal record, else +1
-          broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
-          logActivity(slug, "score", s >= wasTop && s > 0 ? "신기록 🏆" : "점수 갱신");
-          send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
-        }
-      } else if (d?.name === "tap") {
-        const r = room(slug);
-        if (r.session.mode === "nunchi") {
-          // claim the next number; a 350ms window groups near-simultaneous taps
-          if (r.session.phase === "play" && !r.session.eliminated.has(anonId) && !(r.session.pending || []).some((x) => x.anonId === anonId)) {
-            r.session.pending = r.session.pending || [];
-            r.session.pending.push({ anonId, nick: cleanNick(nick) || r.roster.get(anonId) || "게스트", ws });
-            if (r.session.pending.length === 1) r.session.timers.push(setTimeout(() => resolveNunchi(slug), 350));
-          }
-        } else if (r.session.mode === "reaction") {
-          // Reaction duel: one tap per player. After green → reaction-ms score
-          // (faster = higher). Before green → foul (score 0, locked).
-          if (r.session.phase === "play" && r.session.reacted && !r.session.reacted.has(anonId)) {
-            r.session.reacted.add(anonId);
-            r.nicks.set(anonId, cleanNick(nick) || r.nicks.get(anonId) || "게스트");
-            const score = r.session.goAt > 0 ? Math.max(1, 2000 - (Date.now() - r.session.goAt)) : 0; // 0 = 부정출발
-            r.scores.set(anonId, score);
-            broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
-          }
-        } else if (r.session.phase === "play") {
-          // Live game session: each tap adds +1 to the caller's THIS-ROUND score.
-          // Powers tap-battle style races (most taps wins) — no dynamic payload needed.
-          r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + 1);
-          r.nicks.set(anonId, cleanNick(nick) || r.nicks.get(anonId) || "게스트");
-          broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
-          broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
-        }
-        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
-      } else if (d?.name === "answer") {
-        // Quiz answer: one per player per round, scored by correctness × speed.
-        const r = room(slug);
-        if (r.session.quiz && r.session.accepting && r.session.answered && !r.session.answered.has(anonId)) {
-          r.session.answered.add(anonId);
-          const round = r.session.rounds[r.session.roundIdx];
-          if (round && Number(d?.payload?.option) === round.answer) {
-            const elapsed = Date.now() - r.session.roundStart;
-            const pts = Math.max(100, 1000 - Math.round((elapsed / r.session.answerMs) * 800)); // faster = more
-            r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + pts);
-            r.nicks.set(anonId, cleanNick(nick) || r.nicks.get(anonId) || "게스트");
-            bumpUser(anonId, nick, 2);
-            broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
-            broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
-          } else { bumpUser(anonId, nick, 1); }
-        }
-        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
-      } else if (d?.name === "start") {
-        startSession(slug, d?.payload).catch((e) => console.error("[snack] startSession failed", e));   // anyone in the lobby can start
-        bumpUser(anonId, nick, 1);
-        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
-      } else if (d?.name === "lobby") {
-        const r = room(slug); clearSessionTimers(r); setPhase(slug, "lobby", { sessionCountdown: 0 });
-        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
-      }
+      const r = rooms.get(slug);
+      if (!r) return;
+      if (t === "react") r.engine.react(d?.emoji);
+      else r.engine.action(peerId, d);
     }
   });
   ws.on("close", () => {
-    if (!slug) return;
-    const r = room(slug); r.sockets.delete(ws);
-    r.roster.delete(anonId);
-    broadcast(slug, "participants", { count: r.sockets.size });
-    broadcast(slug, "setVar", { id: "roster", value: rosterArr(slug) });
-    broadcast(slug, "setVar", { id: "rosterPhotos", value: rosterPhotosArr(slug) });
-    // Evict empty rooms from memory — votes are persisted to disk and reload on
-    // next join, so this is lossless and bounds memory to currently-active rooms.
-    if (r.sockets.size === 0) { clearSessionTimers(r); rooms.delete(slug); }
+    const r = slug && rooms.get(slug);
+    if (!r) return;
+    r.sockets.delete(peerId);
+    // Empty rooms are evicted — votes are on disk and reload on the next join.
+    if (r.engine.leave(peerId)) rooms.delete(slug);
   });
 });
 

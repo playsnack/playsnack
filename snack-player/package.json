@@ -13,6 +13,7 @@
     "@snack/bite": "workspace:*",
     "@snack/bite-layout": "workspace:*",
     "@snack/bite-pixi": "workspace:*",
+    "@snack/room": "workspace:*",
     "pixi.js": "^8.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

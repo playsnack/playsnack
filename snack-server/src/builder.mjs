@@ -78,6 +78,9 @@ const client = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPE
 // / permission errors stop the build at once (retrying cannot help) and are
 // reported as such instead of masquerading as "invalid JSON".
 class ApiError extends Error {}
+// What the Create screen shows when AI generation is off (no key / rejected key).
+// The technical reason goes to the server log, not to the user.
+const AI_UNAVAILABLE = "지금은 AI로 새로 만들기를 쓸 수 없어요. 아래 템플릿을 골라 ✏️ 직접 편집으로 바꿔 보세요.";
 async function askJson(call) {
   let text;
   try {
@@ -254,11 +257,17 @@ async function refineApp(prompt, current, mode) {
 }
 
 export async function buildApp(prompt, current, mode, opts = {}) {
-  if (!client) return { doc: null, valid: false, source: "no-key", error: "OPENAI_API_KEY not set" };
+  if (!client) {
+    console.warn("[builder] OPENAI_API_KEY not set — AI generation unavailable");
+    return { doc: null, valid: false, source: "no-key", code: "ai_unavailable", error: AI_UNAVAILABLE };
+  }
   try {
     return await buildAppInner(prompt, current, mode, opts);
   } catch (e) {
-    if (e instanceof ApiError) return { doc: null, valid: false, source: "openai", error: e.message };
+    if (e instanceof ApiError) {
+      console.warn(`[builder] ${e.message}`);
+      return { doc: null, valid: false, source: "openai", code: "ai_unavailable", error: AI_UNAVAILABLE };
+    }
     throw e;
   }
 }

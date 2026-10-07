@@ -10,6 +10,7 @@
   "dependencies": {
     "@snack/bite": "workspace:*",
     "@snack/bite-layout": "workspace:*",
+    "@snack/room": "workspace:*",
     "express": "^4.21.0",
     "openai": "^4.0.0",
     "ws": "^8.18.0"
