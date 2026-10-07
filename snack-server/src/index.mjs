@@ -1,0 +1,962 @@
+// snack-server (alpha) — single-origin Express + WebSocket realtime room.
+// Flow (the moat): client Bite `emit` ("vote") -> WS action -> server
+// aggregates authoritatively (one vote per anonId, re-vote allowed) ->
+// broadcasts setVar{votesByOption} to the room -> every client's runtime
+// re-renders the live %. In-memory for the alpha; SQLite persistence is next.
+import express from "express";
+import { WebSocketServer } from "ws";
+import { createServer } from "node:http";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { buildApp } from "./builder.mjs";
+import { listTemplates, getTemplateDoc, rateTemplate, markUsed, allTemplateDocs, templateMeta } from "./templates.mjs";
+import { getContent } from "./content.mjs";
+import { validate as validateBite } from "@snack/bite";
+
+// Each starter template is also a canonical LIVE shared room at /p/tpl-<id> —
+// so the dashboard's "지금 N명 / leaderboard / votes" are real & shared. (Defined
+// after `apps`/`entryFromDoc` below.)
+const TPL_PREFIX = "tpl-";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PORT = Number(process.env.PORT) || 3000;
+const ROOT = resolve(__dirname, "../..");
+
+// App registry. slug -> { doc, defaults } (Bite documents). User
+// apps (POST /api/apps) persist to data/apps/<slug>.json (survives restart;
+// votes themselves stay in-memory for the alpha — PLAN accepts vote loss).
+const DATA = resolve(__dirname, "../data/apps"); // snack-server/data/apps
+mkdirSync(DATA, { recursive: true });
+
+const entryFromDoc = (doc) => ({ doc, defaults: doc?.vars?.votesByOption ?? {} });
+
+const apps = {};
+for (const f of readdirSync(DATA).filter((f) => f.endsWith(".json"))) {
+  try {
+    const saved = JSON.parse(readFileSync(resolve(DATA, f), "utf8"));
+    if (saved?.doc?.bite) apps[f.replace(/\.json$/, "")] = entryFromDoc(saved.doc);
+  } catch { /* skip corrupt */ }
+}
+// Register every starter template as a canonical live room (slug = tpl-<id>).
+for (const { id, doc } of allTemplateDocs()) apps[`${TPL_PREFIX}${id}`] = entryFromDoc(doc);
+
+const newSlug = () => Math.random().toString(36).slice(2, 8);
+
+// Builder cost guard: bounds OpenAI spend when the server is exposed (tunnel).
+// Each /api/builder/chat call = one gpt-5.5 build. Caps per-IP and globally per
+// hour so a leaked public URL can't drain the key. Override via env.
+const envNum = (k, d) => { const n = Number(process.env[k]); return Number.isFinite(n) ? n : d; };
+const BUILD_PER_IP_HR = envNum("BUILD_PER_IP_HR", 8);
+const BUILD_GLOBAL_HR = envNum("BUILD_GLOBAL_HR", 40);
+const buildHits = { global: [], byIp: new Map() };
+const clientIp = (req) => (req.headers["x-forwarded-for"]?.split(",")[0]?.trim()) || req.socket.remoteAddress || "?";
+function builderAllowed(req) {
+  const now = Date.now(), HR = 3600_000, ip = clientIp(req);
+  buildHits.global = buildHits.global.filter((t) => now - t < HR);
+  const ipArr = (buildHits.byIp.get(ip) || []).filter((t) => now - t < HR);
+  if (buildHits.global.length >= BUILD_GLOBAL_HR) return { ok: false, scope: "global" };
+  if (ipArr.length >= BUILD_PER_IP_HR) return { ok: false, scope: "ip" };
+  buildHits.global.push(now); ipArr.push(now); buildHits.byIp.set(ip, ipArr);
+  return { ok: true };
+}
+
+// Rooms. slug -> { voters:Map<anonId,option>, sockets:Set<ws> }. Votes persist
+// to data/votes/<slug>.json so a shared poll survives a server restart (alpha:
+// JSON files; SQLite is the documented production upgrade).
+const VOTES = resolve(__dirname, "../data/votes");
+mkdirSync(VOTES, { recursive: true });
+const loadVoters = (slug) => {
+  try { return new Map(Object.entries(JSON.parse(readFileSync(resolve(VOTES, `${slug}.json`), "utf8")))); }
+  catch { return new Map(); }
+};
+const rooms = new Map();
+const room = (slug) => {
+  if (!rooms.has(slug)) rooms.set(slug, { voters: loadVoters(slug), sockets: new Set(), coop: 0, scores: new Map(), roster: new Map(),
+    // Synchronized game session (multi apps): lobby → countdown(3,2,1) → play → result.
+    // Server-driven so every client transitions on the SAME tick. `nicks` keeps the
+    // per-round score's owner name for a named leaderboard ("민준 52탭").
+    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0 }, nicks: new Map() });
+  return rooms.get(slug);
+};
+// Ordered list of present nicknames (anonId → nick). Powers "vote for a person
+// in the room" apps (best-award) — the candidates ARE the live participants.
+const rosterArr = (slug) => [...(rooms.get(slug)?.roster?.values() ?? [])].slice(0, 8);
+// Per-player selfie (set at the nickname onboarding step). Stored by anonId on
+// disk; photo apps (얼굴 지목판 등) use rosterPhotos[i] aligned with roster[i].
+const PHOTOS = resolve(__dirname, "../data/photos");
+mkdirSync(PHOTOS, { recursive: true });
+const photoPath = (id) => resolve(PHOTOS, String(id).replace(/[^a-zA-Z0-9-]/g, "").slice(0, 64) + ".jpg");
+const hasPhoto = (id) => { try { return existsSync(photoPath(id)); } catch { return false; } };
+// aligned with rosterArr (Map preserves insertion order → keys() ↔ values()).
+const rosterPhotosArr = (slug) =>
+  [...(rooms.get(slug)?.roster?.keys() ?? [])].slice(0, 8).map((id) => (hasPhoto(id) ? `/api/photo/${id}` : ""));
+const saveVoters = (slug) => {
+  try { writeFileSync(resolve(VOTES, `${slug}.json`), JSON.stringify(Object.fromEntries(room(slug).voters))); }
+  catch { /* best-effort */ }
+};
+const tally = (slug) => {
+  const out = { ...(apps[slug]?.defaults ?? {}) };
+  for (const opt of room(slug).voters.values()) out[opt] = (out[opt] ?? 0) + 1;
+  return out;
+};
+// Live leaderboard: top-10 per-player best scores, sorted desc (numbers only).
+const board = (slug) => [...room(slug).scores.values()].sort((a, b) => b - a).slice(0, 10);
+// Named race board for live game sessions: top-8 {nick, score}, sorted desc. Lets
+// the result screen say WHO won ("민준 52탭"), not just the winning number.
+const raceBoard = (slug) => {
+  const r = room(slug);
+  return [...r.scores.entries()]
+    .map(([id, score]) => ({ nick: r.nicks.get(id) || r.roster.get(id) || "게스트", score }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+};
+
+// ── Synchronized game session (multi apps) ──
+// A `start` host event from anyone in the lobby kicks off a server-timed
+// countdown(3,2,1) → play(duration) → result. The server broadcasts sessionPhase
+// + sessionCountdown via setVar so EVERY client transitions together (Bite apps
+// follow it with phase `tick` guards on sessionPhase). Per round the score/vote/coop
+// tallies reset so each game starts clean.
+const clearSessionTimers = (r) => { for (const t of r.session.timers) clearTimeout(t); r.session.timers = []; };
+const setPhase = (slug, phase, extra = {}) => {
+  const r = room(slug);
+  r.session.phase = phase;
+  broadcast(slug, "setVar", { id: "sessionPhase", value: phase });
+  for (const [k, v] of Object.entries(extra)) { if (k === "sessionCountdown") r.session.num = v; broadcast(slug, "setVar", { id: k, value: v }); }
+};
+// Round-based games (vote/quiz/bracket) draw synced content from server packs in
+// data/multi-content/<game>.json. The server is the single source of truth so every
+// client sees the SAME question/matchup in a round. Packs cached after first read.
+const MULTI_CONTENT = resolve(__dirname, "../data/multi-content");
+const packCache = new Map();
+const loadPack = (game) => {
+  if (!game) return null;
+  if (packCache.has(game)) return packCache.get(game);
+  let arr = null;
+  try { arr = JSON.parse(readFileSync(resolve(MULTI_CONTENT, `${game}.json`), "utf8")); } catch { arr = null; }
+  packCache.set(game, Array.isArray(arr) ? arr : null);
+  return packCache.get(game);
+};
+
+// "Thaw" a multiplayer pack: pull FRESH content from the LLM (getContent) each
+// session instead of the frozen static JSON. Maps game → content kind, extracts
+// the array each session mode expects, and falls back to the static pack on any
+// error / no key ("되는 척" 없이 항상 콘텐츠). Content is confirmed ONCE per session
+// here and broadcast to all clients, so multiplayer sync is preserved.
+const GAME_CONTENT = {
+  balance:       { kind: "balance",    pick: (j) => j.dilemmas },
+  majority:      { kind: "majority",   pick: (j) => j.splits },
+  "most-likely": { kind: "mostlikely", pick: (j) => j.prompts },
+  trivia:        { kind: "quiz", theme: "K-컬처/신조어", pick: (j) =>
+    (j.questions || []).filter((x) => Array.isArray(x.choices) && x.choices.length === 4 && Number.isInteger(x.answer) && x.answer >= 0 && x.answer < 4)
+      .map((x) => ({ q: x.q, options: x.choices, answer: x.answer })) },
+  worldcup:      { kind: "worldcup", theme: "야식", pick: (j) =>
+    (j.current || []).map((x) => ({ name: x.name, emoji: x.emoji || "🍽️" })) },
+};
+const dynamicPack = async (game, opts = {}) => {
+  const m = GAME_CONTENT[game];
+  if (!m) return loadPack(game); // reaction/nunchi/unmapped → static (or null), no LLM
+  try {
+    const j = await getContent(m.kind, opts.theme || m.theme || "");
+    if (j && !j.error) {
+      const arr = m.pick(j);
+      if (Array.isArray(arr) && arr.length >= 2) return arr;
+    }
+  } catch { /* fall through to static */ }
+  return loadPack(game);
+};
+const shuffled = (a) => { const x = [...a]; for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; };
+
+// Advance a round-based session to round `i` (or the result screen when done).
+const startRound = (slug, i) => {
+  const r = room(slug);
+  if (i >= r.session.rounds.length) {
+    setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) });
+    return;
+  }
+  r.voters.clear(); // each round is a fresh vote
+  r.session.roundIdx = i;
+  setPhase(slug, "play", {
+    roundIdx: i, roundTotal: r.session.rounds.length, roundNum: i + 1,
+    roundContent: r.session.rounds[i], votesByOption: tally(slug),
+  });
+  r.session.timers.push(setTimeout(() => startRound(slug, i + 1), r.session.roundMs));
+};
+
+// QUIZ rounds: answer window (correct answer hidden) → reveal (broadcast answer + scores).
+const startQuizRound = (slug, i) => {
+  const r = room(slug);
+  if (i >= r.session.rounds.length) { setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) }); return; }
+  r.session.roundIdx = i;
+  r.session.answered = new Set();
+  r.session.accepting = true;
+  r.session.roundStart = Date.now();
+  const { answer, ...pub } = r.session.rounds[i]; // strip the answer — clients must not see it
+  void answer;
+  setPhase(slug, "play", { roundIdx: i, roundTotal: r.session.rounds.length, roundNum: i + 1, roundContent: pub, roundAnswer: -1 });
+  r.session.timers.push(setTimeout(() => revealQuizRound(slug, i), r.session.answerMs));
+};
+const revealQuizRound = (slug, i) => {
+  const r = room(slug);
+  r.session.accepting = false;
+  broadcast(slug, "setVar", { id: "roundAnswer", value: r.session.rounds[i].answer }); // now reveal correct
+  broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
+  broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
+  r.session.timers.push(setTimeout(() => startQuizRound(slug, i + 1), r.session.revealMs));
+};
+
+// NUNCHI: players race to claim the next number. A short collision window groups
+// near-simultaneous taps — solo tap claims the number; 2+ taps = all eliminated.
+// Last survivor(s) win. iAmOut is sent ONLY to the eliminated socket (targeted).
+const resolveNunchi = (slug) => {
+  const r = room(slug);
+  const p = r.session.pending || []; r.session.pending = [];
+  if (p.length === 0) return;
+  if (p.length === 1) {
+    const claimed = r.session.nunchiNum;
+    r.session.nunchiNum += 1;
+    broadcast(slug, "setVar", { id: "nunchiNum", value: r.session.nunchiNum });
+    broadcast(slug, "setVar", { id: "lastEvent", value: `${p[0].nick} 님이 ${claimed} 선점 ✋` });
+  } else {
+    for (const x of p) { r.session.eliminated.add(x.anonId); try { send(x.ws, "setVar", { id: "iAmOut", value: true }); } catch { /* */ } }
+    broadcast(slug, "setVar", { id: "eliminatedCount", value: r.session.eliminated.size });
+    broadcast(slug, "setVar", { id: "lastEvent", value: `💥 충돌! ${p.map((x) => x.nick).join(" · ")} 탈락` });
+  }
+  const survivors = r.roster.size - r.session.eliminated.size;
+  if (survivors <= 1 || r.session.nunchiNum > 20) endNunchi(slug);
+};
+const endNunchi = (slug) => {
+  const r = room(slug);
+  if (r.session.phase === "result") return;
+  clearSessionTimers(r);
+  const alive = [...r.roster.entries()].filter(([id]) => !r.session.eliminated.has(id)).map(([, n]) => n);
+  const winner = alive.length === 0 ? "전멸 😂 아무도 못 살아남았어요"
+    : alive.length === 1 ? `${alive[0]} 최후의 1인! 🏆`
+    : `${alive.join(" · ")} 공동 생존 🎉`;
+  setPhase(slug, "result", { nunchiWinner: winner });
+};
+
+// WORLDCUP bracket: 16강→8강→4강→결승. Each matchup the room votes A/B; more votes
+// advances. matchWinner flips 0/1 for a brief reveal between matchups.
+const roundNameFor = (n) => (n >= 16 ? "16강" : n >= 8 ? "8강" : n >= 4 ? "4강" : "결승");
+const buildMatchups = (cands) => { const m = []; for (let i = 0; i + 1 < cands.length; i += 2) m.push([cands[i], cands[i + 1]]); return m; };
+const startMatchup = (slug, i) => {
+  const r = room(slug); const bk = r.session.bracket;
+  if (!bk) return; // stale timer after teardown
+  if (i >= bk.matchups.length) { finishBracketRound(slug); return; }
+  bk.matchupIdx = i;
+  r.voters.clear();
+  const [a, b] = bk.matchups[i];
+  setPhase(slug, "play", {
+    roundContent: { a, b }, votesByOption: tally(slug), matchWinner: -1,
+    bracketLabel: `${roundNameFor(bk.roundCands.length)} · ${i + 1}/${bk.matchups.length}`,
+  });
+  r.session.timers.push(setTimeout(() => resolveMatchup(slug, i), r.session.matchupMs));
+};
+const resolveMatchup = (slug, i) => {
+  const r = room(slug); const bk = r.session.bracket;
+  if (!bk) return; // stale timer after teardown
+  const t = tally(slug); const winIdx = (t.o0 || 0) >= (t.o1 || 0) ? 0 : 1;
+  bk.winners.push(bk.matchups[i][winIdx]);
+  broadcast(slug, "setVar", { id: "matchWinner", value: winIdx }); // 2.2s reveal of who advances
+  r.session.timers.push(setTimeout(() => startMatchup(slug, i + 1), 2200));
+};
+const finishBracketRound = (slug) => {
+  const r = room(slug); const bk = r.session.bracket;
+  if (!bk) return; // stale timer after teardown
+  if (bk.winners.length <= 1) { setPhase(slug, "result", { champion: bk.winners[0] || null }); return; }
+  bk.roundCands = bk.winners;
+  bk.matchups = buildMatchups(bk.winners);
+  bk.winners = [];
+  startMatchup(slug, 0);
+};
+
+// MAJORITY-GUESS (눈치 배틀): blind-predict which option the ROOM picks most. Votes
+// are hidden during play; at reveal the majority is computed and everyone who voted
+// the majority option scores +100. Best room-reader wins across rounds.
+const startGuessRound = (slug, i) => {
+  const r = room(slug);
+  if (i >= r.session.rounds.length) { setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) }); return; }
+  r.voters.clear();
+  r.session.roundIdx = i;
+  setPhase(slug, "play", {
+    roundIdx: i, roundTotal: r.session.rounds.length, roundNum: i + 1,
+    roundContent: r.session.rounds[i], roundAnswer: -1, votesByOption: tally(slug),
+  });
+  r.session.timers.push(setTimeout(() => revealGuessRound(slug, i), r.session.roundMs));
+};
+const revealGuessRound = (slug, i) => {
+  void i;
+  const r = room(slug);
+  const t = tally(slug);
+  const majority = (t.o0 || 0) >= (t.o1 || 0) ? 0 : 1; // tie → o0
+  for (const [anonId, opt] of r.voters) {
+    if (opt === `o${majority}`) {
+      r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + 100);
+      r.nicks.set(anonId, r.roster.get(anonId) || r.nicks.get(anonId) || "게스트");
+    }
+  }
+  broadcast(slug, "setVar", { id: "votesByOption", value: t });       // reveal actual tally
+  broadcast(slug, "setVar", { id: "roundAnswer", value: majority });  // which side was the majority
+  broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
+  broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
+  r.session.timers.push(setTimeout(() => startGuessRound(slug, i + 1), r.session.revealMs));
+};
+
+const startSession = async (slug, opts) => {
+  const r = room(slug);
+  if (r.session.phase === "countdown" || r.session.phase === "play") return; // already running
+  if (typeof opts === "number") opts = { duration: opts };
+  opts = opts || {};
+  clearSessionTimers(r);
+  r.session.round += 1;
+  r.session.mode = "";
+  r.session.rounds = []; // reset so a stale timer (from a torn-down session) sees [] → result, never undefined.length
+  r.session.bracket = null;
+  const myGen = ++r.session.gen; // session generation: timers/awaits from older sessions become no-ops
+  // fresh game: clear tallies so scores/votes start at zero for everyone
+  r.scores.clear(); r.coop = 0; r.voters.clear();
+  broadcast(slug, "setVar", { id: "raceBoard", value: [] });
+  broadcast(slug, "setVar", { id: "leaderboard", value: [] });
+  broadcast(slug, "setVar", { id: "coopTotal", value: 0 });
+  broadcast(slug, "setVar", { id: "votesByOption", value: tally(slug) });
+  logActivity(slug, "start", "게임 시작");
+  const T = r.session.timers;
+  // Fetch FRESH content first — the lobby stays visible during this await, so the
+  // countdown→play timers below are all scheduled from one sync point and stay
+  // synced across clients (a mid-countdown await would desync play). dynamicPack
+  // falls back to the static pack on error; the per-hour cache + singleflight make
+  // this instant after the first start in the hour.
+  const pack = await dynamicPack(opts.game, opts);
+  // If the room was torn down (all left) or a newer start superseded us DURING the
+  // content fetch, abort — scheduling timers now would crash on a stale/empty session.
+  if (rooms.get(slug) !== r || r.session.gen !== myGen) return;
+  // countdown 3·2·1 (shared by all pack modes)
+  setPhase(slug, "countdown", { sessionCountdown: 3 });
+  T.push(setTimeout(() => setPhase(slug, "countdown", { sessionCountdown: 2 }), 1000));
+  T.push(setTimeout(() => setPhase(slug, "countdown", { sessionCountdown: 1 }), 2000));
+  if (opts.mode === "reaction") {
+    // REACTION DUEL: red WAIT → server flips green at a synced random moment →
+    // first/fastest tap after green scores by reaction-ms; tap-before-green = foul.
+    r.session.mode = "reaction";
+    r.session.reacted = new Set();
+    r.session.goAt = 0;
+    broadcast(slug, "setVar", { id: "reactionGo", value: false });
+    const delay = 1500 + Math.floor(Math.random() * 3000); // 1.5–4.5s of red
+    const playWindow = 4000; // window to react after green
+    T.push(setTimeout(() => setPhase(slug, "play", { sessionCountdown: 0, reactionGo: false }), 3000));
+    T.push(setTimeout(() => { // flip green — all clients at once
+      if (r.session.phase !== "play") return;
+      r.session.goAt = Date.now();
+      broadcast(slug, "setVar", { id: "reactionGo", value: true });
+    }, 3000 + delay));
+    T.push(setTimeout(() => setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) }), 3000 + delay + playWindow));
+  } else if (opts.mode === "nunchi") {
+    // NUNCHI: claim numbers 1,2,3… one at a time. Collision (≥2 simultaneous) = out.
+    r.session.mode = "nunchi";
+    r.session.nunchiNum = 1;
+    r.session.eliminated = new Set();
+    r.session.pending = [];
+    broadcast(slug, "setVar", { id: "nunchiNum", value: 1 });
+    broadcast(slug, "setVar", { id: "eliminatedCount", value: 0 });
+    broadcast(slug, "setVar", { id: "lastEvent", value: "1번부터! 겹치면 다 같이 탈락 😬" });
+    broadcast(slug, "setVar", { id: "iAmOut", value: false });
+    broadcast(slug, "setVar", { id: "nunchiWinner", value: "" });
+    T.push(setTimeout(() => setPhase(slug, "play", { sessionCountdown: 0 }), 3000));
+    T.push(setTimeout(() => endNunchi(slug), 3000 + 25000)); // 25s overall cap
+  } else if (opts.bracket && pack && pack.length >= 2) {
+    // WORLDCUP: pick the largest power-of-two pool (≤16) → seed the bracket.
+    const size = [16, 8, 4, 2].find((s) => s <= pack.length) || 2;
+    const cands = shuffled(pack).slice(0, size);
+    r.session.mode = "bracket";
+    r.session.matchupMs = Math.min(15000, Math.max(4000, Number(opts.matchupMs) || 8000));
+    r.session.bracket = { roundCands: cands, matchups: buildMatchups(cands), matchupIdx: 0, winners: [] };
+    T.push(setTimeout(() => startMatchup(slug, 0), 3000));
+  } else if (opts.mode === "guess" && pack && pack.length) {
+    // 눈치 배틀: blind-predict the room's majority each round.
+    const nRounds = Math.min(pack.length, Math.max(1, Number(opts.rounds) || 6));
+    r.session.rounds = shuffled(pack).slice(0, nRounds);
+    r.session.roundMs = Math.min(20000, Math.max(3000, Number(opts.roundMs) || 7000));
+    r.session.revealMs = Math.min(8000, Math.max(1500, Number(opts.revealMs) || 3500));
+    r.session.mode = "guess";
+    T.push(setTimeout(() => startGuessRound(slug, 0), 3000));
+  } else if (pack && pack.length && opts.quiz) {
+    // QUIZ: each round = answer window (answer hidden) → reveal (correct + scores).
+    const nRounds = Math.min(pack.length, Math.max(1, Number(opts.rounds) || 6));
+    r.session.rounds = shuffled(pack).slice(0, nRounds);
+    r.session.answerMs = Math.min(20000, Math.max(3000, Number(opts.answerMs) || 8000));
+    r.session.revealMs = Math.min(8000, Math.max(1500, Number(opts.revealMs) || 3000));
+    r.session.quiz = true;
+    T.push(setTimeout(() => startQuizRound(slug, 0), 3000));
+  } else if (pack && pack.length) {
+    // ROUND-BASED: server cycles synced content packs through play rounds.
+    const nRounds = Math.min(pack.length, Math.max(1, Number(opts.rounds) || 5));
+    r.session.rounds = shuffled(pack).slice(0, nRounds);
+    r.session.roundMs = Math.min(20000, Math.max(3000, Number(opts.roundMs) || 8000));
+    r.session.quiz = false;
+    T.push(setTimeout(() => startRound(slug, 0), 3000));
+  } else {
+    // SINGLE play window (tap-race / co-op): one play phase of `duration`.
+    const dur = Math.min(60000, Math.max(3000, Number(opts.duration) || 12000));
+    r.session.rounds = [];
+    T.push(setTimeout(() => setPhase(slug, "play", { sessionCountdown: 0 }), 3000));
+    T.push(setTimeout(() => setPhase(slug, "result", { raceBoard: raceBoard(slug), leaderboard: board(slug) }), 3000 + dur));
+  }
+};
+
+// ── Global USER leaderboard (cross-room, by nickname). Each browser is one
+// player (anonId); they earn "snack points" from real activity: +1 per play
+// (score/vote/tally), +2 bonus for a new room-best (a record). Persisted to
+// data/users.json so the ranking survives restarts. Real data only — no seeds.
+const USERS_FILE = resolve(__dirname, "../data/users.json");
+const userStore = new Map(); // anonId -> { nick, points, plays, updated }
+try {
+  for (const [id, u] of Object.entries(JSON.parse(readFileSync(USERS_FILE, "utf8")))) userStore.set(id, u);
+} catch { /* first run */ }
+let usersDirty = false;
+const saveUsers = () => { if (!usersDirty) return; usersDirty = false;
+  try { writeFileSync(USERS_FILE, JSON.stringify(Object.fromEntries(userStore))); } catch { /* best-effort */ }
+};
+setInterval(saveUsers, 4000).unref?.();
+const cleanNick = (n) => String(n ?? "").trim().slice(0, 16);
+const bumpUser = (anonId, nick, pts) => {
+  if (!anonId) return;
+  const u = userStore.get(anonId) || { nick: "", points: 0, plays: 0, updated: 0 };
+  const nn = cleanNick(nick);
+  if (nn) u.nick = nn;
+  if (pts > 0) { u.points += pts; u.plays += 1; }
+  u.updated = Date.now();
+  userStore.set(anonId, u);
+  usersDirty = true;
+};
+// Top-N users with a real nickname, ranked by points (ties: more plays).
+const leaderboard = (n = 10) =>
+  [...userStore.values()]
+    .filter((u) => u.nick)
+    .sort((a, b) => b.points - a.points || b.plays - a.plays)
+    .slice(0, n)
+    .map((u, i) => ({ rank: i + 1, nick: u.nick, points: u.points, plays: u.plays }));
+
+// ── Live platform pulse (ephemeral now-ness for the dashboard) ──
+const ACTIVITY = [];          // recent events ring buffer {slug, kind, label, t}
+const ACTIVITY_CAP = 60;
+const TREND_WINDOW = 15 * 60 * 1000; // 15 min recency window for trending
+function logActivity(slug, kind, label) {
+  ACTIVITY.push({ slug, kind, label, t: Date.now() });
+  if (ACTIVITY.length > ACTIVITY_CAP) ACTIVITY.shift();
+}
+const globalOnline = () => { let n = 0; for (const r of rooms.values()) n += r.sockets.size; return n; };
+const playingIn = (slug) => rooms.get(slug)?.sockets.size ?? 0;
+const recentActivityCount = (slug, now) => ACTIVITY.reduce((n, a) => n + (a.slug === slug && now - a.t < TREND_WINDOW ? 1 : 0), 0);
+
+const app = express();
+app.use(express.json({ limit: "1mb" })); // room for a downscaled selfie data-URL
+app.use((req, res, next) => { // dev CORS (player dev-server is a different origin)
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204); // preflight (POST + JSON)
+  next();
+});
+
+app.get("/api/health", (_req, res) =>
+  res.json({ status: "ok", rooms: rooms.size, apps: Object.keys(apps) }));
+
+// Keyless keyword-photo proxy. Same-origin so Pixi/WebGL textures load without
+// CORS taint and it works through the tunnel. A deterministic lock per keyword
+// → every client sees the SAME photo (stable across reloads/voters).
+const imgCache = new Map(); // key -> {buf, type}
+// Retry fetch with a fresh timeout per attempt. Transient upstream throttles
+// (Wikipedia/Wikimedia 429/5xx during a worldcup's rapid image burst) were
+// causing strict-mode requests to fail with no retry → gray placeholder boxes.
+async function fetchR(url, { headers, timeoutMs = 7000 } = {}, tries = 3) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url, { headers, redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+      if (r.ok) return r;
+      last = new Error("HTTP " + r.status);
+    } catch (e) { last = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 300 * (i + 1))); // backoff
+  }
+  throw last || new Error("fetch failed");
+}
+// Unsplash (keyed): uses the ACCESS KEY as `Client-ID` (Secret Key is only for
+// OAuth, not needed). Resolves a keyword to a relevant, high-quality photo URL.
+async function unsplashUrl(q, w, h) {
+  if (!process.env.UNSPLASH_ACCESS_KEY) return null;
+  const orient = h > w * 1.2 ? "portrait" : w > h * 1.2 ? "landscape" : "squarish";
+  try {
+    const r = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=1&orientation=${orient}`,
+      { headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    const u = (await r.json())?.results?.[0]?.urls;
+    return u ? `${u.raw}&w=${w}&h=${h}&fit=crop` : null; // raw + sizing params
+  } catch { return null; }
+}
+// Wikipedia (keyless): the MOST relevant source for NAMED entities (foods,
+// people, places, characters) — stock search (Unsplash/Pexels) badly mismatches
+// niche terms (e.g. "tteokbokki" → unrelated photo). Uses the REST page summary
+// thumbnail; only returns when the query resolves to a real article.
+async function wikipediaUrl(q) {
+  const UA = { "User-Agent": "snackapp/0.1 (alpha)" };
+  // Use the NATIVE thumbnail size wikimedia returns. Forcing /640px- 400s when the
+  // source image is narrower than 640 (e.g. idol portraits) → we'd lose the photo.
+  const fix = (u) => (typeof u === "string" ? u.replace(/^\/\//, "https://") : null);
+  const summaryThumb = async (lang, title) => {
+    try {
+      const r = await fetchR(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: UA });
+      const j = await r.json();
+      return j.thumbnail?.source ? fix(j.thumbnail.source) : null;
+    } catch { return null; }
+  };
+  // Language order by q's SCRIPT: an English title ("Jun Ji-hyun", "Yoo Jae-suk")
+  // targets the en article — whose infobox is a clean name-portrait — so try en
+  // FIRST. Korean q (fresh idols "태연", foods "떡볶이") → ko first (they often have
+  // a ko article but an empty/404 en one). Wrong order was the bug: an English
+  // name resolved via ko SEARCH → a drama still / group photo / movie poster
+  // (talent 유재석→걸그룹, 강호동→"브로커" 포스터, 전지현→드라마 스틸).
+  const hasCJK = /[가-힣぀-ヿ一-鿿㐀-䶿]/.test(q);
+  const langs = hasCJK ? ["ko", "en"] : ["en", "ko"];
+  // EXACT-title summaries first, BOTH langs — highest precision (the article whose
+  // title IS the name). Only if no exact hit do we fall to search (lower precision,
+  // where mismatches creep in). ("Jokbal"/"Tteokbokki" resolve here directly.)
+  for (const lang of langs) { const exact = await summaryThumb(lang, q); if (exact) return exact; }
+  // SEARCH → best-matching article → its summary thumbnail. Makes fuzzy q resolve:
+  // "Jang Wonyoung IVE" → "Jang Won-young", "Karina aespa" → "Karina (singer)" —
+  // instead of falling through to a mismatched stock photo (the "고양이 사진" bug).
+  for (const lang of langs) {
+    try {
+      // Scan the top few (not just #1) for the first with a usable photo — #1
+      // sometimes lacks a thumbnail while #2/#3 (the real article) has one.
+      const s = await fetchR(`https://${lang}.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(q)}&limit=5`, { headers: UA });
+      const pages = (await s.json())?.pages || [];
+      for (const p of pages) {
+        const viaTitle = await summaryThumb(lang, p.key || p.title);
+        if (viaTitle) return viaTitle;
+        if (p.thumbnail?.url) return fix(p.thumbnail.url); // small but valid, last resort
+      }
+    } catch { /* try next lang */ }
+  }
+  return null;
+}
+// Person-disambiguation convention: a candidate q of the form "이름|가수" means
+// "this is a person — resolve their photo". We try the disambiguated title FIRST
+// ("이름 (가수)", which pins the right person when names collide) then the bare
+// name ("이름", whose article often holds the photo when the (가수) title 404s).
+// Plain q (no "|") resolves as-is, so foods/anime are unaffected.
+const wikiVariants = (q) => {
+  const i = q.indexOf("|");
+  if (i < 0) return [q];
+  const base = q.slice(0, i), hint = q.slice(i + 1);
+  return [`${base} (${hint})`, base];
+};
+const resolveStrictWiki = async (q) => {
+  for (const v of wikiVariants(q)) { const u = await wikipediaUrl(v); if (u) return u; }
+  return null;
+};
+// Pexels (keyed): relevant, high-quality. Resolves a keyword to a real photo URL.
+async function pexelsUrl(q, w, h) {
+  const key = process.env.PEXELS_API_KEY || process.env.PEXELS;
+  if (!key) return null;
+  const orient = h > w * 1.2 ? "portrait" : w > h * 1.2 ? "landscape" : "square";
+  try {
+    const r = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=1&orientation=${orient}`,
+      { headers: { Authorization: key }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    const ph = (await r.json())?.photos?.[0];
+    return ph?.src?.large || ph?.src?.medium || ph?.src?.original || null;
+  } catch { return null; }
+}
+app.get("/api/img", async (req, res) => {
+  const q = String(req.query.q ?? "").trim().slice(0, 60) || "abstract";
+  const w = Math.min(1200, Math.max(40, Number(req.query.w) || 600));
+  const h = Math.min(1200, Math.max(40, Number(req.query.h) || 600));
+  // STRICT: named entities (idol/actor/food worldcups) must show the RIGHT
+  // image or NOTHING — never a loremflickr random photo (the cause of "name
+  // says 카리나 but the face is someone else"). On no exact resolution → 404,
+  // and the client shows a name placeholder instead of a wrong picture.
+  const strict = req.query.strict === "1" || req.query.strict === "true";
+  let lock = 0; for (const c of q) lock = (lock * 31 + c.charCodeAt(0)) % 100000; // stable seed
+  const key = `${strict ? "s|" : ""}${q}|${w}x${h}`;
+  if (imgCache.has(key)) { const c = imgCache.get(key); res.setHeader("Content-Type", c.type); res.setHeader("Cache-Control", "public, max-age=86400"); return res.end(c.buf); }
+  // loremflickr wants comma-separated tags (a literal space → 403).
+  const tag = q.split(/\s+/).filter(Boolean).map(encodeURIComponent).join(",");
+  const sources = [];
+  // STRICT (named people, e.g. idols): Wikipedia ONLY — never stock/random, which
+  // would show the WRONG face. NON-strict (generic things like foods): Wikipedia →
+  // keyword stock → loremflickr keyword, so when one source fails we fall back to
+  // ANOTHER RELEVANT image (a "hamburger" tag still yields a hamburger) instead of
+  // a gray box. Multiple sources are queued so a single fetch failure isn't fatal.
+  const wiki = await resolveStrictWiki(q);
+  if (wiki) sources.push(wiki);
+  if (!strict) {
+    const us = await unsplashUrl(q, w, h); if (us) sources.push(us);
+    const px = await pexelsUrl(q, w, h); if (px) sources.push(px);
+    sources.push(`https://loremflickr.com/${w}/${h}/${tag}?lock=${lock}`); // keyword-relevant
+    sources.push(`https://loremflickr.com/${w}/${h}?lock=${lock}`);        // last resort: stable
+  }
+  if (strict && sources.length === 0) return res.status(404).end(); // no trustworthy image → client placeholder
+  for (const src of sources) {
+    try {
+      const r = await fetchR(src, { headers: { "User-Agent": "snackapp/0.1 (alpha)" }, timeoutMs: 8000 });
+      const buf = Buffer.from(await r.arrayBuffer());
+      const type = r.headers.get("content-type") || "image/jpeg";
+      if (imgCache.size < 200) imgCache.set(key, { buf, type });
+      res.setHeader("Content-Type", type);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.end(buf);
+    } catch { /* try next source */ }
+  }
+  res.status(502).end();
+});
+
+// Prewarm a strict worldcup image into imgCache so the PLAY screen shows it
+// instantly instead of a long dim slot. Fire-and-forget; same cache key + 600x600
+// default as /api/img?strict=1&q=<q>. ko-first wikipediaUrl keeps it fresh-KR-friendly.
+async function prewarmImage(q) {
+  if (process.env.SNACK_NO_PREWARM) return; // off-switch: prewarm competes with image loads under heavy fan-out (gate/oracle); a normal server leaves it ON
+  const qq = String(q ?? "").trim().slice(0, 60);
+  if (!qq) return;
+  const key = `s|${qq}|600x600`;
+  if (imgCache.has(key)) return;
+  try {
+    const wiki = await resolveStrictWiki(qq);
+    if (!wiki) return;
+    const r = await fetchR(wiki, { headers: { "User-Agent": "snackapp/0.1 (alpha)" }, timeoutMs: 8000 });
+    const buf = Buffer.from(await r.arrayBuffer());
+    const type = r.headers.get("content-type") || "image/jpeg";
+    if (imgCache.size < 200) imgCache.set(key, { buf, type });
+  } catch { /* best-effort prewarm */ }
+}
+
+// Boot + periodic warm-up for every dynamic-content template so the FIRST viewer
+// gets an instant play screen instead of staring at blank cards while OpenAI +
+// Wikipedia round-trip (that cold-open looked like a bug). Two phases, because
+// content and images have very different weights:
+//   Phase 1 (CONTENT) — the multi-second LLM generation is the real wait, so warm
+//     it for ALL templates first, with bounded concurrency (independent LLM calls
+//     finish together instead of stacking to minutes). This is what the user sees.
+//   Phase 2 (IMAGES) — best-effort, AFTER content: strict cards already show the
+//     name while the face loads, so images backfill sequentially (no fetch burst).
+// getContent caches per KST bucket → re-running within the hour is a cheap cache
+// hit; only a rotation boundary regenerates.
+let prewarmingAll = false;
+async function prewarmAll() {
+  if (process.env.SNACK_NO_PREWARM || prewarmingAll) return;
+  prewarmingAll = true;
+  try {
+    const specs = [];
+    for (const { doc } of allTemplateDocs()) {
+      const url = doc?.data?.url;
+      if (!url) continue;
+      try { const u = new URL(url, "http://x"); const kind = u.searchParams.get("kind") || ""; if (kind) specs.push({ kind, theme: u.searchParams.get("theme") || "" }); }
+      catch { /* skip unparseable */ }
+    }
+    // Phase 1: content, bounded-concurrent (don't block a slow one behind another).
+    const contents = [];
+    const CONC = 6;
+    for (let i = 0; i < specs.length; i += CONC) {
+      const batch = await Promise.all(specs.slice(i, i + CONC).map((s) => getContent(s.kind, s.theme).catch(() => null)));
+      contents.push(...batch);
+    }
+    // Phase 2: warm ONLY the OPENING matchup (current[0],[1]) of every worldcup —
+    // the two faces on the first screen, so whichever cup opens is ready instantly.
+    // Deliberately NOT the whole 16: warming ~200 Wikipedia images/cycle risks a 429
+    // (their REST API rate-limits) that would blank cards for everyone; later-round
+    // faces load on-demand as the user taps through (naturally spaced, then cached).
+    // Sequential + best-effort: a strict miss just shows the name placeholder.
+    const cups = contents.filter((d) => Array.isArray(d?.current) && d.current.length);
+    for (const d of cups) { await prewarmImage(d.current[0]?.q); await prewarmImage(d.current[1]?.q); }
+  } finally { prewarmingAll = false; }
+}
+
+// Selfie upload (nickname onboarding). Client downscales to ~256px JPEG and POSTs
+// a data-URL keyed by anonId; stored on disk, served at /api/photo/<anonId>, and
+// surfaced in rosterPhotos so photo apps render real faces.
+app.post("/api/photo", (req, res) => {
+  const anonId = String(req.body?.anonId ?? "").replace(/[^a-zA-Z0-9-]/g, "").slice(0, 64);
+  const m = String(req.body?.dataUrl ?? "").match(/^data:image\/\w+;base64,(.+)$/);
+  if (!anonId || !m) return res.status(400).json({ ok: false });
+  const buf = Buffer.from(m[1], "base64");
+  if (buf.length < 64 || buf.length > 700_000) return res.status(413).json({ ok: false }); // expect a downscaled selfie
+  try { writeFileSync(photoPath(anonId), buf); return res.json({ ok: true, url: `/api/photo/${anonId}` }); }
+  catch { return res.status(500).json({ ok: false }); }
+});
+app.get("/api/photo/:id", (req, res) => {
+  try {
+    const buf = readFileSync(photoPath(req.params.id));
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    return res.end(buf);
+  } catch { return res.status(404).end(); }
+});
+
+// Chat builder: idea -> Bite document (gpt-5.5 + validate + repair). Returns the doc
+// for the player to render immediately. Persistence/slug is a later step.
+app.post("/api/builder/chat", async (req, res) => {
+  const prompt = String(req.body?.prompt ?? "").trim();
+  if (!prompt) return res.status(400).json({ error: "prompt required" });
+  const gate = builderAllowed(req);
+  if (!gate.ok) {
+    return res.status(429).json({ valid: false, error:
+      gate.scope === "global"
+        ? "지금 빌드 요청이 많아요. 잠시 후 다시 시도해주세요."
+        : "잠깐의 시간당 생성 한도를 넘었어요. 잠시 후 다시 시도해주세요." });
+  }
+  const current = req.body?.current && typeof req.body.current === "object" ? req.body.current : undefined;
+  const mode = ["single", "multi", "auto", "coop", "race"].includes(req.body?.mode) ? req.body.mode : "auto"; // default: AI decides
+  const rebuild = req.body?.rebuild === true; // mode conversion → full rebuild (not patch)
+  try {
+    const r = await buildApp(prompt, current, mode, { rebuild });
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({ valid: false, error: String(e?.message ?? e) });
+  }
+});
+
+// Persist a (generated) Bite document and issue a share slug -> /p/:slug.
+app.post("/api/apps", (req, res) => {
+  const doc = req.body?.doc;
+  const v = validateBite(doc);
+  if (!v.ok) return res.status(400).json({ error: "invalid Bite document", issues: v.errors.slice(0, 10) });
+  let slug; do { slug = newSlug(); } while (apps[slug]);
+  apps[slug] = entryFromDoc(doc);
+  try {
+    writeFileSync(resolve(DATA, `${slug}.json`),
+      JSON.stringify({ doc, manifest: req.body?.manifest ?? null, createdAt: Date.now() }));
+  } catch (e) { return res.status(500).json({ error: String(e?.message ?? e) }); }
+  res.json({ slug, url: `/p/${slug}` });
+});
+
+app.get("/api/apps/:slug", (req, res) => {
+  const a = apps[req.params.slug];
+  if (!a) return res.status(404).json({ error: "not found" });
+  const slug = req.params.slug;
+  res.json({ doc: a.doc, sharedState: { votesByOption: tally(slug), coopTotal: room(slug).coop, leaderboard: board(slug) } });
+});
+
+// ── Templates: starter gallery on the Create landing ──
+app.get("/api/templates", (req, res) => {
+  res.json(listTemplates({ sort: req.query.sort, category: req.query.category }));
+});
+app.get("/api/templates/:id", (req, res) => {
+  const doc = getTemplateDoc(req.params.id);
+  if (!doc) return res.status(404).json({ error: "not found" });
+  markUsed(req.params.id); // opening a template to build on = a "use"
+  res.json({ doc });
+});
+app.post("/api/templates/:id/rate", (req, res) => {
+  const v = rateTemplate(req.params.id, req.body?.stars);
+  if (!v) return res.status(400).json({ error: "invalid id or stars (1-5)" });
+  res.json(v);
+});
+
+// Dynamic content for "fresh every (KST) hour" templates. A template's
+// data.url points here; the player fetches it on mount → setVars the JSON
+// keys into matching variables → `each` lists and templates re-render live.
+app.get("/api/content", async (req, res) => {
+  const kind = String(req.query.kind || "");
+  const data = await getContent(kind, String(req.query.theme || ""));
+  res.set("Cache-Control", "no-store"); // freshness is owned by the server-side KST-hour cache
+  res.json(data);
+  // After responding, warm the worldcup images SEQUENTIALLY in the background so the
+  // play screen renders faces fast — without a 16-way concurrent fetch burst that
+  // spikes server load (that burst made gate taps flaky). One at a time is plenty:
+  // early matchups warm first, later ones warm while the user plays.
+  if ((kind === "worldcup" || kind === "songcup" || kind === "idolcup" || kind === "singercup") && Array.isArray(data?.current)) {
+    void (async () => { for (const c of data.current) await prewarmImage(c?.q); })();
+  }
+});
+
+// Live platform pulse for the dashboard: per-snack playing/trend + global online
+// + a recent-activity ticker. Polled by the dashboard (~every few seconds).
+let trendOrderCache = { at: 0, ids: [] }; // X6: 30s-windowed trend rank order
+app.get("/api/live", (_req, res) => {
+  const now = Date.now();
+  const { templates: tpls } = listTemplates({ sort: "rank" });
+  const snacks = tpls.map((t) => {
+    const slug = `${TPL_PREFIX}${t.id}`;
+    const playing = playingIn(slug);
+    const recent = recentActivityCount(slug, now);
+    return { id: t.id, slug, playing, recent, trendScore: playing * 4 + recent };
+  });
+  // X6: freeze the trend RANK order in 30s windows so the board doesn't churn
+  // every poll (too real-time felt jittery). Live counts still update; only the
+  // ordering re-snapshots every 30s.
+  if (now - trendOrderCache.at > 30_000) {
+    const ranked = [...snacks].sort((a, b) => b.trendScore - a.trendScore);
+    trendOrderCache = { at: now, ids: ranked.map((s) => s.id) };
+  }
+  const orderIdx = new Map(trendOrderCache.ids.map((id, i) => [id, i]));
+  snacks.sort((a, b) => (orderIdx.get(a.id) ?? 999) - (orderIdx.get(b.id) ?? 999));
+  snacks.forEach((s, i) => { s.trendRank = i + 1; });
+  const ticker = ACTIVITY.slice(-10).reverse().map((a) => {
+    const id = a.slug.startsWith(TPL_PREFIX) ? a.slug.slice(TPL_PREFIX.length) : a.slug;
+    const m = templateMeta(id);
+    return { emoji: m?.emoji || "✨", title: m?.title || id, label: a.label, t: a.t };
+  });
+  res.set("Cache-Control", "no-store");
+  res.json({ globalOnline: globalOnline(), now, top: snacks[0] || null, snacks, ticker, leaderboard: leaderboard(8) });
+});
+
+// Global user leaderboard (cross-room, by nickname). Real activity only.
+app.get("/api/leaderboard", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json({ leaderboard: leaderboard(Number(_req.query?.n) || 20) });
+});
+
+// Optionally serve a built player at the same origin (single-origin alpha).
+const PLAYER_DIST = resolve(ROOT, "snack-player/dist");
+if (existsSync(PLAYER_DIST)) {
+  app.use(express.static(PLAYER_DIST));
+  app.get("*", (_req, res) => res.sendFile(resolve(PLAYER_DIST, "index.html")));
+}
+
+const server = createServer(app);
+const wss = new WebSocketServer({ server, path: "/ws" });
+
+const send = (ws, t, d) => { if (ws.readyState === 1) ws.send(JSON.stringify({ t, d })); };
+const broadcast = (slug, t, d) => { for (const ws of room(slug).sockets) send(ws, t, d); };
+
+wss.on("connection", (ws) => {
+  let slug = null, anonId = null, nick = null;
+  ws.on("message", (buf) => {
+    let msg; try { msg = JSON.parse(buf.toString()); } catch { return; }
+    const { t, d } = msg;
+    if (t === "hello") {
+      slug = String(d?.slug ?? ""); anonId = String(d?.anonId ?? ""); nick = String(d?.nick ?? "");
+      bumpUser(anonId, nick, 0); // register the player's nickname (no points yet)
+      const r = room(slug); r.sockets.add(ws);
+      r.roster.set(anonId, cleanNick(nick) || "게스트"); // join the live roster
+      r.nicks.set(anonId, cleanNick(nick) || "게스트"); // owner name for the race board
+      send(ws, "state", { sharedState: { votesByOption: tally(slug), coopTotal: r.coop, leaderboard: board(slug), roster: rosterArr(slug),
+        rosterPhotos: rosterPhotosArr(slug), sessionPhase: r.session.phase, sessionCountdown: r.session.num, raceBoard: raceBoard(slug) }, participants: r.sockets.size });
+      broadcast(slug, "participants", { count: r.sockets.size });
+      broadcast(slug, "setVar", { id: "roster", value: rosterArr(slug) }); // live candidate list
+      broadcast(slug, "setVar", { id: "rosterPhotos", value: rosterPhotosArr(slug) }); // aligned selfies
+      logActivity(slug, "join", "입장");
+    } else if ((t === "action" || t === "react") && slug) {
+      // Light abuse guard: cap messages per socket (real abuse prevention —
+      // IP/account limits — is post-alpha per PLAN). anon dedup already caps
+      // a voter to one tallied vote.
+      const now = Date.now();
+      ws.actionTimes = (ws.actionTimes || []).filter((x) => now - x < 1000);
+      ws.actionTimes.push(now);
+      if (ws.actionTimes.length > 15) {
+        return send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: false, reason: "rate_limited" });
+      }
+      if (t === "react") {
+        const e = String(d?.emoji ?? "").slice(0, 8);
+        if (e) broadcast(slug, "reaction", { emoji: e }); // ephemeral, not persisted
+        return;
+      }
+      if (d?.name === "vote" && d?.payload?.option != null) {
+        room(slug).voters.set(anonId, String(d.payload.option)); // dedup + re-vote
+        saveVoters(slug); // persist so results survive restart
+        bumpUser(anonId, nick, 1);
+        // 눈치 배틀(guess): keep the tally hidden until reveal so players predict blind.
+        if (room(slug).session.mode !== "guess") broadcast(slug, "setVar", { id: "votesByOption", value: tally(slug) });
+        logActivity(slug, "vote", "투표함");
+        send(ws, "actionAck", { clientMsgId: d.clientMsgId, accepted: true });
+      } else if (d?.name === "tally") {
+        // Co-op shared counter: every contribution ADDS to one room total
+        // (unlike vote, which is one-per-person). Drives a shared goal bar.
+        const delta = Number(d?.payload?.delta);
+        room(slug).coop += Number.isFinite(delta) ? delta : 1;
+        bumpUser(anonId, nick, 1);
+        broadcast(slug, "setVar", { id: "coopTotal", value: room(slug).coop });
+        logActivity(slug, "tally", "힘 보탬");
+        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
+      } else if (d?.name === "score") {
+        // Live competitive leaderboard: server keeps each player's BEST score and
+        // broadcasts the sorted top-10 (numbers). Clients show "누가 1등".
+        const s = Number(d?.payload?.score);
+        if (Number.isFinite(s)) {
+          const r = room(slug);
+          const wasTop = board(slug)[0] ?? 0;
+          const isRecord = s > (r.scores.get(anonId) ?? -Infinity);
+          if (isRecord) r.scores.set(anonId, s);
+          bumpUser(anonId, nick, isRecord ? 2 : 1); // +2 for a personal record, else +1
+          broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
+          logActivity(slug, "score", s >= wasTop && s > 0 ? "신기록 🏆" : "점수 갱신");
+          send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
+        }
+      } else if (d?.name === "tap") {
+        const r = room(slug);
+        if (r.session.mode === "nunchi") {
+          // claim the next number; a 350ms window groups near-simultaneous taps
+          if (r.session.phase === "play" && !r.session.eliminated.has(anonId) && !(r.session.pending || []).some((x) => x.anonId === anonId)) {
+            r.session.pending = r.session.pending || [];
+            r.session.pending.push({ anonId, nick: cleanNick(nick) || r.roster.get(anonId) || "게스트", ws });
+            if (r.session.pending.length === 1) r.session.timers.push(setTimeout(() => resolveNunchi(slug), 350));
+          }
+        } else if (r.session.mode === "reaction") {
+          // Reaction duel: one tap per player. After green → reaction-ms score
+          // (faster = higher). Before green → foul (score 0, locked).
+          if (r.session.phase === "play" && r.session.reacted && !r.session.reacted.has(anonId)) {
+            r.session.reacted.add(anonId);
+            r.nicks.set(anonId, cleanNick(nick) || r.nicks.get(anonId) || "게스트");
+            const score = r.session.goAt > 0 ? Math.max(1, 2000 - (Date.now() - r.session.goAt)) : 0; // 0 = 부정출발
+            r.scores.set(anonId, score);
+            broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
+          }
+        } else if (r.session.phase === "play") {
+          // Live game session: each tap adds +1 to the caller's THIS-ROUND score.
+          // Powers tap-battle style races (most taps wins) — no dynamic payload needed.
+          r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + 1);
+          r.nicks.set(anonId, cleanNick(nick) || r.nicks.get(anonId) || "게스트");
+          broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
+          broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
+        }
+        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
+      } else if (d?.name === "answer") {
+        // Quiz answer: one per player per round, scored by correctness × speed.
+        const r = room(slug);
+        if (r.session.quiz && r.session.accepting && r.session.answered && !r.session.answered.has(anonId)) {
+          r.session.answered.add(anonId);
+          const round = r.session.rounds[r.session.roundIdx];
+          if (round && Number(d?.payload?.option) === round.answer) {
+            const elapsed = Date.now() - r.session.roundStart;
+            const pts = Math.max(100, 1000 - Math.round((elapsed / r.session.answerMs) * 800)); // faster = more
+            r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + pts);
+            r.nicks.set(anonId, cleanNick(nick) || r.nicks.get(anonId) || "게스트");
+            bumpUser(anonId, nick, 2);
+            broadcast(slug, "setVar", { id: "raceBoard", value: raceBoard(slug) });
+            broadcast(slug, "setVar", { id: "leaderboard", value: board(slug) });
+          } else { bumpUser(anonId, nick, 1); }
+        }
+        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
+      } else if (d?.name === "start") {
+        startSession(slug, d?.payload).catch((e) => console.error("[snack] startSession failed", e));   // anyone in the lobby can start
+        bumpUser(anonId, nick, 1);
+        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
+      } else if (d?.name === "lobby") {
+        const r = room(slug); clearSessionTimers(r); setPhase(slug, "lobby", { sessionCountdown: 0 });
+        send(ws, "actionAck", { clientMsgId: d?.clientMsgId, accepted: true });
+      }
+    }
+  });
+  ws.on("close", () => {
+    if (!slug) return;
+    const r = room(slug); r.sockets.delete(ws);
+    r.roster.delete(anonId);
+    broadcast(slug, "participants", { count: r.sockets.size });
+    broadcast(slug, "setVar", { id: "roster", value: rosterArr(slug) });
+    broadcast(slug, "setVar", { id: "rosterPhotos", value: rosterPhotosArr(slug) });
+    // Evict empty rooms from memory — votes are persisted to disk and reload on
+    // next join, so this is lossless and bounds memory to currently-active rooms.
+    if (r.sockets.size === 0) { clearSessionTimers(r); rooms.delete(slug); }
+  });
+});
+
+// No host arg → Node binds :: dual-stack (IPv6 ::1 + IPv4 127.0.0.1 + LAN),
+// so `localhost` works whether the browser resolves it to ::1 or 127.0.0.1.
+server.listen(PORT, () => {
+  console.log(`[snack-server] http+ws on :${PORT} (dual-stack)  apps=${Object.keys(apps).join(",")}`);
+  // Warm content + worldcup images at boot so the first viewer opens instantly,
+  // then keep them warm across KST cache rotations (~10min tracks hourly/daily).
+  void prewarmAll();
+  setInterval(() => void prewarmAll(), 600_000).unref?.();
+});

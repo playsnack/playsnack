@@ -1,0 +1,223 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "행운 칭찬 버튼"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "phraseIndex": 0,
+    "tapCount": 0,
+    "compliments": [
+      "오늘의 당신은 반짝반짝 빛나요 ✨",
+      "당신의 미소가 행운을 불러와요 😊",
+      "작은 선택도 멋지게 해내는 사람이에요",
+      "오늘은 당신 편인 하루예요 🍀",
+      "당신은 생각보다 훨씬 강해요",
+      "지금 그대로도 충분히 잘하고 있어요",
+      "좋은 일이 살금살금 다가오고 있어요",
+      "당신의 따뜻함은 주변을 밝게 해요 🌷"
+    ]
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#FFF7E8"
+      },
+      {
+        "id": "topGlow",
+        "box": "free",
+        "width": 220,
+        "height": 220,
+        "x": -70,
+        "y": -80,
+        "opacity": 0.55,
+        "fill": "#FFE08A",
+        "radius": "full"
+      },
+      {
+        "id": "bottomGlow",
+        "box": "free",
+        "width": 210,
+        "height": 210,
+        "x": 210,
+        "y": 500,
+        "opacity": 0.5,
+        "fill": "#FFD1DC",
+        "radius": "full"
+      },
+      {
+        "id": "title",
+        "text": "행운 칭찬 버튼",
+        "width": 300,
+        "height": 40,
+        "x": 180,
+        "y": 76,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 28,
+        "font": "display",
+        "color": "#3A2E24"
+      },
+      {
+        "id": "subtitle",
+        "text": "탭할 때마다 오늘의 칭찬이 바뀌어요",
+        "width": 300,
+        "height": 26,
+        "x": 180,
+        "y": 112,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 500,
+        "color": "#7A6657"
+      },
+      {
+        "id": "card",
+        "box": "free",
+        "width": 296,
+        "height": 220,
+        "x": 32,
+        "y": 168,
+        "fill": "#FFFFFF",
+        "radius": 26,
+        "onTap": [
+          {
+            "set": "phraseIndex",
+            "to": "phraseIndex >= 7 ? 0 : phraseIndex + 1"
+          },
+          {
+            "set": "tapCount",
+            "to": "tapCount + 1"
+          }
+        ],
+        "children": [
+          {
+            "id": "sparkle1",
+            "text": "✨",
+            "x": 42,
+            "y": 36,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 24,
+            "color": "#F6B800"
+          },
+          {
+            "id": "sparkle2",
+            "text": "🍀",
+            "x": 252,
+            "y": 42,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 25,
+            "color": "#27AE60"
+          },
+          {
+            "id": "phraseText",
+            "text": "{compliments[phraseIndex]}",
+            "width": 238,
+            "height": 100,
+            "x": 148,
+            "y": 112,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 23,
+            "font": "display",
+            "color": "#2F2A26"
+          },
+          {
+            "id": "countText",
+            "text": "오늘 받은 행운 {tapCount}개",
+            "width": 220,
+            "height": 26,
+            "x": 148,
+            "y": 184,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 14,
+            "weight": 600,
+            "color": "#9A8574"
+          }
+        ]
+      },
+      {
+        "id": "luckButton",
+        "box": "free",
+        "width": 250,
+        "height": 82,
+        "x": 55,
+        "y": 430,
+        "fill": "#FFB23F",
+        "radius": 41,
+        "scale": "{tapCount == 0 ? 1 : 1.02}",
+        "onTap": [
+          {
+            "set": "phraseIndex",
+            "to": "phraseIndex >= 7 ? 0 : phraseIndex + 1"
+          },
+          {
+            "set": "tapCount",
+            "to": "tapCount + 1"
+          }
+        ],
+        "children": [
+          {
+            "id": "buttonLabel",
+            "text": "{tapCount == 0 ? '행운 받기 ✨' : '한 번 더 받기 🍀'}",
+            "width": 210,
+            "height": 30,
+            "x": 125,
+            "y": 41,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 24,
+            "font": "display",
+            "color": "#3A2500"
+          }
+        ]
+      },
+      {
+        "id": "hint",
+        "text": "버튼을 눌러 기분 좋은 말을 뽑아보세요",
+        "width": 300,
+        "height": 34,
+        "x": 180,
+        "y": 548,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 600,
+        "color": "#8C7463"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "updatedAt": "2026-06-29",
+  "source": "melon TOP_100",
+  "items": [
+    { "song": "갑자기", "artist": "아이오아이", "rank": 1 },
+    { "song": "REDRED", "artist": "CORTIS", "rank": 2 },
+    { "song": "It's Me", "artist": "아일릿", "rank": 3 },
+    { "song": "LEMONADE", "artist": "aespa", "rank": 4 },
+    { "song": "LOVE ATTACK", "artist": "RESCENE", "rank": 5 },
+    { "song": "소문의 낙원", "artist": "악뮤", "rank": 6 },
+    { "song": "캐치 캐치", "artist": "예나", "rank": 7 },
+    { "song": "RUDE!", "artist": "Hearts2Hearts", "rank": 9 },
+    { "song": "사랑하게 될 거야", "artist": "한로로", "rank": 10 },
+    { "song": "Drowning", "artist": "WOODZ", "rank": 11 },
+    { "song": "Good Goodbye", "artist": "화사", "rank": 13, "rising": true },
+    { "song": "Heavy Serenade", "artist": "NMIXX", "rank": 14 },
+    { "song": "BANG BANG", "artist": "IVE", "rank": 15 },
+    { "song": "404 (New Era)", "artist": "KiiiKiii", "rank": 16 },
+    { "song": "타임캡슐", "artist": "다비치", "rank": 17 },
+    { "song": "Popcorn", "artist": "도경수", "rank": 18 },
+    { "song": "SWIM", "artist": "방탄소년단", "rank": 19 },
+    { "song": "멸종위기사랑", "artist": "이찬혁", "rank": 24, "rising": true },
+    { "song": "Blue Valentine", "artist": "NMIXX", "rank": 21 },
+    { "song": "너에게 닿기를", "artist": "10CM", "rank": 23 }
+  ]
+}

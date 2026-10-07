@@ -1,0 +1,611 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "눈치게임",
+    "multi": true
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "sessionPhase": "lobby",
+    "sessionCountdown": 0,
+    "roster": [],
+    "nunchiNum": 1,
+    "eliminatedCount": 0,
+    "lastEvent": "",
+    "iAmOut": false,
+    "nunchiWinner": ""
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "PrimaryButton": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 56,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 800,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    }
+  },
+  "start": "lobby",
+  "phases": {
+    "lobby": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "countdown": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "play": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "lobbyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'lobby'",
+        "children": [
+          {
+            "id": "navL",
+            "use": "NavBar",
+            "props": {
+              "title": "눈치게임",
+              "subtitle": "대기실"
+            }
+          },
+          {
+            "id": "lobbyCard",
+            "box": "column",
+            "width": 358,
+            "height": 250,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "lobbyEmoji",
+                "text": "🤫",
+                "size": 48,
+                "align": "center"
+              },
+              {
+                "id": "lobbyCount",
+                "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
+                "width": 320,
+                "size": 26,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "lobbyNames",
+                "text": "{phase == 'lobby' ? (roster.length > 0 ? roster.join(' · ') : '입장 중…') : ''}",
+                "width": 320,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "lobbyHint",
+            "text": "1, 2, 3… 다음 숫자를 먼저 선점! 동시에 누르면 둘 다 탈락 😬 (2명+ 권장)",
+            "width": 340,
+            "size": 14,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "lobbySpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1,
+            "grow": 1
+          },
+          {
+            "id": "startBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "시작하기 🚀"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'lobby'",
+                "then": [
+                  {
+                    "set": "iAmOut",
+                    "to": "false"
+                  },
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "mode": "nunchi"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "countdownScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'countdown'",
+        "children": [
+          {
+            "id": "navC",
+            "use": "NavBar",
+            "props": {
+              "title": "눈치게임",
+              "subtitle": "곧 시작!"
+            }
+          },
+          {
+            "id": "cdCard",
+            "box": "column",
+            "width": "fill",
+            "height": 420,
+            "gap": 8,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "cdNum",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? ('' + (sessionCountdown)) : 'GO!') : '3'}",
+                "width": 320,
+                "size": 140,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "cdLabel",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? '준비…' : '눈치!') : '준비…'}",
+                "width": 320,
+                "size": 20,
+                "weight": 700,
+                "color": "#ffffff",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "navP",
+            "use": "NavBar",
+            "props": {
+              "title": "눈치게임",
+              "subtitle": "눈치!"
+            }
+          },
+          {
+            "id": "numCard",
+            "box": "column",
+            "width": 358,
+            "height": 200,
+            "gap": 2,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "numLabel",
+                "text": "다음에 선점할 숫자",
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "numBig",
+                "text": "{phase == 'play' ? (('' + (nunchiNum))) : '1'}",
+                "size": 96,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "statusLine",
+            "text": "{phase == 'play' ? (('' + (max(0, roster.length - eliminatedCount)) + '명 생존 · ' + (eliminatedCount) + '명 탈락')) : ''}",
+            "width": 340,
+            "size": 15,
+            "weight": 700,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "eventLine",
+            "text": "{phase == 'play' ? (lastEvent || '') : ''}",
+            "width": 340,
+            "size": 15,
+            "weight": 600,
+            "color": "#d7dce3",
+            "align": "center"
+          },
+          {
+            "id": "tapArea",
+            "box": "column",
+            "width": "fill",
+            "height": 250,
+            "gap": 6,
+            "align": "center",
+            "justify": "center",
+            "fill": "{phase == 'play' ? (iAmOut ? '#2a2d33' : '#d9ff00') : '#d9ff00'}",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "emit": "tap"
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "tapBig",
+                "text": "{phase == 'play' ? (iAmOut ? '😵' : '✋') : '✋'}",
+                "size": 64,
+                "align": "center"
+              },
+              {
+                "id": "tapTxt",
+                "text": "{phase == 'play' ? (iAmOut ? '탈락 — 구경 모드' : '선점! (지금 누르기)') : '선점!'}",
+                "size": 26,
+                "font": "display",
+                "color": "{phase == 'play' ? (iAmOut ? '#9aa3af' : '#0b0c0e') : '#0b0c0e'}",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "navR",
+            "use": "NavBar",
+            "props": {
+              "title": "눈치게임",
+              "subtitle": "결과"
+            }
+          },
+          {
+            "id": "resCard",
+            "box": "column",
+            "width": 358,
+            "height": 260,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resEmoji",
+                "text": "{phase == 'result' ? (nunchiWinner === '전멸 😂 아무도 못 살아남았어요' ? '💥' : '🏆') : '🏆'}",
+                "size": 64,
+                "align": "center"
+              },
+              {
+                "id": "resTitle",
+                "text": "{phase == 'result' ? (nunchiWinner || '결과') : ''}",
+                "width": 320,
+                "size": 24,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "resSpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1,
+            "grow": 1
+          },
+          {
+            "id": "againBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "다시 하기 🔁"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "iAmOut",
+                    "to": "false"
+                  },
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "mode": "nunchi"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

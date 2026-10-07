@@ -1,0 +1,26 @@
+node_modules/
+# Build outputs.
+snack-player/dist/
+snack-server/dist/
+build/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.db
+# Ignore runtime state (apps/votes) but VERSION the curated starter templates
+# AND the real-data seed pools (Melon chart / brikorea reputation snapshots —
+# curated starter data, refreshed periodically; see docs/seed-refresh.md). Without
+# pools/, a fresh checkout has no real data and worldcups degrade to LLM fallback.
+# data/* (not data/) ignores direct children only, so these dirs can be re-included.
+# index.json carries seed metadata; rating counts mutate at runtime.
+snack-server/data/*
+!snack-server/data/templates/
+!snack-server/data/pools/
+# Bite conversions of the starter templates (B3) — versioned like templates/.
+!snack-server/data/bite/
+.vite/
+coverage/

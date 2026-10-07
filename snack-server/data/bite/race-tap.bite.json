@@ -1,0 +1,577 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "빨리 누르기 대결"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "score": 0,
+    "startedAt": 0,
+    "duration": 10000,
+    "leaderboard": []
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "play": {
+      "tick": [
+        {
+          "if": "now - startedAt >= duration",
+          "then": [
+            {
+              "emit": "score",
+              "payload": {
+                "score": "score"
+              }
+            },
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "readyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "readyNav",
+            "use": "NavBar",
+            "props": {
+              "title": "빨리 누르기 대결",
+              "subtitle": "같은 링크의 모두가 10초 승부!"
+            }
+          },
+          {
+            "id": "readyHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "readyBadge",
+                "box": "column",
+                "width": 108,
+                "height": 108,
+                "align": "center",
+                "justify": "center",
+                "fill": "#d9ff00",
+                "shadow": {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 28,
+                  "color": "#d9ff0066"
+                },
+                "children": [
+                  {
+                    "id": "readyIcon",
+                    "text": "⚡",
+                    "size": 52,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "readyTitle",
+                "text": "10초 동안\n최대한 빠르게 탭하세요",
+                "size": 31,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyBody",
+                "text": "게임이 끝나면 점수가 자동 제출되고, 실시간 리더보드에서 상위 점수를 확인할 수 있어요.",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "startBtn",
+            "use": "Button",
+            "props": {
+              "label": "시작하기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "readyHint",
+            "text": "팁: 두 엄지로 번갈아 누르면 더 빨라요.",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "playNav",
+            "use": "NavBar",
+            "props": {
+              "title": "탭 배틀 진행 중",
+              "subtitle": "시간이 0초가 되면 자동 종료"
+            }
+          },
+          {
+            "id": "statsRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "scoreCard",
+                "use": "StatCard",
+                "props": {
+                  "label": "내 점수",
+                  "value": "{phase == 'play' ? (('' + (score) + '점')) : '0점'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "timerCard",
+                "use": "StatCard",
+                "props": {
+                  "label": "남은 시간",
+                  "value": "{phase == 'play' ? (('' + (max(0, ceil((duration - (now - startedAt)) / 1000))) + '초')) : '10초'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "tapArena",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "comboText",
+                "text": "{phase == 'play' ? (score >= 80 ? '미친 속도예요!' : score >= 50 ? '상위권 페이스!' : score >= 25 ? '좋아요, 더 빠르게!' : '속도를 올려요') : '속도를 올려요'}",
+                "size": 18,
+                "weight": 700,
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "tapBtn",
+                "box": "column",
+                "width": 236,
+                "height": 236,
+                "gap": 4,
+                "align": "center",
+                "justify": "center",
+                "fill": "#d9ff00",
+                "radius": 118,
+                "shadow": {
+                  "x": 0,
+                  "y": 14,
+                  "blur": 34,
+                  "color": "#d9ff0070"
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'play'",
+                    "then": [
+                      {
+                        "set": "score",
+                        "to": "score + 1"
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "tapBtnText",
+                    "text": "TAP",
+                    "size": 52,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  },
+                  {
+                    "id": "tapBtnSub",
+                    "text": "빠르게 누르기",
+                    "size": 15,
+                    "weight": 800,
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "playTip",
+                "text": "버튼 영역을 계속 연타하세요. 모든 플레이어의 최고 점수가 함께 집계됩니다.",
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "결과 & 리더보드",
+              "subtitle": "같은 링크의 실시간 상위 점수"
+            }
+          },
+          {
+            "id": "myResultCard",
+            "box": "column",
+            "gap": 10,
+            "pad": 18,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultLabel",
+                "text": "이번 기록",
+                "size": 13,
+                "weight": 700,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "finalScore",
+                "text": "{phase == 'result' ? (('' + (score) + '점')) : '0점'}",
+                "size": 48,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "rankText",
+                "text": "{phase == 'result' ? (leaderboard.length === 0 ? '점수 제출 완료 · 순위 집계 중' : ('현재 내 예상 등수: ' + (leaderboard.filter(x => x > score).length + 1) + '위')) : '리더보드 반영 중...'}",
+                "size": 15,
+                "weight": 600,
+                "color": "#d9ff00",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "leaderboardCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 12,
+            "pad": 16,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "boardHeader",
+                "box": "row",
+                "height": "hug",
+                "gap": 8,
+                "align": "center",
+                "children": [
+                  {
+                    "id": "boardTitle",
+                    "text": "🏆 TOP 10",
+                    "size": 19,
+                    "weight": 800,
+                    "color": "#ffffff"
+                  },
+                  {
+                    "id": "liveChip",
+                    "use": "Chip",
+                    "props": {
+                      "label": "LIVE"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "emptyBoard",
+                "text": "첫 기록을 기다리는 중이에요.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center",
+                "show": "phase == 'play' ? true : (leaderboard.length === 0)"
+              },
+              {
+                "id": "leaderList",
+                "box": "column",
+                "gap": 8,
+                "each": "leaderboard",
+                "children": [
+                  {
+                    "box": "row",
+                    "height": 50,
+                    "pad": [
+                      0,
+                      14
+                    ],
+                    "align": "center",
+                    "justify": "between",
+                    "fill": "#1e2127",
+                    "children": [
+                      {
+                        "text": "{index + 1}위",
+                        "size": 15,
+                        "weight": 800,
+                        "color": "#d9ff00"
+                      },
+                      {
+                        "text": "{item}점",
+                        "size": 18,
+                        "weight": 800,
+                        "color": "#ffffff"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 도전하기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "resultHint",
+            "text": "새 기록을 세우면 리더보드가 실시간으로 갱신됩니다.",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      }
+    ]
+  }
+}

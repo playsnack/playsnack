@@ -1,0 +1,34 @@
+{
+  "bite": 1,
+  "meta": { "name": "반응속도 테스트" },
+  "frame": [390, 844],
+  "vars": { "bestMs": 0, "lastMs": 0, "greenAt": 0, "delayMs": 1800 },
+  "start": "ready",
+  "phases": {
+    "ready": { },
+    "wait":  { "enter": [ { "set": "delayMs", "to": "randint(1200, 3500)" },
+                          { "set": "greenAt", "to": "now + delayMs" } ],
+               "tick":  [ { "if": "now >= greenAt", "then": [ { "go": "green" } ] } ] },
+    "green": { },
+    "fail":  { },
+    "done":  { "enter": [ { "set": "bestMs", "to": "bestMs == 0 ? lastMs : min(bestMs, lastMs)" } ] }
+  },
+  "view": {
+    "box": "column", "pad": [59, 16, 34, 16], "gap": 16, "fill": "#0b0c0e",
+    "children": [
+      { "text": "반응속도 테스트", "size": 28, "weight": 800, "color": "#ffffff" },
+      { "id": "pad", "box": "column", "height": "fill", "radius": 24, "justify": "center", "align": "center",
+        "fill": "{phase == 'green' ? '#d9ff00' : phase == 'fail' ? '#ff5a5f' : '#16181c'}",
+        "onTap": [
+          { "if": "phase == 'ready' || phase == 'done' || phase == 'fail'", "then": [ { "go": "wait" } ] },
+          { "if": "phase == 'wait'",  "then": [ { "go": "fail" } ] },
+          { "if": "phase == 'green'", "then": [ { "set": "lastMs", "to": "now - greenAt" }, { "go": "done" } ] }
+        ],
+        "children": [
+          { "text": "{phase == 'wait' ? '기다리세요…' : phase == 'green' ? '지금!' : phase == 'fail' ? '너무 빨라요' : phase == 'done' ? lastMs + 'ms' : '탭해서 시작'}",
+            "size": 34, "weight": 800, "color": "{phase == 'green' ? '#0b0c0e' : '#ffffff'}" },
+          { "text": "최고 기록 {bestMs}ms", "show": "bestMs > 0", "size": 15, "color": "#9aa3af" }
+        ] }
+    ]
+  }
+}

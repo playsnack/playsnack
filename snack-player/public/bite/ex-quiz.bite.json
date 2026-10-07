@@ -1,0 +1,326 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "3문제 성격 테스트"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "qIndex": 0,
+    "score": 0,
+    "questions": [
+      "주말 아침, 당신이 더 끌리는 것은?",
+      "낯선 모임에 갔을 때 나는?",
+      "중요한 결정을 할 때 더 믿는 것은?"
+    ],
+    "optionA": [
+      "조용한 카페에서 혼자 충전하기",
+      "먼저 분위기를 살피며 천천히 적응",
+      "차분하게 장단점을 정리하기"
+    ],
+    "optionB": [
+      "친구들과 즉흥 나들이 떠나기",
+      "가볍게 말을 걸며 금방 어울림",
+      "느낌이 오는 쪽으로 빠르게 선택"
+    ]
+  },
+  "start": "quiz",
+  "phases": {
+    "quiz": {},
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#FFF7ED"
+      },
+      {
+        "id": "topBadge",
+        "box": "free",
+        "width": 118,
+        "height": 34,
+        "x": 24,
+        "y": 34,
+        "fill": "#FDBA74",
+        "radius": 17
+      },
+      {
+        "id": "topBadgeText",
+        "text": "성격 테스트",
+        "x": 83,
+        "y": 51,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 700,
+        "color": "#7C2D12"
+      },
+      {
+        "id": "progressText",
+        "text": "{phase == 'result' ? undefined : (('' + (qIndex + 1) + ' / 3'))}",
+        "x": 336,
+        "y": 52,
+        "origin": [
+          100,
+          50
+        ],
+        "size": 15,
+        "weight": 700,
+        "color": "#9A3412",
+        "show": "phase == 'quiz'"
+      },
+      {
+        "id": "card",
+        "box": "free",
+        "width": 312,
+        "height": 288,
+        "x": 24,
+        "y": 92,
+        "fill": "#FFFFFF",
+        "radius": 28,
+        "show": "phase == 'quiz'"
+      },
+      {
+        "id": "questionNo",
+        "text": "{phase == 'result' ? undefined : (('Q' + (qIndex + 1)))}",
+        "x": 180,
+        "y": 130,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 18,
+        "weight": 700,
+        "color": "#EA580C",
+        "show": "phase == 'quiz'"
+      },
+      {
+        "id": "questionText",
+        "text": "{phase == 'result' ? undefined : (questions[qIndex])}",
+        "width": 270,
+        "height": 82,
+        "x": 180,
+        "y": 185,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 27,
+        "font": "display",
+        "color": "#1F2937",
+        "show": "phase == 'quiz'"
+      },
+      {
+        "id": "hintText",
+        "text": "더 가까운 답을 탭하세요",
+        "x": 180,
+        "y": 276,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 600,
+        "color": "#9CA3AF",
+        "show": "phase == 'quiz'"
+      },
+      {
+        "id": "optionABox",
+        "box": "free",
+        "width": 288,
+        "height": 78,
+        "x": 36,
+        "y": 410,
+        "fill": "#FFEDD5",
+        "radius": 22,
+        "show": "phase == 'quiz'",
+        "onTap": [
+          {
+            "if": "phase == 'quiz'",
+            "then": [
+              {
+                "if": "qIndex < 2",
+                "then": [
+                  {
+                    "set": "qIndex",
+                    "to": "qIndex + 1"
+                  }
+                ],
+                "else": [
+                  {
+                    "go": "result"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "children": [
+          {
+            "id": "optionALabel",
+            "text": "{phase == 'result' ? undefined : (optionA[qIndex])}",
+            "x": 144,
+            "y": 39,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 18,
+            "weight": 700,
+            "color": "#7C2D12"
+          }
+        ]
+      },
+      {
+        "id": "optionBBox",
+        "box": "free",
+        "width": 288,
+        "height": 78,
+        "x": 36,
+        "y": 506,
+        "fill": "#FED7AA",
+        "radius": 22,
+        "show": "phase == 'quiz'",
+        "onTap": [
+          {
+            "if": "phase == 'quiz'",
+            "then": [
+              {
+                "set": "score",
+                "to": "score + 1"
+              },
+              {
+                "if": "qIndex < 2",
+                "then": [
+                  {
+                    "set": "qIndex",
+                    "to": "qIndex + 1"
+                  }
+                ],
+                "else": [
+                  {
+                    "go": "result"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "children": [
+          {
+            "id": "optionBLabel",
+            "text": "{phase == 'result' ? undefined : (optionB[qIndex])}",
+            "x": 144,
+            "y": 39,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 18,
+            "weight": 700,
+            "color": "#7C2D12"
+          }
+        ]
+      },
+      {
+        "id": "resultEmoji",
+        "text": "{phase == 'result' ? (score <= 1 ? '🌿' : score == 2 ? '✨' : '🔥') : '🌟'}",
+        "x": 180,
+        "y": 145,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 58,
+        "show": "phase == 'result'"
+      },
+      {
+        "id": "resultTitle",
+        "text": "{phase == 'result' ? (score <= 1 ? '차분한 관찰자' : score == 2 ? '균형 잡힌 탐험가' : '에너지 리더') : undefined}",
+        "width": 300,
+        "height": 50,
+        "x": 180,
+        "y": 230,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 28,
+        "font": "display",
+        "color": "#1F2937",
+        "show": "phase == 'result'"
+      },
+      {
+        "id": "resultDesc",
+        "text": "{phase == 'result' ? (score <= 1 ? '깊이 생각하고 안정감을 중요하게 여기는 타입이에요.' : score == 2 ? '상황에 맞춰 신중함과 즉흥성을 잘 섞는 타입이에요.' : '사람들과 함께할 때 더 빛나고 빠른 실행력이 강점이에요.') : undefined}",
+        "width": 292,
+        "height": 96,
+        "x": 180,
+        "y": 305,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 18,
+        "weight": 600,
+        "color": "#6B7280",
+        "show": "phase == 'result'"
+      },
+      {
+        "id": "restartBtn",
+        "box": "free",
+        "width": 220,
+        "height": 64,
+        "x": 70,
+        "y": 475,
+        "fill": "#EA580C",
+        "radius": 24,
+        "show": "phase == 'result'",
+        "onTap": [
+          {
+            "if": "phase == 'result'",
+            "then": [
+              {
+                "set": "qIndex",
+                "to": "0"
+              },
+              {
+                "set": "score",
+                "to": "0"
+              },
+              {
+                "go": "quiz"
+              }
+            ]
+          }
+        ],
+        "children": [
+          {
+            "id": "restartLabel",
+            "text": "다시 해보기",
+            "x": 110,
+            "y": 32,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 20,
+            "weight": 800,
+            "color": "#FFFFFF"
+          }
+        ]
+      }
+    ]
+  }
+}

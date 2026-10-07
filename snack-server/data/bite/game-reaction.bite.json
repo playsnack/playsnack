@@ -1,0 +1,674 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "반응속도 테스트"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "attempts": 0,
+    "totalMs": 0,
+    "bestMs": 0,
+    "lastMs": 0,
+    "startedAt": 0,
+    "greenAt": 0,
+    "delayMs": 1800
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "waiting": {
+      "tick": [
+        {
+          "if": "now - startedAt >= delayMs",
+          "then": [
+            {
+              "set": "greenAt",
+              "to": "now"
+            },
+            {
+              "go": "green"
+            }
+          ]
+        }
+      ]
+    },
+    "green": {},
+    "result": {},
+    "fail": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "readyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "readyNav",
+            "use": "NavBar",
+            "props": {
+              "title": "반응속도 테스트",
+              "subtitle": "초록색이 되는 순간 탭하세요"
+            }
+          },
+          {
+            "id": "heroCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "readyOrb",
+                "box": "free",
+                "width": 156,
+                "height": 156,
+                "fill": "#d9ff00",
+                "radius": "full",
+                "shadow": {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 30,
+                  "color": "#d9ff0055"
+                }
+              },
+              {
+                "id": "readyTitle",
+                "text": "빨강이면 기다리고,\n초록이면 바로 탭!",
+                "size": 30,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyDesc",
+                "text": "너무 빨리 누르면 실패입니다. 여러 번 시도해서 평균과 최고 기록을 갱신해보세요.",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "readyStatsRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "avgStatReady",
+                "use": "StatCard",
+                "props": {
+                  "label": "평균",
+                  "value": "{phase == 'ready' ? (attempts > 0 ? ('' + (round(totalMs / attempts)) + ' ms') : ('-- ms')) : '-- ms'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "bestStatReady",
+                "use": "StatCard",
+                "props": {
+                  "label": "최고",
+                  "value": "{phase == 'ready' ? (bestMs > 0 ? ('' + (bestMs) + ' ms') : ('-- ms')) : '-- ms'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "startBtn",
+            "use": "Button",
+            "props": {
+              "label": "시작"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "set": "greenAt",
+                    "to": "0"
+                  },
+                  {
+                    "set": "delayMs",
+                    "to": "1200 + round(random() * 2800)"
+                  },
+                  {
+                    "go": "waiting"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "waitScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'waiting'",
+        "children": [
+          {
+            "id": "waitNav",
+            "use": "NavBar",
+            "props": {
+              "title": "기다리세요",
+              "subtitle": "아직 누르면 실패"
+            }
+          },
+          {
+            "id": "waitTapArea",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#3b1115",
+            "gradient": {
+              "colors": [
+                "#63151d",
+                "#2a0d11"
+              ],
+              "angle": 135
+            },
+            "onTap": [
+              {
+                "if": "phase == 'waiting'",
+                "then": [
+                  {
+                    "go": "fail"
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "waitLabel",
+                "text": "빨강",
+                "size": 58,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "waitSub",
+                "text": "초록색으로 바뀌는 순간 탭",
+                "size": 17,
+                "weight": 600,
+                "color": "#ffb4b4",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "waitHint",
+            "text": "집중하세요. 변화는 곧 찾아옵니다.",
+            "size": 14,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      },
+      {
+        "id": "greenScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'green'",
+        "children": [
+          {
+            "id": "greenNav",
+            "use": "NavBar",
+            "props": {
+              "title": "지금!",
+              "subtitle": "화면을 탭하세요"
+            }
+          },
+          {
+            "id": "greenTapArea",
+            "box": "column",
+            "height": "fill",
+            "gap": 12,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#d9ff00",
+            "shadow": {
+              "x": 0,
+              "y": 12,
+              "blur": 28,
+              "color": "#d9ff0044"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'green'",
+                "then": [
+                  {
+                    "set": "lastMs",
+                    "to": "round(now - greenAt)"
+                  },
+                  {
+                    "set": "totalMs",
+                    "to": "totalMs + round(now - greenAt)"
+                  },
+                  {
+                    "set": "bestMs",
+                    "to": "bestMs === 0 ? round(now - greenAt) : min(bestMs, round(now - greenAt))"
+                  },
+                  {
+                    "set": "attempts",
+                    "to": "attempts + 1"
+                  },
+                  {
+                    "go": "result"
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "greenLabel",
+                "text": "탭!",
+                "size": 76,
+                "font": "display",
+                "color": "#0b0c0e",
+                "align": "center"
+              },
+              {
+                "id": "greenSub",
+                "text": "반응 시간을 측정 중",
+                "size": 17,
+                "weight": 700,
+                "color": "#0b0c0e",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "greenHint",
+            "text": "빠르게, 하지만 정확하게.",
+            "size": 14,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "측정 완료",
+              "subtitle": "기록이 저장되었습니다"
+            }
+          },
+          {
+            "id": "resultCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultCaption",
+                "text": "이번 반응시간",
+                "size": 15,
+                "weight": 700,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "lastText",
+                "text": "{phase == 'result' ? (('' + (lastMs) + ' ms')) : '0 ms'}",
+                "size": 64,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "resultMessage",
+                "text": "좋아요. 한 번 더 하면 평균이 더 정확해져요.",
+                "size": 16,
+                "weight": 500,
+                "color": "#ffffff",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "resultStatsRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "avgStatResult",
+                "use": "StatCard",
+                "props": {
+                  "label": "평균 (ms)",
+                  "value": "{phase == 'result' ? (attempts > 0 ? ('' + (round(totalMs / attempts))) : ('--')) : '-- ms'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "bestStatResult",
+                "use": "StatCard",
+                "props": {
+                  "label": "최고 (ms)",
+                  "value": "{phase == 'result' ? (bestMs > 0 ? ('' + (bestMs)) : ('--')) : '-- ms'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "againBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 시도"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "set": "greenAt",
+                    "to": "0"
+                  },
+                  {
+                    "set": "delayMs",
+                    "to": "1200 + round(random() * 2800)"
+                  },
+                  {
+                    "go": "waiting"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "failScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'fail'",
+        "children": [
+          {
+            "id": "failNav",
+            "use": "NavBar",
+            "props": {
+              "title": "너무 빨랐어요",
+              "subtitle": "빨강에서는 기다려야 합니다"
+            }
+          },
+          {
+            "id": "failCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "failIcon",
+                "text": "⚡️",
+                "size": 70,
+                "font": "display",
+                "color": "#FF5A5F",
+                "align": "center"
+              },
+              {
+                "id": "failTitle",
+                "text": "실패",
+                "size": 42,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "failDesc",
+                "text": "초록색으로 바뀐 뒤에만 탭하세요. 이번 시도는 평균에 포함되지 않습니다.",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "failStatsRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "avgStatFail",
+                "use": "StatCard",
+                "props": {
+                  "label": "평균",
+                  "value": "{phase == 'fail' ? (attempts > 0 ? ('' + (round(totalMs / attempts)) + ' ms') : ('-- ms')) : '-- ms'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "bestStatFail",
+                "use": "StatCard",
+                "props": {
+                  "label": "최고",
+                  "value": "{phase == 'fail' ? (bestMs > 0 ? ('' + (bestMs) + ' ms') : ('-- ms')) : '-- ms'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 준비"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'fail'",
+                "then": [
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "set": "greenAt",
+                    "to": "0"
+                  },
+                  {
+                    "set": "delayMs",
+                    "to": "1200 + round(random() * 2800)"
+                  },
+                  {
+                    "go": "waiting"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

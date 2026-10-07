@@ -1,0 +1,199 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "오늘 기분 이모지 선택"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "selectedEmoji": "😐",
+    "selectedLabel": "보통이에요"
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#FFF7E8"
+      },
+      {
+        "id": "title",
+        "text": "오늘 기분은 어떤가요?",
+        "x": 180,
+        "y": 70,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 26,
+        "weight": 700,
+        "color": "#2B2B2B"
+      },
+      {
+        "id": "subtitle",
+        "text": "아래 이모지 중 하나를 탭해보세요",
+        "x": 180,
+        "y": 108,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 400,
+        "color": "#6B6258"
+      },
+      {
+        "id": "centerCard",
+        "box": "free",
+        "width": 270,
+        "height": 270,
+        "x": 45,
+        "y": 160,
+        "fill": "{selectedEmoji == '😀' ? '#FFF3B0' : (selectedEmoji == '😐' ? '#EEF3FF' : '#EAF7FB')}",
+        "radius": 32
+      },
+      {
+        "id": "centerEmoji",
+        "text": "{selectedEmoji}",
+        "x": 180,
+        "y": 278,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 110,
+        "weight": 700,
+        "color": "#111111"
+      },
+      {
+        "id": "moodText",
+        "text": "{selectedLabel}",
+        "x": 180,
+        "y": 380,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 22,
+        "weight": 700,
+        "color": "#3A342E"
+      },
+      {
+        "id": "emojiBtnHappy",
+        "box": "free",
+        "width": 86,
+        "height": 86,
+        "x": 34,
+        "y": 490,
+        "fill": "#FFE082",
+        "radius": 28,
+        "scale": "{selectedEmoji == '😀' ? 1.1 : 1}",
+        "onTap": [
+          {
+            "set": "selectedEmoji",
+            "to": "'😀'"
+          },
+          {
+            "set": "selectedLabel",
+            "to": "'기분이 좋아요!'"
+          }
+        ],
+        "children": [
+          {
+            "id": "happyEmoji",
+            "text": "😀",
+            "x": 43,
+            "y": 43,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 44,
+            "color": "#111111"
+          }
+        ]
+      },
+      {
+        "id": "emojiBtnNeutral",
+        "box": "free",
+        "width": 86,
+        "height": 86,
+        "x": 137,
+        "y": 490,
+        "fill": "#D7E3FC",
+        "radius": 28,
+        "scale": "{selectedEmoji == '😐' ? 1.1 : 1}",
+        "onTap": [
+          {
+            "set": "selectedEmoji",
+            "to": "'😐'"
+          },
+          {
+            "set": "selectedLabel",
+            "to": "'보통이에요'"
+          }
+        ],
+        "children": [
+          {
+            "id": "neutralEmoji",
+            "text": "😐",
+            "x": 43,
+            "y": 43,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 44,
+            "color": "#111111"
+          }
+        ]
+      },
+      {
+        "id": "emojiBtnSad",
+        "box": "free",
+        "width": 86,
+        "height": 86,
+        "x": 240,
+        "y": 490,
+        "fill": "#CDE7F0",
+        "radius": 28,
+        "scale": "{selectedEmoji == '😢' ? 1.1 : 1}",
+        "onTap": [
+          {
+            "set": "selectedEmoji",
+            "to": "'😢'"
+          },
+          {
+            "set": "selectedLabel",
+            "to": "'조금 슬퍼요'"
+          }
+        ],
+        "children": [
+          {
+            "id": "sadEmoji",
+            "text": "😢",
+            "x": 43,
+            "y": 43,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 44,
+            "color": "#111111"
+          }
+        ]
+      }
+    ]
+  }
+}

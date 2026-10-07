@@ -1,0 +1,291 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "매운맛 레벨 조절기"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "spiceLevel": 0
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#1B0B0B"
+      },
+      {
+        "id": "topGlow",
+        "box": "free",
+        "width": 180,
+        "height": 180,
+        "x": 90,
+        "y": -60,
+        "opacity": "{0.18 + spiceLevel * 0.08}",
+        "fill": "#FF3B30",
+        "radius": "full"
+      },
+      {
+        "id": "title",
+        "text": "매운맛 레벨",
+        "x": 180,
+        "y": 72,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 28,
+        "weight": 700,
+        "color": "#FFFFFF"
+      },
+      {
+        "id": "subtitle",
+        "text": "0부터 5까지 조절해보세요",
+        "x": 180,
+        "y": 108,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 400,
+        "color": "#FFD6D1"
+      },
+      {
+        "id": "levelCard",
+        "box": "free",
+        "width": 296,
+        "height": 250,
+        "x": 32,
+        "y": 150,
+        "fill": "#2A1111",
+        "radius": 28,
+        "children": [
+          {
+            "id": "pepperIcon",
+            "text": "🌶️",
+            "x": 148,
+            "y": 54,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 62,
+            "weight": 700,
+            "color": "#FFFFFF",
+            "scale": "{1 + spiceLevel * 0.06}"
+          },
+          {
+            "id": "levelNumber",
+            "text": "{spiceLevel}",
+            "x": 148,
+            "y": 126,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 78,
+            "font": "display",
+            "color": "{spiceLevel < 2 ? '#FF9F0A' : spiceLevel < 4 ? '#FF453A' : '#FF0037'}"
+          },
+          {
+            "id": "levelLabel",
+            "text": "{spiceLevel === 0 ? '순한맛' : spiceLevel === 1 ? '살짝 매움' : spiceLevel === 2 ? '보통 매움' : spiceLevel === 3 ? '화끈함' : spiceLevel === 4 ? '아주 매움' : '불타는 매움'}",
+            "x": 148,
+            "y": 182,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 22,
+            "weight": 700,
+            "color": "#FFFFFF"
+          },
+          {
+            "id": "rangeLabel",
+            "text": "LEVEL {spiceLevel} / 5",
+            "x": 148,
+            "y": 216,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 15,
+            "weight": 600,
+            "color": "#FFB3AC"
+          }
+        ]
+      },
+      {
+        "id": "bar0",
+        "box": "free",
+        "width": 40,
+        "height": 18,
+        "x": 52,
+        "y": 430,
+        "opacity": "{spiceLevel >= 1 ? 1 : 0.25}",
+        "fill": "#FF453A",
+        "radius": 9
+      },
+      {
+        "id": "bar1",
+        "box": "free",
+        "width": 40,
+        "height": 18,
+        "x": 104,
+        "y": 430,
+        "opacity": "{spiceLevel >= 2 ? 1 : 0.25}",
+        "fill": "#FF453A",
+        "radius": 9
+      },
+      {
+        "id": "bar2",
+        "box": "free",
+        "width": 40,
+        "height": 18,
+        "x": 156,
+        "y": 430,
+        "opacity": "{spiceLevel >= 3 ? 1 : 0.25}",
+        "fill": "#FF453A",
+        "radius": 9
+      },
+      {
+        "id": "bar3",
+        "box": "free",
+        "width": 40,
+        "height": 18,
+        "x": 208,
+        "y": 430,
+        "opacity": "{spiceLevel >= 4 ? 1 : 0.25}",
+        "fill": "#FF453A",
+        "radius": 9
+      },
+      {
+        "id": "bar4",
+        "box": "free",
+        "width": 40,
+        "height": 18,
+        "x": 260,
+        "y": 430,
+        "opacity": "{spiceLevel >= 5 ? 1 : 0.25}",
+        "fill": "#FF453A",
+        "radius": 9
+      },
+      {
+        "id": "minusButton",
+        "box": "free",
+        "width": 126,
+        "height": 74,
+        "x": 42,
+        "y": 490,
+        "fill": "#3A2222",
+        "radius": 22,
+        "opacity": "{spiceLevel === 0 ? 0.45 : 1}",
+        "onTap": [
+          {
+            "set": "spiceLevel",
+            "to": "clamp(spiceLevel - 1, 0, 5)"
+          }
+        ],
+        "children": [
+          {
+            "id": "minusSymbol",
+            "text": "−",
+            "x": 63,
+            "y": 35,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 48,
+            "font": "display",
+            "color": "#FFFFFF"
+          },
+          {
+            "id": "minusCaption",
+            "text": "내리기",
+            "x": 63,
+            "y": 58,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 13,
+            "weight": 600,
+            "color": "#FFD6D1"
+          }
+        ]
+      },
+      {
+        "id": "plusButton",
+        "box": "free",
+        "width": 126,
+        "height": 74,
+        "x": 192,
+        "y": 490,
+        "fill": "#FF453A",
+        "radius": 22,
+        "opacity": "{spiceLevel === 5 ? 0.45 : 1}",
+        "onTap": [
+          {
+            "set": "spiceLevel",
+            "to": "clamp(spiceLevel + 1, 0, 5)"
+          }
+        ],
+        "children": [
+          {
+            "id": "plusSymbol",
+            "text": "+",
+            "x": 63,
+            "y": 35,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 42,
+            "font": "display",
+            "color": "#FFFFFF"
+          },
+          {
+            "id": "plusCaption",
+            "text": "올리기",
+            "x": 63,
+            "y": 58,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 13,
+            "weight": 600,
+            "color": "#FFECE9"
+          }
+        ]
+      },
+      {
+        "id": "hint",
+        "text": "버튼을 눌러 현재 매운맛을 바꿔보세요",
+        "x": 180,
+        "y": 600,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 14,
+        "weight": 400,
+        "color": "#C9A3A0"
+      }
+    ]
+  }
+}

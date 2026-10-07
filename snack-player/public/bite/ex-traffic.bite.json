@@ -1,0 +1,193 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "탭으로 바뀌는 신호등"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "lightIndex": 0
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#101820"
+      },
+      {
+        "id": "title",
+        "text": "신호등을 탭하세요",
+        "x": 180,
+        "y": 58,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 28,
+        "weight": 700,
+        "color": "#FFFFFF"
+      },
+      {
+        "id": "subtitle",
+        "text": "빨강 → 노랑 → 초록",
+        "x": 180,
+        "y": 94,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 16,
+        "weight": 500,
+        "color": "#B8C2CC"
+      },
+      {
+        "id": "trafficLight",
+        "box": "free",
+        "width": 150,
+        "height": 330,
+        "x": 105,
+        "y": 145,
+        "fill": "#202A33",
+        "radius": 32,
+        "onTap": [
+          {
+            "set": "lightIndex",
+            "to": "lightIndex == 2 ? 0 : lightIndex + 1"
+          }
+        ],
+        "children": [
+          {
+            "id": "topCap",
+            "box": "free",
+            "width": 60,
+            "height": 28,
+            "x": 45,
+            "y": -22,
+            "fill": "#202A33",
+            "radius": 10
+          },
+          {
+            "id": "redLight",
+            "box": "free",
+            "width": 80,
+            "height": 80,
+            "x": 35,
+            "y": 30,
+            "fill": "{lightIndex == 0 ? '#FF3B30' : '#4A1515'}",
+            "radius": "full"
+          },
+          {
+            "id": "yellowLight",
+            "box": "free",
+            "width": 80,
+            "height": 80,
+            "x": 35,
+            "y": 125,
+            "fill": "{lightIndex == 1 ? '#FFD60A' : '#5A4A18'}",
+            "radius": "full"
+          },
+          {
+            "id": "greenLight",
+            "box": "free",
+            "width": 80,
+            "height": 80,
+            "x": 35,
+            "y": 220,
+            "fill": "{lightIndex == 2 ? '#34C759' : '#123D26'}",
+            "radius": "full"
+          },
+          {
+            "id": "redGlow",
+            "box": "free",
+            "width": 96,
+            "height": 96,
+            "x": 27,
+            "y": 22,
+            "opacity": "{lightIndex == 0 ? 0.28 : 0}",
+            "fill": "#FF3B30",
+            "radius": "full"
+          },
+          {
+            "id": "yellowGlow",
+            "box": "free",
+            "width": 96,
+            "height": 96,
+            "x": 27,
+            "y": 117,
+            "opacity": "{lightIndex == 1 ? 0.28 : 0}",
+            "fill": "#FFD60A",
+            "radius": "full"
+          },
+          {
+            "id": "greenGlow",
+            "box": "free",
+            "width": 96,
+            "height": 96,
+            "x": 27,
+            "y": 212,
+            "opacity": "{lightIndex == 2 ? 0.28 : 0}",
+            "fill": "#34C759",
+            "radius": "full"
+          }
+        ]
+      },
+      {
+        "id": "pole",
+        "box": "free",
+        "width": 24,
+        "height": 72,
+        "x": 168,
+        "y": 475,
+        "fill": "#27323B",
+        "radius": 8
+      },
+      {
+        "id": "base",
+        "box": "free",
+        "width": 120,
+        "height": 28,
+        "x": 120,
+        "y": 540,
+        "fill": "#27323B",
+        "radius": 14
+      },
+      {
+        "id": "statusCard",
+        "box": "free",
+        "width": 264,
+        "height": 44,
+        "x": 48,
+        "y": 575,
+        "fill": "#FFFFFF",
+        "radius": 22,
+        "children": [
+          {
+            "id": "statusText",
+            "text": "현재: {lightIndex == 0 ? '빨강' : lightIndex == 1 ? '노랑' : '초록'}",
+            "x": 132,
+            "y": 22,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 20,
+            "weight": 700,
+            "color": "{lightIndex == 0 ? '#D70015' : lightIndex == 1 ? '#9A6B00' : '#16833A'}"
+          }
+        ]
+      }
+    ]
+  }
+}

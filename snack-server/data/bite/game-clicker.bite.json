@@ -1,0 +1,610 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "솔로 탭 업그레이드"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "score": 0,
+    "best": 0,
+    "tapPower": 1,
+    "upgradeCost": 25,
+    "startedAt": 0,
+    "duration": 30000
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "play": {
+      "tick": [
+        {
+          "if": "now - startedAt >= duration",
+          "then": [
+            {
+              "set": "best",
+              "to": "max(best, score)"
+            },
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "readyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "readyNav",
+            "use": "NavBar",
+            "props": {
+              "title": "탭 러시",
+              "subtitle": "30초 동안 업그레이드하며 최고 기록에 도전하세요."
+            }
+          },
+          {
+            "id": "readyHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "readyGlow",
+                "box": "free",
+                "width": 168,
+                "height": 168,
+                "fill": "#d9ff00",
+                "radius": "full",
+                "shadow": {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 34,
+                  "color": "#d9ff0066"
+                }
+              },
+              {
+                "id": "readyTitle",
+                "text": "큰 버튼을 빠르게 탭하세요",
+                "size": 30,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyBody",
+                "text": "점수가 쌓이면 탭당 증가량 업그레이드가 열립니다. 비용을 모아 더 강하게 누르세요.",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "readyBest",
+            "use": "StatCard",
+            "props": {
+              "label": "솔로 최고 기록",
+              "value": "{phase == 'ready' ? (('' + (best) + '점')) : '0점'}"
+            }
+          },
+          {
+            "id": "startBtn",
+            "use": "Button",
+            "props": {
+              "label": "시작"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "tapPower",
+                    "to": "1"
+                  },
+                  {
+                    "set": "upgradeCost",
+                    "to": "25"
+                  },
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 10,
+        "pad": [
+          59,
+          16,
+          30,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "playNav",
+            "use": "NavBar",
+            "props": {
+              "title": "탭 러시",
+              "subtitle": "업그레이드 타이밍이 기록을 만듭니다."
+            }
+          },
+          {
+            "id": "statRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "scoreStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "점수",
+                  "value": "{phase == 'play' ? (('' + (score) + '점')) : '0'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "timerStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "남은 시간",
+                  "value": "{phase == 'play' ? (('' + (max(0, ceil((duration - (now - startedAt)) / 1000))) + '초')) : '30초'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "powerRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "powerStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "탭당",
+                  "value": "{phase == 'play' ? (('+' + (tapPower))) : '+1'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "costStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "다음 업그레이드",
+                  "value": "{phase == 'play' ? (('' + (upgradeCost) + '점')) : '25점'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "tapPad",
+            "box": "column",
+            "height": "fill",
+            "gap": 8,
+            "pad": 14,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "shadow": {
+              "x": 0,
+              "y": 12,
+              "blur": 22,
+              "color": "#00000066"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "score",
+                    "to": "score + tapPower"
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "tapCore",
+                "box": "free",
+                "width": 150,
+                "height": 150,
+                "fill": "#d9ff00",
+                "radius": "full",
+                "shadow": {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 36,
+                  "color": "#d9ff0070"
+                }
+              },
+              {
+                "id": "tapLabel",
+                "text": "TAP",
+                "size": 44,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "tapSub",
+                "text": "{phase == 'play' ? (('한 번 탭할 때마다 +' + (tapPower) + '점')) : '버튼 전체를 눌러 점수를 올리세요'}",
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "upgradeBtn",
+            "use": "Button",
+            "props": {
+              "label": "{phase == 'play' ? (score >= upgradeCost ? ('업그레이드: 탭당 +' + (tapPower + 1)) : ('잠김 · ' + (upgradeCost - score) + '점 더 필요')) : '업그레이드 잠김'}"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "if": "score >= upgradeCost",
+                    "then": [
+                      {
+                        "set": "score",
+                        "to": "score - upgradeCost"
+                      },
+                      {
+                        "set": "tapPower",
+                        "to": "tapPower + 1"
+                      },
+                      {
+                        "set": "upgradeCost",
+                        "to": "round(upgradeCost * 1.65 + 10)"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "playHint",
+            "text": "{phase == 'play' ? (score >= upgradeCost ? ('지금 업그레이드할 수 있어요!') : ('큰 버튼을 탭해 ' + (upgradeCost) + '점을 모으세요.')) : '업그레이드 비용을 모으면 버튼이 활성화됩니다.'}",
+            "size": 13,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "기록 완료",
+              "subtitle": "이번 러시의 결과입니다."
+            }
+          },
+          {
+            "id": "resultCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultChip",
+                "use": "Chip",
+                "props": {
+                  "label": "SOLO RECORD"
+                }
+              },
+              {
+                "id": "resultTitle",
+                "text": "멋진 탭이었어요",
+                "size": 30,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "finalScore",
+                "text": "{phase == 'result' ? (('' + (score) + '점')) : '0점'}",
+                "size": 64,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "resultSummary",
+                "text": "{phase == 'result' ? (('탭당 +' + (tapPower) + '까지 성장했어요. 다음 목표는 ' + (max(best + 1, score + 10)) + '점!')) : '탭당 +1까지 성장했어요.'}",
+                "size": 16,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "bestStat",
+            "use": "StatCard",
+            "props": {
+              "label": "최고 기록",
+              "value": "{phase == 'result' ? (('' + (best) + '점')) : '0점'}"
+            }
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 도전"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "tapPower",
+                    "to": "1"
+                  },
+                  {
+                    "set": "upgradeCost",
+                    "to": "25"
+                  },
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "homeBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "준비 화면으로"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "go": "ready"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

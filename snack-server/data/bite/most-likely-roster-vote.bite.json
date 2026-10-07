@@ -1,0 +1,1134 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "우리 중 누가?",
+    "multi": true
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "sessionPhase": "lobby",
+    "sessionCountdown": 0,
+    "roster": [],
+    "rosterPhotos": [],
+    "votesByOption": {
+      "o0": 0,
+      "o1": 0,
+      "o2": 0,
+      "o3": 0,
+      "o4": 0,
+      "o5": 0,
+      "o6": 0,
+      "o7": 0
+    },
+    "roundContent": {
+      "prompt": ""
+    },
+    "roundNum": 0,
+    "roundTotal": 0,
+    "roundIdx": -1,
+    "myVote": "",
+    "myVoteRound": -2
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "PrimaryButton": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 56,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 800,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    }
+  },
+  "start": "lobby",
+  "phases": {
+    "lobby": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "countdown": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "play": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "lobbyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 10,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'lobby'",
+        "children": [
+          {
+            "id": "navL",
+            "use": "NavBar",
+            "props": {
+              "title": "우리 중 누가?",
+              "subtitle": "대기실"
+            }
+          },
+          {
+            "id": "lobbyCard",
+            "box": "column",
+            "width": 358,
+            "height": 250,
+            "grow": 1,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "lobbyEmoji",
+                "text": "🫵",
+                "size": 48,
+                "align": "center"
+              },
+              {
+                "id": "lobbyCount",
+                "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
+                "width": 320,
+                "size": 26,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "lobbyNames",
+                "text": "{phase == 'lobby' ? (roster.length > 0 ? roster.join(' · ') : '입장 중…') : ''}",
+                "width": 320,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "lobbyHint",
+            "text": "방 안의 진짜 사람을 몰래 지목! 최다 득표자가 주인공 😆 · 5라운드 (2명+ 권장)",
+            "width": 340,
+            "size": 14,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "lobbySpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1
+          },
+          {
+            "id": "startBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "시작하기 🚀"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'lobby'",
+                "then": [
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "game": "most-likely",
+                      "rounds": 5,
+                      "roundMs": 8000
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "countdownScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 10,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'countdown'",
+        "children": [
+          {
+            "id": "navC",
+            "use": "NavBar",
+            "props": {
+              "title": "우리 중 누가?",
+              "subtitle": "곧 시작!"
+            }
+          },
+          {
+            "id": "cdCard",
+            "box": "column",
+            "width": "fill",
+            "height": 420,
+            "gap": 8,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "cdNum",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? ('' + (sessionCountdown)) : 'GO!') : '3'}",
+                "width": 320,
+                "size": 140,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "cdLabel",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? '준비…' : '지목!') : '준비…'}",
+                "width": 320,
+                "size": 20,
+                "weight": 700,
+                "color": "#ffffff",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 10,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "navP",
+            "use": "NavBar",
+            "props": {
+              "title": "우리 중 누가?",
+              "subtitle": "지목!"
+            }
+          },
+          {
+            "id": "roundLabel",
+            "text": "{phase == 'play' ? (('' + (roundNum) + ' / ' + (roundTotal))) : '1 / 5'}",
+            "width": 340,
+            "size": 14,
+            "weight": 700,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "promptText",
+            "text": "{phase == 'play' ? (roundContent.prompt || '') : ''}",
+            "width": 350,
+            "size": 20,
+            "weight": 800,
+            "color": "#ffffff",
+            "align": "center"
+          },
+          {
+            "id": "opt0",
+            "box": "free",
+            "width": 358,
+            "height": 56,
+            "fill": "#16181c",
+            "show": "phase == 'play' ? (roster.length > 0) : true",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o0'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o0"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "bar0",
+                "box": "free",
+                "width": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? 6 : max(6, round((votesByOption.o0||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*358))) : 6}",
+                "height": 56,
+                "x": 0,
+                "y": 0,
+                "fill": "{phase == 'play' ? ((myVote === 'o0' && myVoteRound === roundIdx) ? '#d9ff00' : '#2a3a10') : '#2a3a10'}"
+              },
+              {
+                "id": "av0",
+                "image": "{phase == 'play' ? (rosterPhotos[0] || '') : undefined}",
+                "width": 36,
+                "height": 36,
+                "x": 12,
+                "y": 10,
+                "radius": "full",
+                "show": "phase == 'play' ? (roster.length > 0 && !!(rosterPhotos[0])) : true"
+              },
+              {
+                "id": "name0",
+                "text": "{phase == 'play' ? (roster[0] || '') : ''}",
+                "width": 190,
+                "x": 58,
+                "y": 18,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "pct0",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? '' : ('' + (round((votesByOption.o0||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*100)) + '%')) : ''}",
+                "width": 90,
+                "x": 250,
+                "y": 18,
+                "size": 17,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "opt1",
+            "box": "free",
+            "width": 358,
+            "height": 56,
+            "fill": "#16181c",
+            "show": "phase == 'play' ? (roster.length > 1) : true",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o1'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o1"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "bar1",
+                "box": "free",
+                "width": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? 6 : max(6, round((votesByOption.o1||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*358))) : 6}",
+                "height": 56,
+                "x": 0,
+                "y": 0,
+                "fill": "{phase == 'play' ? ((myVote === 'o1' && myVoteRound === roundIdx) ? '#d9ff00' : '#2a3a10') : '#2a3a10'}"
+              },
+              {
+                "id": "av1",
+                "image": "{phase == 'play' ? (rosterPhotos[1] || '') : undefined}",
+                "width": 36,
+                "height": 36,
+                "x": 12,
+                "y": 10,
+                "radius": "full",
+                "show": "phase == 'play' ? (roster.length > 1 && !!(rosterPhotos[1])) : true"
+              },
+              {
+                "id": "name1",
+                "text": "{phase == 'play' ? (roster[1] || '') : ''}",
+                "width": 190,
+                "x": 58,
+                "y": 18,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "pct1",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? '' : ('' + (round((votesByOption.o1||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*100)) + '%')) : ''}",
+                "width": 90,
+                "x": 250,
+                "y": 18,
+                "size": 17,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "opt2",
+            "box": "free",
+            "width": 358,
+            "height": 56,
+            "fill": "#16181c",
+            "show": "phase == 'play' ? (roster.length > 2) : true",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o2'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o2"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "bar2",
+                "box": "free",
+                "width": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? 6 : max(6, round((votesByOption.o2||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*358))) : 6}",
+                "height": 56,
+                "x": 0,
+                "y": 0,
+                "fill": "{phase == 'play' ? ((myVote === 'o2' && myVoteRound === roundIdx) ? '#d9ff00' : '#2a3a10') : '#2a3a10'}"
+              },
+              {
+                "id": "av2",
+                "image": "{phase == 'play' ? (rosterPhotos[2] || '') : undefined}",
+                "width": 36,
+                "height": 36,
+                "x": 12,
+                "y": 10,
+                "radius": "full",
+                "show": "phase == 'play' ? (roster.length > 2 && !!(rosterPhotos[2])) : true"
+              },
+              {
+                "id": "name2",
+                "text": "{phase == 'play' ? (roster[2] || '') : ''}",
+                "width": 190,
+                "x": 58,
+                "y": 18,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "pct2",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? '' : ('' + (round((votesByOption.o2||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*100)) + '%')) : ''}",
+                "width": 90,
+                "x": 250,
+                "y": 18,
+                "size": 17,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "opt3",
+            "box": "free",
+            "width": 358,
+            "height": 56,
+            "fill": "#16181c",
+            "show": "phase == 'play' ? (roster.length > 3) : true",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o3'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o3"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "bar3",
+                "box": "free",
+                "width": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? 6 : max(6, round((votesByOption.o3||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*358))) : 6}",
+                "height": 56,
+                "x": 0,
+                "y": 0,
+                "fill": "{phase == 'play' ? ((myVote === 'o3' && myVoteRound === roundIdx) ? '#d9ff00' : '#2a3a10') : '#2a3a10'}"
+              },
+              {
+                "id": "av3",
+                "image": "{phase == 'play' ? (rosterPhotos[3] || '') : undefined}",
+                "width": 36,
+                "height": 36,
+                "x": 12,
+                "y": 10,
+                "radius": "full",
+                "show": "phase == 'play' ? (roster.length > 3 && !!(rosterPhotos[3])) : true"
+              },
+              {
+                "id": "name3",
+                "text": "{phase == 'play' ? (roster[3] || '') : ''}",
+                "width": 190,
+                "x": 58,
+                "y": 18,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "pct3",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? '' : ('' + (round((votesByOption.o3||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*100)) + '%')) : ''}",
+                "width": 90,
+                "x": 250,
+                "y": 18,
+                "size": 17,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "opt4",
+            "box": "free",
+            "width": 358,
+            "height": 56,
+            "fill": "#16181c",
+            "show": "phase == 'play' ? (roster.length > 4) : true",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o4'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o4"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "bar4",
+                "box": "free",
+                "width": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? 6 : max(6, round((votesByOption.o4||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*358))) : 6}",
+                "height": 56,
+                "x": 0,
+                "y": 0,
+                "fill": "{phase == 'play' ? ((myVote === 'o4' && myVoteRound === roundIdx) ? '#d9ff00' : '#2a3a10') : '#2a3a10'}"
+              },
+              {
+                "id": "av4",
+                "image": "{phase == 'play' ? (rosterPhotos[4] || '') : undefined}",
+                "width": 36,
+                "height": 36,
+                "x": 12,
+                "y": 10,
+                "radius": "full",
+                "show": "phase == 'play' ? (roster.length > 4 && !!(rosterPhotos[4])) : true"
+              },
+              {
+                "id": "name4",
+                "text": "{phase == 'play' ? (roster[4] || '') : ''}",
+                "width": 190,
+                "x": 58,
+                "y": 18,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "pct4",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? '' : ('' + (round((votesByOption.o4||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*100)) + '%')) : ''}",
+                "width": 90,
+                "x": 250,
+                "y": 18,
+                "size": 17,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "opt5",
+            "box": "free",
+            "width": 358,
+            "height": 56,
+            "fill": "#16181c",
+            "show": "phase == 'play' ? (roster.length > 5) : true",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o5'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o5"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "bar5",
+                "box": "free",
+                "width": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? 6 : max(6, round((votesByOption.o5||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*358))) : 6}",
+                "height": 56,
+                "x": 0,
+                "y": 0,
+                "fill": "{phase == 'play' ? ((myVote === 'o5' && myVoteRound === roundIdx) ? '#d9ff00' : '#2a3a10') : '#2a3a10'}"
+              },
+              {
+                "id": "av5",
+                "image": "{phase == 'play' ? (rosterPhotos[5] || '') : undefined}",
+                "width": 36,
+                "height": 36,
+                "x": 12,
+                "y": 10,
+                "radius": "full",
+                "show": "phase == 'play' ? (roster.length > 5 && !!(rosterPhotos[5])) : true"
+              },
+              {
+                "id": "name5",
+                "text": "{phase == 'play' ? (roster[5] || '') : ''}",
+                "width": 190,
+                "x": 58,
+                "y": 18,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "pct5",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? '' : ('' + (round((votesByOption.o5||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*100)) + '%')) : ''}",
+                "width": 90,
+                "x": 250,
+                "y": 18,
+                "size": 17,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "opt6",
+            "box": "free",
+            "width": 358,
+            "height": 56,
+            "fill": "#16181c",
+            "show": "phase == 'play' ? (roster.length > 6) : true",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o6'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o6"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "bar6",
+                "box": "free",
+                "width": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? 6 : max(6, round((votesByOption.o6||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*358))) : 6}",
+                "height": 56,
+                "x": 0,
+                "y": 0,
+                "fill": "{phase == 'play' ? ((myVote === 'o6' && myVoteRound === roundIdx) ? '#d9ff00' : '#2a3a10') : '#2a3a10'}"
+              },
+              {
+                "id": "av6",
+                "image": "{phase == 'play' ? (rosterPhotos[6] || '') : undefined}",
+                "width": 36,
+                "height": 36,
+                "x": 12,
+                "y": 10,
+                "radius": "full",
+                "show": "phase == 'play' ? (roster.length > 6 && !!(rosterPhotos[6])) : true"
+              },
+              {
+                "id": "name6",
+                "text": "{phase == 'play' ? (roster[6] || '') : ''}",
+                "width": 190,
+                "x": 58,
+                "y": 18,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "pct6",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? '' : ('' + (round((votesByOption.o6||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*100)) + '%')) : ''}",
+                "width": 90,
+                "x": 250,
+                "y": 18,
+                "size": 17,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "opt7",
+            "box": "free",
+            "width": 358,
+            "height": 56,
+            "fill": "#16181c",
+            "show": "phase == 'play' ? (roster.length > 7) : true",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o7'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o7"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "bar7",
+                "box": "free",
+                "width": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? 6 : max(6, round((votesByOption.o7||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*358))) : 6}",
+                "height": 56,
+                "x": 0,
+                "y": 0,
+                "fill": "{phase == 'play' ? ((myVote === 'o7' && myVoteRound === roundIdx) ? '#d9ff00' : '#2a3a10') : '#2a3a10'}"
+              },
+              {
+                "id": "av7",
+                "image": "{phase == 'play' ? (rosterPhotos[7] || '') : undefined}",
+                "width": 36,
+                "height": 36,
+                "x": 12,
+                "y": 10,
+                "radius": "full",
+                "show": "phase == 'play' ? (roster.length > 7 && !!(rosterPhotos[7])) : true"
+              },
+              {
+                "id": "name7",
+                "text": "{phase == 'play' ? (roster[7] || '') : ''}",
+                "width": 190,
+                "x": 58,
+                "y": 18,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "pct7",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0)) === 0 ? '' : ('' + (round((votesByOption.o7||0)/((votesByOption.o0||0)+(votesByOption.o1||0)+(votesByOption.o2||0)+(votesByOption.o3||0)+(votesByOption.o4||0)+(votesByOption.o5||0)+(votesByOption.o6||0)+(votesByOption.o7||0))*100)) + '%')) : ''}",
+                "width": 90,
+                "x": 250,
+                "y": 18,
+                "size": 17,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 10,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "navR",
+            "use": "NavBar",
+            "props": {
+              "title": "우리 중 누가?",
+              "subtitle": "끝!"
+            }
+          },
+          {
+            "id": "resCard",
+            "box": "column",
+            "width": 358,
+            "height": 260,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resEmoji",
+                "text": "😆",
+                "size": 64,
+                "align": "center"
+              },
+              {
+                "id": "resTitle",
+                "text": "끝! 오늘의 주인공들",
+                "width": 320,
+                "size": 26,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "resSub",
+                "text": "지목당한 사람들, 변명은 받지 않습니다 🤣",
+                "width": 320,
+                "size": 16,
+                "weight": 600,
+                "color": "#d7dce3",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "resSpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1,
+            "grow": 1
+          },
+          {
+            "id": "againBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "다시 하기 🔁"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "game": "most-likely",
+                      "rounds": 5,
+                      "roundMs": 8000
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

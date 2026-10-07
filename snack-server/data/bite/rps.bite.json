@@ -1,0 +1,384 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "가위바위보"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "myPick": -1,
+    "botPick": -1,
+    "result": "",
+    "streak": 0,
+    "best": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    }
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "page",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "가위바위보",
+              "subtitle": "봇과 한 판 승부!"
+            }
+          },
+          {
+            "id": "versusCard",
+            "box": "column",
+            "height": 260,
+            "gap": 14,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "vsRow",
+                "box": "row",
+                "width": "fill",
+                "height": "hug",
+                "gap": 18,
+                "align": "center",
+                "justify": "center",
+                "children": [
+                  {
+                    "id": "myEmoji",
+                    "text": "{myPick === 0 ? '✊' : myPick === 1 ? '✌️' : myPick === 2 ? '✋' : '❔'}",
+                    "size": 72,
+                    "align": "center"
+                  },
+                  {
+                    "id": "vsLabel",
+                    "text": "VS",
+                    "size": 22,
+                    "font": "display",
+                    "color": "#d9ff00",
+                    "align": "center"
+                  },
+                  {
+                    "id": "botEmoji",
+                    "text": "{botPick === 0 ? '✊' : botPick === 1 ? '✌️' : botPick === 2 ? '✋' : '❔'}",
+                    "size": 72,
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "resultText",
+                "text": "{result === '' ? '아래에서 골라요!' : result === 'win' ? '이겼다! 🎉' : result === 'draw' ? '비겼어요 🤝' : '아쉽다 😢'}",
+                "width": 300,
+                "size": 24,
+                "font": "display",
+                "color": "{result === 'win' ? '#d9ff00' : result === 'lose' ? '#FF5A5F' : '#ffffff'}",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "choiceRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "scissorsBtn",
+                "box": "column",
+                "width": "fill",
+                "height": 92,
+                "gap": 4,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "onTap": [
+                  {
+                    "set": "botPick",
+                    "to": "floor(random() * 3)"
+                  },
+                  {
+                    "set": "myPick",
+                    "to": "1"
+                  },
+                  {
+                    "set": "result",
+                    "to": "botPick === 1 ? 'draw' : (botPick === 2 ? 'win' : 'lose')"
+                  },
+                  {
+                    "set": "best",
+                    "to": "max(best, botPick === 2 ? streak + 1 : 0)"
+                  },
+                  {
+                    "set": "streak",
+                    "to": "botPick === 2 ? streak + 1 : 0"
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "scissorsBtnE",
+                    "text": "✌️",
+                    "size": 34,
+                    "align": "center"
+                  },
+                  {
+                    "id": "scissorsBtnL",
+                    "text": "가위",
+                    "size": 14,
+                    "weight": 700,
+                    "color": "#ffffff",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "rockBtn",
+                "box": "column",
+                "width": "fill",
+                "height": 92,
+                "gap": 4,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "onTap": [
+                  {
+                    "set": "botPick",
+                    "to": "floor(random() * 3)"
+                  },
+                  {
+                    "set": "myPick",
+                    "to": "0"
+                  },
+                  {
+                    "set": "result",
+                    "to": "botPick === 0 ? 'draw' : (botPick === 1 ? 'win' : 'lose')"
+                  },
+                  {
+                    "set": "best",
+                    "to": "max(best, botPick === 1 ? streak + 1 : 0)"
+                  },
+                  {
+                    "set": "streak",
+                    "to": "botPick === 1 ? streak + 1 : 0"
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "rockBtnE",
+                    "text": "✊",
+                    "size": 34,
+                    "align": "center"
+                  },
+                  {
+                    "id": "rockBtnL",
+                    "text": "바위",
+                    "size": 14,
+                    "weight": 700,
+                    "color": "#ffffff",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "paperBtn",
+                "box": "column",
+                "width": "fill",
+                "height": 92,
+                "gap": 4,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "onTap": [
+                  {
+                    "set": "botPick",
+                    "to": "floor(random() * 3)"
+                  },
+                  {
+                    "set": "myPick",
+                    "to": "2"
+                  },
+                  {
+                    "set": "result",
+                    "to": "botPick === 2 ? 'draw' : (botPick === 0 ? 'win' : 'lose')"
+                  },
+                  {
+                    "set": "best",
+                    "to": "max(best, botPick === 0 ? streak + 1 : 0)"
+                  },
+                  {
+                    "set": "streak",
+                    "to": "botPick === 0 ? streak + 1 : 0"
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "paperBtnE",
+                    "text": "✋",
+                    "size": 34,
+                    "align": "center"
+                  },
+                  {
+                    "id": "paperBtnL",
+                    "text": "보",
+                    "size": 14,
+                    "weight": 700,
+                    "color": "#ffffff",
+                    "align": "center"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "statRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "streakStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "연승",
+                  "value": "{streak}연승"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "bestStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "최고 연승",
+                  "value": "{best}연승"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "hint",
+            "text": "이기면 연승이 쌓여요. 봇은 매번 랜덤!",
+            "size": 13,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,854 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "사이먼 기억 게임"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "seq": [],
+    "inputIndex": 0,
+    "roundNo": 0,
+    "bestRound": 0,
+    "showing": false,
+    "showStart": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "play": {
+      "tick": [
+        {
+          "if": "showing && now - showStart >= seq.length * 650",
+          "then": [
+            {
+              "set": "showing",
+              "to": "false"
+            },
+            {
+              "set": "inputIndex",
+              "to": "0"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "readyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "readyNav",
+            "use": "NavBar",
+            "props": {
+              "title": "색깔 기억하기",
+              "subtitle": "빛나는 색 순서를 그대로 따라 탭하세요"
+            }
+          },
+          {
+            "id": "readyHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "shadow": {
+              "x": 0,
+              "y": 10,
+              "blur": 22,
+              "color": "#00000059"
+            },
+            "children": [
+              {
+                "id": "readyBadge",
+                "text": "● ● ● ●",
+                "size": 28,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "readyTitle",
+                "text": "순간 기억력을 깨워보세요",
+                "size": 30,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyBody",
+                "text": "색 패드가 차례로 빛나요. 다 빛나면 같은 순서로 탭하세요. 라운드마다 새 순서가 나오고 한 칸씩 길어집니다.",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "readyBest",
+                "use": "StatCard",
+                "props": {
+                  "label": "최고 라운드",
+                  "value": "{phase == 'ready' ? (('' + (bestRound) + '라운드')) : '0'}"
+                }
+              }
+            ]
+          },
+          {
+            "id": "startBtn",
+            "use": "Button",
+            "props": {
+              "label": "시작"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "seq",
+                    "to": "[floor(random() * 4)]"
+                  },
+                  {
+                    "set": "inputIndex",
+                    "to": "0"
+                  },
+                  {
+                    "set": "roundNo",
+                    "to": "1"
+                  },
+                  {
+                    "set": "showing",
+                    "to": "true"
+                  },
+                  {
+                    "set": "showStart",
+                    "to": "now"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "playNav",
+            "use": "NavBar",
+            "props": {
+              "title": "색깔 기억하기",
+              "subtitle": "방금 본 색 순서를 기억하세요"
+            }
+          },
+          {
+            "id": "statRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "roundStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "라운드",
+                  "value": "{phase == 'play' ? (('' + (roundNo))) : '1'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "progressStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "입력",
+                  "value": "{phase == 'play' ? (('' + (inputIndex) + ' / ' + (seq.length))) : '0 / 1'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "playArea",
+            "box": "column",
+            "height": 402,
+            "gap": 14,
+            "pad": 16,
+            "fill": "#111317",
+            "stroke": {
+              "color": "#2a2d33",
+              "width": 1
+            },
+            "children": [
+              {
+                "id": "padGridTop",
+                "box": "row",
+                "height": "fill",
+                "gap": 14,
+                "children": [
+                  {
+                    "id": "padRed",
+                    "box": "column",
+                    "width": "fill",
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'play' ? (showing && floor((now - showStart) / 650) < seq.length && seq[floor((now - showStart) / 650)] === 0 ? '#ff5a5f' : '#3a171a') : '#3a171a'}",
+                    "shadow": {
+                      "x": 0,
+                      "y": 4,
+                      "blur": 12,
+                      "color": "#ff5a5f2e"
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'play'",
+                        "then": [
+                          {
+                            "if": "!showing",
+                            "then": [
+                              {
+                                "if": "seq[inputIndex] === 0",
+                                "then": [
+                                  {
+                                    "if": "inputIndex === seq.length - 1",
+                                    "then": [
+                                      {
+                                        "set": "roundNo",
+                                        "to": "roundNo + 1"
+                                      },
+                                      {
+                                        "set": "seq",
+                                        "to": "seq.concat([0]).map(() => floor(random() * 4))"
+                                      },
+                                      {
+                                        "set": "inputIndex",
+                                        "to": "0"
+                                      },
+                                      {
+                                        "set": "showing",
+                                        "to": "true"
+                                      },
+                                      {
+                                        "set": "showStart",
+                                        "to": "now"
+                                      }
+                                    ],
+                                    "else": [
+                                      {
+                                        "set": "inputIndex",
+                                        "to": "inputIndex + 1"
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "else": [
+                                  {
+                                    "set": "bestRound",
+                                    "to": "max(bestRound, roundNo)"
+                                  },
+                                  {
+                                    "go": "result"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "children": [
+                      {
+                        "id": "padRedLabel",
+                        "text": "RED",
+                        "size": 13,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "padBlue",
+                    "box": "column",
+                    "width": "fill",
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'play' ? (showing && floor((now - showStart) / 650) < seq.length && seq[floor((now - showStart) / 650)] === 1 ? '#4da3ff' : '#14243f') : '#14243f'}",
+                    "shadow": {
+                      "x": 0,
+                      "y": 4,
+                      "blur": 12,
+                      "color": "#4da3ff2e"
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'play'",
+                        "then": [
+                          {
+                            "if": "!showing",
+                            "then": [
+                              {
+                                "if": "seq[inputIndex] === 1",
+                                "then": [
+                                  {
+                                    "if": "inputIndex === seq.length - 1",
+                                    "then": [
+                                      {
+                                        "set": "roundNo",
+                                        "to": "roundNo + 1"
+                                      },
+                                      {
+                                        "set": "seq",
+                                        "to": "seq.concat([0]).map(() => floor(random() * 4))"
+                                      },
+                                      {
+                                        "set": "inputIndex",
+                                        "to": "0"
+                                      },
+                                      {
+                                        "set": "showing",
+                                        "to": "true"
+                                      },
+                                      {
+                                        "set": "showStart",
+                                        "to": "now"
+                                      }
+                                    ],
+                                    "else": [
+                                      {
+                                        "set": "inputIndex",
+                                        "to": "inputIndex + 1"
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "else": [
+                                  {
+                                    "set": "bestRound",
+                                    "to": "max(bestRound, roundNo)"
+                                  },
+                                  {
+                                    "go": "result"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "children": [
+                      {
+                        "id": "padBlueLabel",
+                        "text": "BLUE",
+                        "size": 13,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "padGridBottom",
+                "box": "row",
+                "height": "fill",
+                "gap": 14,
+                "children": [
+                  {
+                    "id": "padGreen",
+                    "box": "column",
+                    "width": "fill",
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'play' ? (showing && floor((now - showStart) / 650) < seq.length && seq[floor((now - showStart) / 650)] === 2 ? '#22C55E' : '#18351f') : '#18351f'}",
+                    "shadow": {
+                      "x": 0,
+                      "y": 4,
+                      "blur": 12,
+                      "color": "#22C55E2e"
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'play'",
+                        "then": [
+                          {
+                            "if": "!showing",
+                            "then": [
+                              {
+                                "if": "seq[inputIndex] === 2",
+                                "then": [
+                                  {
+                                    "if": "inputIndex === seq.length - 1",
+                                    "then": [
+                                      {
+                                        "set": "roundNo",
+                                        "to": "roundNo + 1"
+                                      },
+                                      {
+                                        "set": "seq",
+                                        "to": "seq.concat([0]).map(() => floor(random() * 4))"
+                                      },
+                                      {
+                                        "set": "inputIndex",
+                                        "to": "0"
+                                      },
+                                      {
+                                        "set": "showing",
+                                        "to": "true"
+                                      },
+                                      {
+                                        "set": "showStart",
+                                        "to": "now"
+                                      }
+                                    ],
+                                    "else": [
+                                      {
+                                        "set": "inputIndex",
+                                        "to": "inputIndex + 1"
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "else": [
+                                  {
+                                    "set": "bestRound",
+                                    "to": "max(bestRound, roundNo)"
+                                  },
+                                  {
+                                    "go": "result"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "children": [
+                      {
+                        "id": "padGreenLabel",
+                        "text": "GREEN",
+                        "size": 13,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "padYellow",
+                    "box": "column",
+                    "width": "fill",
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'play' ? (showing && floor((now - showStart) / 650) < seq.length && seq[floor((now - showStart) / 650)] === 3 ? '#FACC15' : '#393114') : '#393114'}",
+                    "shadow": {
+                      "x": 0,
+                      "y": 4,
+                      "blur": 12,
+                      "color": "#FACC152e"
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'play'",
+                        "then": [
+                          {
+                            "if": "!showing",
+                            "then": [
+                              {
+                                "if": "seq[inputIndex] === 3",
+                                "then": [
+                                  {
+                                    "if": "inputIndex === seq.length - 1",
+                                    "then": [
+                                      {
+                                        "set": "roundNo",
+                                        "to": "roundNo + 1"
+                                      },
+                                      {
+                                        "set": "seq",
+                                        "to": "seq.concat([0]).map(() => floor(random() * 4))"
+                                      },
+                                      {
+                                        "set": "inputIndex",
+                                        "to": "0"
+                                      },
+                                      {
+                                        "set": "showing",
+                                        "to": "true"
+                                      },
+                                      {
+                                        "set": "showStart",
+                                        "to": "now"
+                                      }
+                                    ],
+                                    "else": [
+                                      {
+                                        "set": "inputIndex",
+                                        "to": "inputIndex + 1"
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "else": [
+                                  {
+                                    "set": "bestRound",
+                                    "to": "max(bestRound, roundNo)"
+                                  },
+                                  {
+                                    "go": "result"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "children": [
+                      {
+                        "id": "padYellowLabel",
+                        "text": "YELLOW",
+                        "size": 13,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "guideCard",
+            "box": "column",
+            "gap": 6,
+            "pad": 16,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "phaseText",
+                "text": "{phase == 'play' ? (showing ? '순서를 보여주는 중…' : '이제 그대로 탭하세요') : '순서를 보여주는 중…'}",
+                "size": 18,
+                "weight": 800,
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "hintText",
+                "text": "{phase == 'play' ? (showing ? ('' + (seq.length) + '개의 빛을 기억하세요.') : ('' + (inputIndex + 1) + '번째 패드를 고르세요.')) : '패드가 빛나는 동안에는 잠깐 기다려주세요.'}",
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "giveUpBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "그만하기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "bestRound",
+                    "to": "max(bestRound, roundNo)"
+                  },
+                  {
+                    "go": "result"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "게임 오버",
+              "subtitle": "기억의 한계에 도전했어요"
+            }
+          },
+          {
+            "id": "resultCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "shadow": {
+              "x": 0,
+              "y": 10,
+              "blur": 22,
+              "color": "#00000059"
+            },
+            "children": [
+              {
+                "id": "resultEmoji",
+                "text": "🧠",
+                "size": 54,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resultTitle",
+                "text": "여기까지 기억했어요",
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "finalRoundStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "이번 기록",
+                  "value": "{phase == 'result' ? (('' + (roundNo) + '라운드')) : '0라운드'}"
+                }
+              },
+              {
+                "id": "bestRoundStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "최고 기록",
+                  "value": "{phase == 'result' ? (('' + (bestRound) + '라운드')) : '0라운드'}"
+                }
+              },
+              {
+                "id": "resultNote",
+                "text": "다시 시작하면 새로운 색 순서가 만들어집니다.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 시작"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "seq",
+                    "to": "[floor(random() * 4)]"
+                  },
+                  {
+                    "set": "inputIndex",
+                    "to": "0"
+                  },
+                  {
+                    "set": "roundNo",
+                    "to": "1"
+                  },
+                  {
+                    "set": "showing",
+                    "to": "true"
+                  },
+                  {
+                    "set": "showStart",
+                    "to": "now"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

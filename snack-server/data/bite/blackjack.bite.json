@@ -1,0 +1,400 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "오늘의 블랙잭"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "pTotal": 0,
+    "dTotal": 0,
+    "dHidden": 0,
+    "dframe": 0,
+    "result": ""
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "PrimaryButton": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 56,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 800,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "player": {},
+    "dealer": {
+      "tick": [
+        {
+          "set": "dframe",
+          "to": "dframe + 1"
+        },
+        {
+          "if": "dframe % 12 === 0 && dTotal < 17",
+          "then": [
+            {
+              "set": "dTotal",
+              "to": "dTotal + (2 + floor(random() * 10))"
+            }
+          ]
+        },
+        {
+          "if": "dTotal >= 17",
+          "then": [
+            {
+              "set": "result",
+              "to": "dTotal > 21 ? 'win' : (pTotal > dTotal ? 'win' : (pTotal < dTotal ? 'lose' : 'push'))"
+            },
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "page",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "오늘의 블랙잭",
+              "subtitle": "21에 가깝게! 딜러를 이겨요"
+            }
+          },
+          {
+            "id": "dealer",
+            "box": "column",
+            "width": "fill",
+            "height": 132,
+            "gap": 6,
+            "pad": 14,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "dealerLabel",
+                "text": "🤵 딜러",
+                "size": 15,
+                "weight": 700,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "dealerTotal",
+                "text": "{phase == 'ready' ? ('?') : phase == 'player' ? (('' + (dTotal) + ' + ?')) : (('' + (dTotal)))}",
+                "size": 52,
+                "font": "display",
+                "color": "#FF5A5F",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "player",
+            "box": "column",
+            "width": "fill",
+            "height": 132,
+            "gap": 6,
+            "pad": 14,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "playerLabel",
+                "text": "😎 나",
+                "size": 15,
+                "weight": 700,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "playerTotal",
+                "text": "{phase == 'ready' ? ('?') : (('' + (pTotal)))}",
+                "size": 52,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "statusText",
+            "text": "{phase == 'player' ? ('히트로 한 장 더, 스테이로 멈춰요') : phase == 'dealer' ? ('딜러가 카드를 받는 중…') : phase == 'result' ? (('내 ' + (pTotal) + ' vs 딜러 ' + (dTotal))) : ('딜 시작을 눌러 카드를 받으세요')}",
+            "width": 320,
+            "size": 15,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "resultText",
+            "text": "{phase == 'result' ? (result === 'bust' ? '버스트… 21을 넘었어요 💥' : result === 'win' ? '승리! 딜러를 이겼어요 🎉' : result === 'lose' ? '패배… 다음엔 이겨요 😢' : '무승부 🤝') : ('')}",
+            "width": 320,
+            "size": 23,
+            "font": "display",
+            "color": "{phase == 'result' ? (result === 'win' ? '#d9ff00' : (result === 'push' ? '#ffffff' : '#FF5A5F')) : '#ffffff'}",
+            "align": "center"
+          },
+          {
+            "id": "dealBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "딜 시작 🃏"
+            },
+            "show": "phase == 'ready'",
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "pTotal",
+                    "to": "(2 + floor(random() * 10)) + (2 + floor(random() * 10))"
+                  },
+                  {
+                    "set": "dTotal",
+                    "to": "(2 + floor(random() * 10))"
+                  },
+                  {
+                    "set": "dHidden",
+                    "to": "(2 + floor(random() * 10))"
+                  },
+                  {
+                    "set": "result",
+                    "to": "''"
+                  },
+                  {
+                    "go": "player"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "hitBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "히트 — 한 장 더 🃏"
+            },
+            "show": "phase == 'player'",
+            "onTap": [
+              {
+                "if": "phase == 'player'",
+                "then": [
+                  {
+                    "set": "pTotal",
+                    "to": "pTotal + (2 + floor(random() * 10))"
+                  },
+                  {
+                    "if": "pTotal > 21",
+                    "then": [
+                      {
+                        "set": "result",
+                        "to": "'bust'"
+                      },
+                      {
+                        "go": "result"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "standBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "스테이 — 멈추기 ✋"
+            },
+            "show": "phase == 'player'",
+            "onTap": [
+              {
+                "if": "phase == 'player'",
+                "then": [
+                  {
+                    "set": "dTotal",
+                    "to": "dTotal + dHidden"
+                  },
+                  {
+                    "set": "dframe",
+                    "to": "0"
+                  },
+                  {
+                    "go": "dealer"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "againBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "다시 하기"
+            },
+            "show": "phase == 'result'",
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "pTotal",
+                    "to": "0"
+                  },
+                  {
+                    "set": "dTotal",
+                    "to": "0"
+                  },
+                  {
+                    "set": "dHidden",
+                    "to": "0"
+                  },
+                  {
+                    "set": "result",
+                    "to": "''"
+                  },
+                  {
+                    "go": "ready"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

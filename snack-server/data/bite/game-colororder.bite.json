@@ -1,0 +1,940 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "색 순서 기억 게임"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "level": 1,
+    "inputIndex": 0,
+    "startedAt": 0,
+    "showDuration": 2200,
+    "sequence": [
+      "red",
+      "blue",
+      "yellow",
+      "green",
+      "blue",
+      "red",
+      "green",
+      "yellow",
+      "red",
+      "green"
+    ]
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "show": {
+      "tick": [
+        {
+          "if": "now - startedAt >= showDuration",
+          "then": [
+            {
+              "set": "inputIndex",
+              "to": "0"
+            },
+            {
+              "go": "input"
+            }
+          ]
+        }
+      ]
+    },
+    "input": {},
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "readyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "readyNav",
+            "use": "NavBar",
+            "props": {
+              "title": "컬러 메모리",
+              "subtitle": "순서를 보고, 그대로 탭하세요"
+            }
+          },
+          {
+            "id": "readyHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "heroGlow",
+                "box": "free",
+                "width": 250,
+                "height": 250,
+                "gradient": {
+                  "colors": [
+                    "#d9ff00",
+                    "#5eead4",
+                    "#818cf8",
+                    "#fb7185"
+                  ],
+                  "angle": 135
+                },
+                "shadow": {
+                  "x": 0,
+                  "y": 12,
+                  "blur": 28,
+                  "color": "#d9ff0044"
+                }
+              },
+              {
+                "id": "readyTitle",
+                "text": "색의 리듬을\n기억해 보세요",
+                "size": 32,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyDesc",
+                "text": "처음엔 3장부터 시작합니다. 카드가 잠깐 공개된 뒤 가려지면, 본 순서대로 컬러를 탭하세요.",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "startBtn",
+            "use": "Button",
+            "props": {
+              "label": "시작하기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "sequence",
+                    "to": "sequence.map(() => ['red','blue','yellow','green'][floor(random() * 4)])"
+                  },
+                  {
+                    "set": "level",
+                    "to": "1"
+                  },
+                  {
+                    "set": "inputIndex",
+                    "to": "0"
+                  },
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "show"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "showScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'show'",
+        "children": [
+          {
+            "id": "showNav",
+            "use": "NavBar",
+            "props": {
+              "title": "순서를 기억하세요",
+              "subtitle": "잠시 후 카드가 가려집니다"
+            }
+          },
+          {
+            "id": "showStats",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "showLevelStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "단계",
+                  "value": "{phase == 'show' ? (('' + (level) + '단계')) : '1'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "showCountStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "기억할 카드",
+                  "value": "{phase == 'show' ? (('' + (level + 2) + '장')) : '3장'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "showCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 10,
+            "pad": 18,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "showInstruction",
+                "text": "위에서 아래로 번호 순서대로 기억하세요",
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "sequenceGrid",
+                "box": "grid",
+                "height": "hug",
+                "gap": 10,
+                "columns": 1,
+                "children": [
+                  {
+                    "id": "showSlot0",
+                    "box": "column",
+                    "height": 60,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'show' ? (sequence[0] === 'red' ? '#FF5A5F' : sequence[0] === 'blue' ? '#4DA3FF' : sequence[0] === 'yellow' ? '#facc15' : '#22C55E') : '#FF5A5F'}",
+                    "children": [
+                      {
+                        "id": "showNum0",
+                        "text": "1",
+                        "size": 28,
+                        "font": "display",
+                        "color": "#0b0c0e"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "showSlot1",
+                    "box": "column",
+                    "height": 60,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'show' ? (sequence[1] === 'red' ? '#FF5A5F' : sequence[1] === 'blue' ? '#4DA3FF' : sequence[1] === 'yellow' ? '#facc15' : '#22C55E') : '#4DA3FF'}",
+                    "children": [
+                      {
+                        "id": "showNum1",
+                        "text": "2",
+                        "size": 28,
+                        "font": "display",
+                        "color": "#0b0c0e"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "showSlot2",
+                    "box": "column",
+                    "height": 60,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'show' ? (sequence[2] === 'red' ? '#FF5A5F' : sequence[2] === 'blue' ? '#4DA3FF' : sequence[2] === 'yellow' ? '#facc15' : '#22C55E') : '#facc15'}",
+                    "children": [
+                      {
+                        "id": "showNum2",
+                        "text": "3",
+                        "size": 28,
+                        "font": "display",
+                        "color": "#0b0c0e"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "showSlot3",
+                    "box": "column",
+                    "height": 60,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'show' ? (sequence[3] === 'red' ? '#FF5A5F' : sequence[3] === 'blue' ? '#4DA3FF' : sequence[3] === 'yellow' ? '#facc15' : '#22C55E') : '#22C55E'}",
+                    "show": "phase == 'show' ? (level + 2 > 3) : true",
+                    "children": [
+                      {
+                        "id": "showNum3",
+                        "text": "4",
+                        "size": 28,
+                        "font": "display",
+                        "color": "#0b0c0e"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "showSlot4",
+                    "box": "column",
+                    "height": 60,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'show' ? (sequence[4] === 'red' ? '#FF5A5F' : sequence[4] === 'blue' ? '#4DA3FF' : sequence[4] === 'yellow' ? '#facc15' : '#22C55E') : '#4DA3FF'}",
+                    "show": "phase == 'show' ? (level + 2 > 4) : true",
+                    "children": [
+                      {
+                        "id": "showNum4",
+                        "text": "5",
+                        "size": 28,
+                        "font": "display",
+                        "color": "#0b0c0e"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "showSlot5",
+                    "box": "column",
+                    "height": 60,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "{phase == 'show' ? (sequence[5] === 'red' ? '#FF5A5F' : sequence[5] === 'blue' ? '#4DA3FF' : sequence[5] === 'yellow' ? '#facc15' : '#22C55E') : '#FF5A5F'}",
+                    "show": "phase == 'show' ? (level + 2 > 5) : true",
+                    "children": [
+                      {
+                        "id": "showNum5",
+                        "text": "6",
+                        "size": 28,
+                        "font": "display",
+                        "color": "#0b0c0e"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "showHint",
+                "text": "{phase == 'show' ? (('' + (max(0, ceil((showDuration - (now - startedAt)) / 1000))) + '초 뒤 가려져요')) : '집중하세요…'}",
+                "size": 14,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "inputScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'input'",
+        "children": [
+          {
+            "id": "inputNav",
+            "use": "NavBar",
+            "props": {
+              "title": "이제 재현하세요",
+              "subtitle": "본 순서대로 컬러를 탭하세요"
+            }
+          },
+          {
+            "id": "inputStats",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "inputLevelStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "단계",
+                  "value": "{phase == 'input' ? (('' + (level) + '단계')) : '1'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "inputProgressStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "진행",
+                  "value": "{phase == 'input' ? (('' + (inputIndex) + ' / ' + (level + 2))) : '0 / 3'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "coveredCard",
+            "box": "column",
+            "height": 168,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "coveredIcon",
+                "text": "◆ ◆ ◆",
+                "size": 38,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "coveredText",
+                "text": "카드는 가려졌습니다",
+                "size": 20,
+                "weight": 800,
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "coveredSub",
+                "text": "기억 속 색 순서를 꺼내보세요",
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "tapGrid",
+            "box": "grid",
+            "height": "fill",
+            "gap": 12,
+            "columns": 2,
+            "children": [
+              {
+                "id": "redBtn",
+                "box": "column",
+                "height": 88,
+                "align": "center",
+                "justify": "center",
+                "fill": "#FF5A5F",
+                "shadow": {
+                  "x": 0,
+                  "y": 8,
+                  "blur": 18,
+                  "color": "#FF5A5F33"
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'input'",
+                    "then": [
+                      {
+                        "if": "sequence[inputIndex] === 'red'",
+                        "then": [
+                          {
+                            "if": "inputIndex >= level + 1",
+                            "then": [
+                              {
+                                "set": "sequence",
+                                "to": "sequence.map(() => ['red','blue','yellow','green'][floor(random() * 4)])"
+                              },
+                              {
+                                "set": "level",
+                                "to": "level + 1"
+                              },
+                              {
+                                "set": "startedAt",
+                                "to": "now"
+                              },
+                              {
+                                "set": "inputIndex",
+                                "to": "0"
+                              },
+                              {
+                                "go": "show"
+                              }
+                            ],
+                            "else": [
+                              {
+                                "set": "inputIndex",
+                                "to": "inputIndex + 1"
+                              }
+                            ]
+                          }
+                        ],
+                        "else": [
+                          {
+                            "go": "result"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "redLabel",
+                    "text": "RED",
+                    "size": 22,
+                    "font": "display",
+                    "color": "#0b0c0e"
+                  }
+                ]
+              },
+              {
+                "id": "blueBtn",
+                "box": "column",
+                "height": 88,
+                "align": "center",
+                "justify": "center",
+                "fill": "#4DA3FF",
+                "shadow": {
+                  "x": 0,
+                  "y": 8,
+                  "blur": 18,
+                  "color": "#4DA3FF33"
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'input'",
+                    "then": [
+                      {
+                        "if": "sequence[inputIndex] === 'blue'",
+                        "then": [
+                          {
+                            "if": "inputIndex >= level + 1",
+                            "then": [
+                              {
+                                "set": "sequence",
+                                "to": "sequence.map(() => ['red','blue','yellow','green'][floor(random() * 4)])"
+                              },
+                              {
+                                "set": "level",
+                                "to": "level + 1"
+                              },
+                              {
+                                "set": "startedAt",
+                                "to": "now"
+                              },
+                              {
+                                "set": "inputIndex",
+                                "to": "0"
+                              },
+                              {
+                                "go": "show"
+                              }
+                            ],
+                            "else": [
+                              {
+                                "set": "inputIndex",
+                                "to": "inputIndex + 1"
+                              }
+                            ]
+                          }
+                        ],
+                        "else": [
+                          {
+                            "go": "result"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "blueLabel",
+                    "text": "BLUE",
+                    "size": 22,
+                    "font": "display",
+                    "color": "#0b0c0e"
+                  }
+                ]
+              },
+              {
+                "id": "yellowBtn",
+                "box": "column",
+                "height": 88,
+                "align": "center",
+                "justify": "center",
+                "fill": "#facc15",
+                "shadow": {
+                  "x": 0,
+                  "y": 8,
+                  "blur": 18,
+                  "color": "#facc1533"
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'input'",
+                    "then": [
+                      {
+                        "if": "sequence[inputIndex] === 'yellow'",
+                        "then": [
+                          {
+                            "if": "inputIndex >= level + 1",
+                            "then": [
+                              {
+                                "set": "sequence",
+                                "to": "sequence.map(() => ['red','blue','yellow','green'][floor(random() * 4)])"
+                              },
+                              {
+                                "set": "level",
+                                "to": "level + 1"
+                              },
+                              {
+                                "set": "startedAt",
+                                "to": "now"
+                              },
+                              {
+                                "set": "inputIndex",
+                                "to": "0"
+                              },
+                              {
+                                "go": "show"
+                              }
+                            ],
+                            "else": [
+                              {
+                                "set": "inputIndex",
+                                "to": "inputIndex + 1"
+                              }
+                            ]
+                          }
+                        ],
+                        "else": [
+                          {
+                            "go": "result"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "yellowLabel",
+                    "text": "YELLOW",
+                    "size": 22,
+                    "font": "display",
+                    "color": "#0b0c0e"
+                  }
+                ]
+              },
+              {
+                "id": "greenBtn",
+                "box": "column",
+                "height": 88,
+                "align": "center",
+                "justify": "center",
+                "fill": "#22C55E",
+                "shadow": {
+                  "x": 0,
+                  "y": 8,
+                  "blur": 18,
+                  "color": "#22C55E33"
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'input'",
+                    "then": [
+                      {
+                        "if": "sequence[inputIndex] === 'green'",
+                        "then": [
+                          {
+                            "if": "inputIndex >= level + 1",
+                            "then": [
+                              {
+                                "set": "sequence",
+                                "to": "sequence.map(() => ['red','blue','yellow','green'][floor(random() * 4)])"
+                              },
+                              {
+                                "set": "level",
+                                "to": "level + 1"
+                              },
+                              {
+                                "set": "startedAt",
+                                "to": "now"
+                              },
+                              {
+                                "set": "inputIndex",
+                                "to": "0"
+                              },
+                              {
+                                "go": "show"
+                              }
+                            ],
+                            "else": [
+                              {
+                                "set": "inputIndex",
+                                "to": "inputIndex + 1"
+                              }
+                            ]
+                          }
+                        ],
+                        "else": [
+                          {
+                            "go": "result"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "greenLabel",
+                    "text": "GREEN",
+                    "size": 22,
+                    "font": "display",
+                    "color": "#0b0c0e"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "결과",
+              "subtitle": "기억력 기록이 저장되었습니다"
+            }
+          },
+          {
+            "id": "resultCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultBadge",
+                "box": "column",
+                "width": 118,
+                "height": 118,
+                "align": "center",
+                "justify": "center",
+                "fill": "#d9ff00",
+                "shadow": {
+                  "x": 0,
+                  "y": 12,
+                  "blur": 28,
+                  "color": "#d9ff0066"
+                },
+                "children": [
+                  {
+                    "id": "resultEmoji",
+                    "text": "🧠",
+                    "size": 54,
+                    "font": "display",
+                    "color": "#0b0c0e"
+                  }
+                ]
+              },
+              {
+                "id": "resultTitle",
+                "text": "기억 완료!",
+                "size": 30,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resultScore",
+                "text": "{phase == 'result' ? (('' + (level) + '단계 · ' + (level + 1) + '장까지 기억')) : '1단계 도달'}",
+                "size": 20,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "resultDesc",
+                "text": "{phase == 'result' ? (level >= 4 ? '대단해요. 색의 패턴을 꽤 길게 붙잡아 두었습니다.' : '좋아요. 한 번 더 하면 순서가 더 선명하게 보일 거예요.') : '틀린 순간까지의 단계가 기록입니다. 다시 시작하면 같은 순서가 더 길게 열립니다.'}",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 도전"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "level",
+                    "to": "1"
+                  },
+                  {
+                    "set": "inputIndex",
+                    "to": "0"
+                  },
+                  {
+                    "go": "ready"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,379 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "가챠 뽑기"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "roll": -1,
+    "rarity": "READY",
+    "drawCount": 0,
+    "history": []
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "page",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "별빛 가챠",
+              "subtitle": "탭해서 운명의 등급을 공개하세요"
+            }
+          },
+          {
+            "id": "statsRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "countStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "뽑은 횟수",
+                  "value": "{drawCount}회"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "rateStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "현재 결과",
+                  "value": "{rarity === 'READY' ? '대기' : rarity}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "stage",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "stroke": {
+              "color": "#2a2d33",
+              "width": 1
+            },
+            "children": [
+              {
+                "id": "glowPanel",
+                "box": "column",
+                "height": 270,
+                "gap": 12,
+                "pad": 18,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "stroke": {
+                  "color": "{rarity === '전설' ? '#d9ff00' : rarity === '에픽' ? '#b46cff' : rarity === '레어' ? '#4DA3FF' : rarity === '노멀' ? '#cfd6df' : '#2a2d33'}",
+                  "width": 1
+                },
+                "shadow": {
+                  "x": 0,
+                  "y": 14,
+                  "blur": 24,
+                  "color": "#00000059"
+                },
+                "children": [
+                  {
+                    "id": "orbWrap",
+                    "box": "free",
+                    "width": 128,
+                    "height": 128,
+                    "children": [
+                      {
+                        "id": "orb",
+                        "box": "free",
+                        "width": 128,
+                        "height": 128,
+                        "x": 0,
+                        "y": 0,
+                        "fill": "{rarity === '전설' ? '#d9ff00' : rarity === '에픽' ? '#7c3aed' : rarity === '레어' ? '#2563eb' : rarity === '노멀' ? '#6b7280' : '#2a2d33'}",
+                        "radius": "full",
+                        "shadow": {
+                          "x": 0,
+                          "y": 0,
+                          "blur": 34,
+                          "color": "#d9ff0038"
+                        }
+                      },
+                      {
+                        "id": "emoji",
+                        "text": "{rarity === '전설' ? '👑' : rarity === '에픽' ? '💎' : rarity === '레어' ? '⭐️' : rarity === '노멀' ? '🪙' : '✨'}",
+                        "width": 128,
+                        "height": 128,
+                        "x": 0,
+                        "y": 0,
+                        "size": 58,
+                        "font": "display",
+                        "color": "#ffffff",
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "rarityText",
+                    "text": "{rarity === 'READY' ? '소환 준비' : rarity}",
+                    "width": 280,
+                    "size": 32,
+                    "font": "display",
+                    "color": "{rarity === '전설' ? '#0b0c0e' : '#ffffff'}",
+                    "align": "center"
+                  },
+                  {
+                    "id": "flavorText",
+                    "text": "{rarity === '전설' ? '축하합니다! 별빛 왕관이 깨어났어요.' : rarity === '에픽' ? '강렬한 보랏빛 보물이 나타났어요.' : rarity === '레어' ? '푸른 별 조각을 발견했어요.' : rarity === '노멀' ? '작은 행운의 코인이 반짝입니다.' : '버튼을 누르면 캡슐이 열립니다'}",
+                    "width": 284,
+                    "size": 15,
+                    "weight": 500,
+                    "color": "#9aa3af",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "historyBox",
+                "box": "column",
+                "width": "fill",
+                "height": "hug",
+                "gap": 8,
+                "align": "center",
+                "children": [
+                  {
+                    "id": "historyLabel",
+                    "text": "{history.length ? '최근 뽑기' : '아직 뽑기 기록이 없어요'}",
+                    "size": 13,
+                    "weight": 600,
+                    "color": "#9aa3af",
+                    "align": "center"
+                  },
+                  {
+                    "id": "historyList",
+                    "box": "row",
+                    "height": "hug",
+                    "gap": 6,
+                    "justify": "center",
+                    "each": "history",
+                    "children": [
+                      {
+                        "id": "histChip",
+                        "box": "row",
+                        "width": 34,
+                        "height": 34,
+                        "align": "center",
+                        "justify": "center",
+                        "fill": "#16181c",
+                        "stroke": {
+                          "color": "{item === '전설' ? '#d9ff00' : item === '에픽' ? '#b46cff' : item === '레어' ? '#4DA3FF' : '#3a3f47'}",
+                          "width": 1
+                        },
+                        "children": [
+                          {
+                            "id": "histEmoji",
+                            "text": "{item === '전설' ? '👑' : item === '에픽' ? '💎' : item === '레어' ? '⭐️' : '🪙'}",
+                            "size": 17,
+                            "color": "#ffffff",
+                            "align": "center"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "drawButton",
+            "use": "Button",
+            "props": {
+              "label": "{drawCount === 0 ? '첫 뽑기' : '다시 뽑기'}"
+            },
+            "onTap": [
+              {
+                "set": "roll",
+                "to": "random()"
+              },
+              {
+                "set": "rarity",
+                "to": "roll < 0.65 ? '노멀' : roll < 0.9 ? '레어' : roll < 0.98 ? '에픽' : '전설'"
+              },
+              {
+                "set": "history",
+                "to": "[rarity].concat(history).slice(0, 8)"
+              },
+              {
+                "set": "drawCount",
+                "to": "drawCount + 1"
+              }
+            ]
+          },
+          {
+            "id": "hint",
+            "text": "🪙 65%  ⭐️ 25%  💎 8%  👑 2%",
+            "size": 13,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      }
+    ]
+  }
+}

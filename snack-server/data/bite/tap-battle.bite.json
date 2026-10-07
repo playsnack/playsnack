@@ -1,0 +1,759 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "탭 배틀",
+    "multi": true
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "sessionPhase": "lobby",
+    "sessionCountdown": 0,
+    "roster": [],
+    "raceBoard": [],
+    "myTaps": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "PrimaryButton": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 56,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 800,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    }
+  },
+  "start": "lobby",
+  "phases": {
+    "lobby": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "countdown": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "play": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "lobbyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'lobby'",
+        "children": [
+          {
+            "id": "navL",
+            "use": "NavBar",
+            "props": {
+              "title": "탭 배틀",
+              "subtitle": "대기실"
+            }
+          },
+          {
+            "id": "lobbyCard",
+            "box": "column",
+            "width": 358,
+            "height": 250,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "lobbyEmoji",
+                "text": "👋",
+                "size": 48,
+                "align": "center"
+              },
+              {
+                "id": "lobbyCount",
+                "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
+                "width": 320,
+                "size": 26,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "lobbyNames",
+                "text": "{phase == 'lobby' ? (roster.length > 0 ? roster.join(' · ') : '입장 중…') : ''}",
+                "width": 320,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "lobbyHint",
+            "text": "다 모이면 아무나 시작을 눌러요 · 3·2·1 카운트 후 10초 연타!",
+            "width": 340,
+            "size": 14,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "lobbySpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1,
+            "grow": 1
+          },
+          {
+            "id": "startBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "시작하기 🚀"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'lobby'",
+                "then": [
+                  {
+                    "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "duration": 10000
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "countdownScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'countdown'",
+        "children": [
+          {
+            "id": "navC",
+            "use": "NavBar",
+            "props": {
+              "title": "탭 배틀",
+              "subtitle": "곧 시작!"
+            }
+          },
+          {
+            "id": "cdCard",
+            "box": "column",
+            "width": "fill",
+            "height": 420,
+            "gap": 8,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "cdNum",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? ('' + (sessionCountdown)) : 'GO!') : '3'}",
+                "width": 320,
+                "size": 140,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "cdLabel",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? '준비…' : '시작!') : '준비…'}",
+                "width": 320,
+                "size": 20,
+                "weight": 700,
+                "color": "#ffffff",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "navP",
+            "use": "NavBar",
+            "props": {
+              "title": "탭 배틀",
+              "subtitle": "연타!"
+            }
+          },
+          {
+            "id": "playLead",
+            "text": "{phase == 'play' ? (raceBoard.length > 0 ? ('선두 ' + (raceBoard[0].nick) + ' · ' + (raceBoard[0].score) + '탭') : '먼저 치고 나가요!') : ''}",
+            "width": 340,
+            "size": 15,
+            "weight": 700,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "myTapCard",
+            "box": "column",
+            "width": 358,
+            "height": 120,
+            "gap": 2,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "myTapNum",
+                "text": "{phase == 'play' ? (('' + (myTaps))) : '0'}",
+                "size": 52,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "myTapLabel",
+                "text": "내 탭",
+                "size": 14,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "tapArea",
+            "box": "column",
+            "width": "fill",
+            "height": 300,
+            "gap": 6,
+            "align": "center",
+            "justify": "center",
+            "fill": "#d9ff00",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myTaps",
+                    "to": "myTaps + 1"
+                  },
+                  {
+                    "emit": "tap"
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "tapBig",
+                "text": "👆",
+                "size": 72,
+                "align": "center"
+              },
+              {
+                "id": "tapTxt",
+                "text": "마구 탭!",
+                "size": 24,
+                "font": "display",
+                "color": "#0b0c0e",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "navR",
+            "use": "NavBar",
+            "props": {
+              "title": "탭 배틀",
+              "subtitle": "결과"
+            }
+          },
+          {
+            "id": "winCard",
+            "box": "column",
+            "width": 358,
+            "height": 150,
+            "gap": 4,
+            "pad": 14,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "winEmoji",
+                "text": "🏆",
+                "size": 44,
+                "align": "center"
+              },
+              {
+                "id": "winTitle",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ('' + (raceBoard[0].nick) + ' 우승!') : '아무도 안 쳤어요') : ''}",
+                "width": 330,
+                "size": 24,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "winMine",
+                "text": "{phase == 'result' ? (('내 기록 ' + (myTaps) + '탭')) : ''}",
+                "width": 330,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "row0",
+            "box": "free",
+            "width": 358,
+            "height": 54,
+            "fill": "#16181c",
+            "show": "phase == 'result' ? (raceBoard.length > 0) : true",
+            "children": [
+              {
+                "id": "rbar0",
+                "box": "free",
+                "width": "{phase == 'result' ? (raceBoard.length > 0 ? max(6, round(raceBoard[0].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
+                "height": 54,
+                "x": 0,
+                "y": 0,
+                "fill": "#d9ff00"
+              },
+              {
+                "id": "rrank0",
+                "text": "1",
+                "x": 16,
+                "y": 17,
+                "size": 18,
+                "weight": 800,
+                "color": "#0b0c0e"
+              },
+              {
+                "id": "rnick0",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? raceBoard[0].nick : '') : ''}",
+                "width": 210,
+                "x": 46,
+                "y": 17,
+                "size": 17,
+                "weight": 700,
+                "color": "#0b0c0e"
+              },
+              {
+                "id": "rscore0",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ('' + (raceBoard[0].score) + '탭') : '') : ''}",
+                "width": 92,
+                "x": 250,
+                "y": 17,
+                "size": 17,
+                "weight": 800,
+                "color": "#0b0c0e",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "row1",
+            "box": "free",
+            "width": 358,
+            "height": 54,
+            "fill": "#16181c",
+            "show": "phase == 'result' ? (raceBoard.length > 1) : true",
+            "children": [
+              {
+                "id": "rbar1",
+                "box": "free",
+                "width": "{phase == 'result' ? (raceBoard.length > 1 ? max(6, round(raceBoard[1].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
+                "height": 54,
+                "x": 0,
+                "y": 0,
+                "fill": "#2a3a10"
+              },
+              {
+                "id": "rrank1",
+                "text": "2",
+                "x": 16,
+                "y": 17,
+                "size": 18,
+                "weight": 800,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "rnick1",
+                "text": "{phase == 'result' ? (raceBoard.length > 1 ? raceBoard[1].nick : '') : ''}",
+                "width": 210,
+                "x": 46,
+                "y": 17,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "rscore1",
+                "text": "{phase == 'result' ? (raceBoard.length > 1 ? ('' + (raceBoard[1].score) + '탭') : '') : ''}",
+                "width": 92,
+                "x": 250,
+                "y": 17,
+                "size": 17,
+                "weight": 800,
+                "color": "#ffffff",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "row2",
+            "box": "free",
+            "width": 358,
+            "height": 54,
+            "fill": "#16181c",
+            "show": "phase == 'result' ? (raceBoard.length > 2) : true",
+            "children": [
+              {
+                "id": "rbar2",
+                "box": "free",
+                "width": "{phase == 'result' ? (raceBoard.length > 2 ? max(6, round(raceBoard[2].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
+                "height": 54,
+                "x": 0,
+                "y": 0,
+                "fill": "#2a3a10"
+              },
+              {
+                "id": "rrank2",
+                "text": "3",
+                "x": 16,
+                "y": 17,
+                "size": 18,
+                "weight": 800,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "rnick2",
+                "text": "{phase == 'result' ? (raceBoard.length > 2 ? raceBoard[2].nick : '') : ''}",
+                "width": 210,
+                "x": 46,
+                "y": 17,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff"
+              },
+              {
+                "id": "rscore2",
+                "text": "{phase == 'result' ? (raceBoard.length > 2 ? ('' + (raceBoard[2].score) + '탭') : '') : ''}",
+                "width": 92,
+                "x": 250,
+                "y": 17,
+                "size": 17,
+                "weight": 800,
+                "color": "#ffffff",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "resSpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1,
+            "grow": 1
+          },
+          {
+            "id": "againBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "다시 하기 🔁"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "duration": 10000
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

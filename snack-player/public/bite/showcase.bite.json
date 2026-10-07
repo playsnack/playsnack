@@ -1,0 +1,76 @@
+{
+  "bite": 1,
+  "meta": { "name": "Bite 쇼케이스" },
+  "frame": [390, 844],
+  "vars": {
+    "count": 0,
+    "picked": "",
+    "startedAt": 0,
+    "tiles": [
+      { "emoji": "🍕", "name": "피자" }, { "emoji": "🍜", "name": "라면" }, { "emoji": "🍣", "name": "초밥" },
+      { "emoji": "🍔", "name": "버거" }, { "emoji": "🌮", "name": "타코" }, { "emoji": "🍩", "name": "도넛" }
+    ]
+  },
+  "components": {
+    "Stat": {
+      "props": { "label": "", "value": "" },
+      "view": {
+        "box": "column", "width": "fill", "pad": [10, 12], "gap": 2, "radius": 14, "fill": "#16181c",
+        "stroke": { "color": "#2a2f37", "width": 1 },
+        "children": [
+          { "text": "{props.label}", "size": 12, "weight": 600, "color": "#9aa3af" },
+          { "text": "{props.value}", "font": "display", "size": 22, "color": "#d9ff00" }
+        ]
+      }
+    }
+  },
+  "start": "main",
+  "phases": { "main": { "enter": [ { "set": "startedAt", "to": "now" } ] } },
+  "view": {
+    "box": "column", "pad": [59, 16, 34, 16], "gap": 14, "fill": "#0b0c0e",
+    "children": [
+      { "box": "row", "align": "center", "gap": 12, "children": [
+        { "image": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><rect width='120' height='120' fill='%23d9ff00'/><circle cx='60' cy='50' r='26' fill='%230b0c0e'/><rect x='24' y='84' width='72' height='40' rx='18' fill='%230b0c0e'/></svg>",
+          "width": 52, "height": 52, "radius": "full", "stroke": { "color": "#d9ff00", "width": 2 } },
+        { "box": "column", "width": "fill", "gap": 2, "children": [
+          { "text": "BITE ENGINE", "font": "display", "size": 22, "color": "#ffffff" },
+          { "text": "런타임 · Yoga 레이아웃 · Pixi 렌더러", "size": 13, "color": "#9aa3af" }
+        ] }
+      ] },
+      { "box": "row", "gap": 8, "children": [
+        { "use": "Stat", "props": { "label": "탭 횟수", "value": "{count}" } },
+        { "use": "Stat", "props": { "label": "경과", "value": "{floor((now - startedAt) / 1000)}s" } },
+        { "use": "Stat", "props": { "label": "고른 것", "value": "{picked == '' ? '-' : picked}" } }
+      ] },
+      { "box": "column", "pad": 16, "gap": 6, "radius": 20,
+        "gradient": { "colors": ["#d9ff00", "#5eead4", "#818cf8"], "angle": 135 },
+        "shadow": { "x": 0, "y": 8, "blur": 24, "color": "#d9ff0055" },
+        "children": [
+          { "text": "그라디언트 카드", "size": 20, "weight": 800, "color": "#0b0c0e" },
+          { "text": "그림자, 라운드, 한글 줄바꿈이 폰트 메트릭 그대로 맞는지 확인하는 긴 문장입니다.", "size": 15, "weight": 600, "color": "#0b0c0e" }
+        ] },
+      { "box": "grid", "columns": 3, "gap": 8, "each": "tiles", "children": [
+        { "box": "column", "height": 72, "radius": 16, "align": "center", "justify": "center", "gap": 2,
+          "fill": "{picked == item.name ? '#d9ff00' : '#1e2127'}",
+          "onTap": [ { "set": "count", "to": "count + 1" }, { "set": "picked", "to": "item.name" } ],
+          "children": [
+            { "text": "{item.emoji}", "size": 26 },
+            { "text": "{item.name}", "size": 13, "weight": 700, "color": "{picked == item.name ? '#0b0c0e' : '#ffffff'}" }
+          ] }
+      ] },
+      { "box": "column", "height": "fill", "scroll": true, "gap": 6, "radius": 16, "fill": "#121418", "pad": 10, "children": [
+        { "box": "column", "gap": 6, "each": "range(14)", "children": [
+          { "box": "row", "height": 40, "pad": [0, 12], "align": "center", "justify": "between", "radius": 10, "fill": "#1a1d22",
+            "children": [
+              { "text": "스크롤 행 {index + 1}", "size": 14, "weight": 600 },
+              { "text": "{index % 2 == 0 ? '짝' : '홀'}", "size": 13, "color": "#9aa3af" }
+            ] }
+        ] }
+      ] },
+      { "box": "free", "height": 0, "children": [
+        { "x": 300, "y": -772, "width": 64, "height": 26, "radius": "full", "fill": "#ff5a5f", "rotate": 12, "align": "center", "justify": "center",
+          "box": "column", "children": [ { "text": "NEW", "font": "display", "size": 13, "color": "#ffffff" } ] }
+      ] }
+    ]
+  }
+}

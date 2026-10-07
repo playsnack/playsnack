@@ -1,0 +1,290 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "심플 탭 카운터"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "count": 0,
+    "lastAction": "아직 기록 전",
+    "startedAt": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    }
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "page",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "탭 카운터",
+              "subtitle": "깔끔하게 숫자를 기록해요"
+            }
+          },
+          {
+            "id": "heroCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "counterLabel",
+                "text": "현재 기록",
+                "size": 14,
+                "weight": 700,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "countText",
+                "text": "{count}",
+                "size": 96,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "unitText",
+                "text": "탭",
+                "size": 18,
+                "weight": 700,
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "tapTarget",
+                "box": "column",
+                "height": 188,
+                "gap": 6,
+                "align": "center",
+                "justify": "center",
+                "fill": "#d9ff00",
+                "shadow": {
+                  "x": 0,
+                  "y": 12,
+                  "blur": 28,
+                  "color": "#d9ff0055"
+                },
+                "onTap": [
+                  {
+                    "set": "startedAt",
+                    "to": "count === 0 ? now : startedAt"
+                  },
+                  {
+                    "set": "count",
+                    "to": "count + 1"
+                  },
+                  {
+                    "set": "lastAction",
+                    "to": "('방금 1회를 추가했어요 · 총 ' + (count) + '회')"
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "tapIcon",
+                    "text": "＋",
+                    "size": 54,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  },
+                  {
+                    "id": "tapLabel",
+                    "text": "크게 탭해서 +1",
+                    "size": 19,
+                    "weight": 800,
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  },
+                  {
+                    "id": "tapHint",
+                    "text": "한 번 누를 때마다 기록이 올라가요",
+                    "size": 13,
+                    "weight": 600,
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "lastActionText",
+                "text": "{lastAction}",
+                "size": 13,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "statsRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "totalStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "누적",
+                  "value": "{count}회"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "statusStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "경과 시간",
+                  "value": "{count === 0 ? '0초' : ('' + (max(0, floor((now - startedAt) / 1000))) + '초')}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "resetBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "리셋하기"
+            },
+            "onTap": [
+              {
+                "set": "count",
+                "to": "0"
+              },
+              {
+                "set": "lastAction",
+                "to": "'기록을 0으로 리셋했어요'"
+              },
+              {
+                "set": "startedAt",
+                "to": "0"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

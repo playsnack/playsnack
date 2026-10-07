@@ -1,0 +1,1047 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "동물 캐릭터 심리테스트"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "cat": 0,
+    "dog": 0,
+    "rabbit": 0,
+    "fox": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "OptionCard": {
+      "props": {
+        "label": "",
+        "accent": false
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 88,
+        "pad": 12,
+        "align": "center",
+        "justify": "center",
+        "fill": "#16181c",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "width": "fill",
+            "size": 18,
+            "weight": 700,
+            "color": "#ffffff",
+            "align": "center"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "q1",
+  "phases": {
+    "q1": {},
+    "q2": {},
+    "q3": {},
+    "q4": {},
+    "q5": {},
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "q1Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q1'",
+        "children": [
+          {
+            "id": "nav1",
+            "use": "NavBar",
+            "props": {
+              "title": "동물 캐릭터 테스트",
+              "subtitle": "1 / 5 · 첫 선택을 골라보세요"
+            }
+          },
+          {
+            "id": "hero1",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 20,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "q1Chip",
+                "use": "Chip",
+                "props": {
+                  "label": "상상 속 주말"
+                }
+              },
+              {
+                "id": "q1Title",
+                "text": "갑자기 완벽한 하루가 생겼어요. 당신의 첫 계획은?",
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff"
+              },
+              {
+                "id": "q1Desc",
+                "text": "고민하지 말고 가장 끌리는 선택을 눌러주세요.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "q1Spacer",
+                "box": "column",
+                "height": "fill",
+                "gap": 10,
+                "children": [
+                  {
+                    "id": "q1Cat",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "혼자 좋아하는 카페에서 조용히 충전하기",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q1'",
+                        "then": [
+                          {
+                            "set": "cat",
+                            "to": "cat + 1"
+                          },
+                          {
+                            "go": "q2"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q1Dog",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "친구들을 불러 즉흥 피크닉 열기",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q1'",
+                        "then": [
+                          {
+                            "set": "dog",
+                            "to": "dog + 1"
+                          },
+                          {
+                            "go": "q2"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q1Rabbit",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "예쁜 소품샵과 산책 코스 돌기",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q1'",
+                        "then": [
+                          {
+                            "set": "rabbit",
+                            "to": "rabbit + 1"
+                          },
+                          {
+                            "go": "q2"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q1Fox",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "새로운 전시나 숨은 맛집 탐험하기",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q1'",
+                        "then": [
+                          {
+                            "set": "fox",
+                            "to": "fox + 1"
+                          },
+                          {
+                            "go": "q2"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q2Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q2'",
+        "children": [
+          {
+            "id": "nav2",
+            "use": "NavBar",
+            "props": {
+              "title": "동물 캐릭터 테스트",
+              "subtitle": "2 / 5 · 관계 스타일"
+            }
+          },
+          {
+            "id": "hero2",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 20,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "q2Chip",
+                "use": "Chip",
+                "props": {
+                  "label": "친구가 고민을 털어놓을 때"
+                }
+              },
+              {
+                "id": "q2Title",
+                "text": "당신은 보통 어떤 방식으로 위로하나요?",
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff"
+              },
+              {
+                "id": "q2Desc",
+                "text": "가장 자연스러운 반응을 선택하세요.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "q2Options",
+                "box": "column",
+                "height": "fill",
+                "gap": 10,
+                "children": [
+                  {
+                    "id": "q2Cat",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "가만히 옆에 있어주며 깊게 들어준다",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q2'",
+                        "then": [
+                          {
+                            "set": "cat",
+                            "to": "cat + 1"
+                          },
+                          {
+                            "go": "q3"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q2Dog",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "바로 달려가서 같이 해결해준다",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q2'",
+                        "then": [
+                          {
+                            "set": "dog",
+                            "to": "dog + 1"
+                          },
+                          {
+                            "go": "q3"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q2Rabbit",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "따뜻한 말과 작은 선물을 챙긴다",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q2'",
+                        "then": [
+                          {
+                            "set": "rabbit",
+                            "to": "rabbit + 1"
+                          },
+                          {
+                            "go": "q3"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q2Fox",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "상황을 정리해 현실적인 조언을 한다",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q2'",
+                        "then": [
+                          {
+                            "set": "fox",
+                            "to": "fox + 1"
+                          },
+                          {
+                            "go": "q3"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q3Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q3'",
+        "children": [
+          {
+            "id": "nav3",
+            "use": "NavBar",
+            "props": {
+              "title": "동물 캐릭터 테스트",
+              "subtitle": "3 / 5 · 에너지 방향"
+            }
+          },
+          {
+            "id": "hero3",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 20,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "q3Chip",
+                "use": "Chip",
+                "props": {
+                  "label": "새 프로젝트 시작!"
+                }
+              },
+              {
+                "id": "q3Title",
+                "text": "새로운 일을 맡으면 가장 먼저 하는 행동은?",
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff"
+              },
+              {
+                "id": "q3Desc",
+                "text": "당신의 추진 방식이 동물 캐릭터를 결정해요.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "q3Options",
+                "box": "column",
+                "height": "fill",
+                "gap": 10,
+                "children": [
+                  {
+                    "id": "q3Cat",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "자료를 모으며 나만의 기준을 세운다",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q3'",
+                        "then": [
+                          {
+                            "set": "cat",
+                            "to": "cat + 1"
+                          },
+                          {
+                            "go": "q4"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q3Dog",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "팀원들과 바로 의견을 나누며 시작한다",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q3'",
+                        "then": [
+                          {
+                            "set": "dog",
+                            "to": "dog + 1"
+                          },
+                          {
+                            "go": "q4"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q3Rabbit",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "분위기와 디테일을 예쁘게 다듬는다",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q3'",
+                        "then": [
+                          {
+                            "set": "rabbit",
+                            "to": "rabbit + 1"
+                          },
+                          {
+                            "go": "q4"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q3Fox",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "목표와 전략을 빠르게 설계한다",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q3'",
+                        "then": [
+                          {
+                            "set": "fox",
+                            "to": "fox + 1"
+                          },
+                          {
+                            "go": "q4"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q4Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q4'",
+        "children": [
+          {
+            "id": "nav4",
+            "use": "NavBar",
+            "props": {
+              "title": "동물 캐릭터 테스트",
+              "subtitle": "4 / 5 · 취향의 결"
+            }
+          },
+          {
+            "id": "hero4",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 20,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "q4Chip",
+                "use": "Chip",
+                "props": {
+                  "label": "방 꾸미기 취향"
+                }
+              },
+              {
+                "id": "q4Title",
+                "text": "내 방에 꼭 두고 싶은 오브제는?",
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff"
+              },
+              {
+                "id": "q4Desc",
+                "text": "끌리는 분위기를 골라주세요.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "q4Options",
+                "box": "column",
+                "height": "fill",
+                "gap": 10,
+                "children": [
+                  {
+                    "id": "q4Cat",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "무드등과 푹신한 1인 의자",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q4'",
+                        "then": [
+                          {
+                            "set": "cat",
+                            "to": "cat + 1"
+                          },
+                          {
+                            "go": "q5"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q4Dog",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "큰 테이블과 보드게임 박스",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q4'",
+                        "then": [
+                          {
+                            "set": "dog",
+                            "to": "dog + 1"
+                          },
+                          {
+                            "go": "q5"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q4Rabbit",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "꽃병, 엽서, 귀여운 쿠션",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q4'",
+                        "then": [
+                          {
+                            "set": "rabbit",
+                            "to": "rabbit + 1"
+                          },
+                          {
+                            "go": "q5"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q4Fox",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "깔끔한 데스크와 영감 보드",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q4'",
+                        "then": [
+                          {
+                            "set": "fox",
+                            "to": "fox + 1"
+                          },
+                          {
+                            "go": "q5"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q5Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q5'",
+        "children": [
+          {
+            "id": "nav5",
+            "use": "NavBar",
+            "props": {
+              "title": "동물 캐릭터 테스트",
+              "subtitle": "5 / 5 · 마지막 선택"
+            }
+          },
+          {
+            "id": "hero5",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 20,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "q5Chip",
+                "use": "Chip",
+                "props": {
+                  "label": "마법의 능력 하나"
+                }
+              },
+              {
+                "id": "q5Title",
+                "text": "하나만 가질 수 있다면 어떤 능력을 고를래요?",
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff"
+              },
+              {
+                "id": "q5Desc",
+                "text": "결과 화면이 곧 열립니다.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "q5Options",
+                "box": "column",
+                "height": "fill",
+                "gap": 10,
+                "children": [
+                  {
+                    "id": "q5Cat",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "언제든 완벽히 혼자 집중하는 능력",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q5'",
+                        "then": [
+                          {
+                            "set": "cat",
+                            "to": "cat + 1"
+                          },
+                          {
+                            "go": "result"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q5Dog",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "모두를 웃게 만드는 밝은 에너지",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q5'",
+                        "then": [
+                          {
+                            "set": "dog",
+                            "to": "dog + 1"
+                          },
+                          {
+                            "go": "result"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q5Rabbit",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "상대의 마음을 포근하게 읽는 능력",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q5'",
+                        "then": [
+                          {
+                            "set": "rabbit",
+                            "to": "rabbit + 1"
+                          },
+                          {
+                            "go": "result"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "q5Fox",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "복잡한 문제의 핵심을 보는 능력",
+                      "accent": false
+                    },
+                    "onTap": [
+                      {
+                        "if": "phase == 'q5'",
+                        "then": [
+                          {
+                            "set": "fox",
+                            "to": "fox + 1"
+                          },
+                          {
+                            "go": "result"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "나의 동물 캐릭터",
+              "subtitle": "선택이 만든 작은 초상화"
+            }
+          },
+          {
+            "id": "resultCard",
+            "box": "column",
+            "height": "hug",
+            "gap": 14,
+            "pad": 22,
+            "align": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultEmoji",
+                "text": "{phase == 'result' ? (('' + (cat >= dog && cat >= rabbit && cat >= fox ? '🐱' : dog >= rabbit && dog >= fox ? '🐶' : rabbit >= fox ? '🐰' : '🦊'))) : '🐱'}",
+                "size": 84,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resultTitle",
+                "text": "{phase == 'result' ? (('' + (cat >= dog && cat >= rabbit && cat >= fox ? '고요한 달빛 고양이' : dog >= rabbit && dog >= fox ? '햇살 가득 강아지' : rabbit >= fox ? '말랑한 꽃밭 토끼' : '영리한 별빛 여우'))) : '고요한 달빛 고양이'}",
+                "size": 29,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resultDesc",
+                "text": "{phase == 'result' ? (('' + (cat >= dog && cat >= rabbit && cat >= fox ? '혼자만의 리듬을 소중히 여기고, 중요한 순간에는 누구보다 섬세하게 판단하는 타입이에요.' : dog >= rabbit && dog >= fox ? '사람들과 함께할 때 가장 빛나요. 따뜻한 에너지로 주변을 움직이게 만드는 든든한 캐릭터예요.' : rabbit >= fox ? '작은 감정과 분위기를 잘 알아차리는 다정한 타입이에요. 곁에 있으면 마음이 부드러워져요.' : '호기심과 전략 감각이 뛰어난 타입이에요. 새로운 길을 발견하고 멋지게 방향을 잡아주는 캐릭터예요.'))) : '혼자만의 리듬을 소중히 여기고, 중요한 순간에는 누구보다 섬세하게 판단하는 타입이에요.'}",
+                "size": 16,
+                "weight": 500,
+                "color": "#d7dce3",
+                "align": "center"
+              },
+              {
+                "id": "restartBtn",
+                "use": "Button",
+                "props": {
+                  "label": "다시하기"
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'result'",
+                    "then": [
+                      {
+                        "set": "cat",
+                        "to": "0"
+                      },
+                      {
+                        "set": "dog",
+                        "to": "0"
+                      },
+                      {
+                        "set": "rabbit",
+                        "to": "0"
+                      },
+                      {
+                        "set": "fox",
+                        "to": "0"
+                      },
+                      {
+                        "go": "q1"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

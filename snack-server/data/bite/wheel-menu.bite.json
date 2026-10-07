@@ -1,0 +1,358 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "오늘 뭐 먹지 룰렛"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "menus": [
+      "김치찌개",
+      "초밥",
+      "파스타",
+      "떡볶이",
+      "쌀국수",
+      "제육덮밥",
+      "마라탕",
+      "햄버거"
+    ],
+    "selected": "탭해서 뽑기",
+    "pickedCount": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "page",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "오늘 뭐 먹지?",
+              "subtitle": "고민은 룰렛에게 맡겨요"
+            }
+          },
+          {
+            "id": "heroCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "shadow": {
+              "x": 0,
+              "y": 12,
+              "blur": 24,
+              "color": "#00000059"
+            },
+            "children": [
+              {
+                "id": "rouletteWrap",
+                "box": "free",
+                "width": 250,
+                "height": 250,
+                "clip": true,
+                "fill": "#1e2127",
+                "radius": 125,
+                "stroke": {
+                  "color": "#2a2d33",
+                  "width": 2
+                },
+                "onTap": [
+                  {
+                    "set": "selected",
+                    "to": "menus[floor(random() * menus.length)]"
+                  },
+                  {
+                    "set": "pickedCount",
+                    "to": "pickedCount + 1"
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "rouletteGlow",
+                    "box": "free",
+                    "width": 188,
+                    "height": 188,
+                    "x": 31,
+                    "y": 31,
+                    "fill": "{pickedCount === 0 ? '#d9ff00' : '#fff3a3'}",
+                    "radius": "full"
+                  },
+                  {
+                    "id": "emoji",
+                    "text": "🍽️",
+                    "width": 250,
+                    "x": 0,
+                    "y": 64,
+                    "size": 54,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  },
+                  {
+                    "id": "selectedText",
+                    "text": "{selected}",
+                    "width": 190,
+                    "x": 30,
+                    "y": 140,
+                    "size": 34,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "caption",
+                "text": "아래 버튼을 누르면 후보 메뉴 중 하나가 랜덤으로 선택돼요.",
+                "width": 294,
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "chipRow",
+                "box": "row",
+                "height": "hug",
+                "gap": 8,
+                "justify": "center",
+                "children": [
+                  {
+                    "id": "chip1",
+                    "use": "Chip",
+                    "props": {
+                      "label": "한식"
+                    }
+                  },
+                  {
+                    "id": "chip2",
+                    "use": "Chip",
+                    "props": {
+                      "label": "분식"
+                    }
+                  },
+                  {
+                    "id": "chip3",
+                    "use": "Chip",
+                    "props": {
+                      "label": "양식"
+                    }
+                  },
+                  {
+                    "id": "chip4",
+                    "use": "Chip",
+                    "props": {
+                      "label": "랜덤"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "statRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "pickedStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "뽑은 횟수",
+                  "value": "{pickedCount}회"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "candidateStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "후보 메뉴",
+                  "value": "8개"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "pickBtn",
+            "use": "Button",
+            "props": {
+              "label": "{pickedCount === 0 ? '룰렛 돌리기' : '다시 뽑기'}"
+            },
+            "onTap": [
+              {
+                "set": "selected",
+                "to": "menus[floor(random() * menus.length)]"
+              },
+              {
+                "set": "pickedCount",
+                "to": "pickedCount + 1"
+              }
+            ]
+          },
+          {
+            "id": "hint",
+            "text": "마음에 안 들면 다시 뽑기 버튼을 눌러보세요.",
+            "size": 13,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      }
+    ]
+  }
+}

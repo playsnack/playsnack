@@ -1,0 +1,636 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "두더지 잡기"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "score": 0,
+    "startedAt": 0,
+    "duration": 15000,
+    "moleIndex": 2
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "play": {
+      "tick": [
+        {
+          "if": "now - startedAt >= duration",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "readyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "readyNav",
+            "use": "NavBar",
+            "props": {
+              "title": "두더지 잡기",
+              "subtitle": "15초 동안 최대한 많이 잡아보세요"
+            }
+          },
+          {
+            "id": "readyHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 24,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "readyBadge",
+                "box": "column",
+                "width": 144,
+                "height": 144,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "radius": 72,
+                "shadow": {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 18,
+                  "color": "#00000059"
+                },
+                "children": [
+                  {
+                    "id": "readyMoleEmoji",
+                    "text": "🐹",
+                    "size": 82,
+                    "font": "display",
+                    "color": "#ffffff",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "readyTitle",
+                "text": "톡! 나타나는 두더지를 빠르게 탭하세요",
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyDesc",
+                "text": "3×2 구멍 중 한 곳에 두더지가 나타납니다. 잡을 때마다 다른 구멍으로 숨어요.",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "startBtn",
+            "use": "Button",
+            "props": {
+              "label": "시작"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "set": "moleIndex",
+                    "to": "floor(random() * 6)"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "readyHint",
+            "text": "제한시간 15초 · 탭할 때마다 +1점",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "playNav",
+            "use": "NavBar",
+            "props": {
+              "title": "두더지 잡기",
+              "subtitle": "보이면 바로 탭!"
+            }
+          },
+          {
+            "id": "hudRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "scoreCard",
+                "use": "StatCard",
+                "props": {
+                  "label": "점수",
+                  "value": "{phase == 'play' ? (('' + (score) + '점')) : '0점'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "timerCard",
+                "use": "StatCard",
+                "props": {
+                  "label": "남은 시간",
+                  "value": "{phase == 'play' ? (('' + (max(0, ceil((duration - (now - startedAt)) / 1000))) + '초')) : '15초'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "playArea",
+            "box": "free",
+            "height": 430,
+            "fill": "#111317",
+            "children": [
+              {
+                "id": "fieldGlow",
+                "box": "free",
+                "width": 326,
+                "height": 398,
+                "x": 16,
+                "y": 16,
+                "gradient": {
+                  "colors": [
+                    "#1e2127",
+                    "#121418"
+                  ],
+                  "angle": 135
+                }
+              },
+              {
+                "id": "hole0",
+                "box": "column",
+                "width": 86,
+                "height": 54,
+                "x": 28,
+                "y": 72,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1b2030",
+                "stroke": {
+                  "color": "#2a2d33",
+                  "width": 2
+                },
+                "children": [
+                  {
+                    "id": "hole0Shine",
+                    "box": "free",
+                    "width": 58,
+                    "height": 8,
+                    "fill": "#2a2d33"
+                  }
+                ]
+              },
+              {
+                "id": "hole1",
+                "box": "column",
+                "width": 86,
+                "height": 54,
+                "x": 136,
+                "y": 72,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1b2030",
+                "stroke": {
+                  "color": "#2a2d33",
+                  "width": 2
+                },
+                "children": [
+                  {
+                    "id": "hole1Shine",
+                    "box": "free",
+                    "width": 58,
+                    "height": 8,
+                    "fill": "#2a2d33"
+                  }
+                ]
+              },
+              {
+                "id": "hole2",
+                "box": "column",
+                "width": 86,
+                "height": 54,
+                "x": 244,
+                "y": 72,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1b2030",
+                "stroke": {
+                  "color": "#2a2d33",
+                  "width": 2
+                },
+                "children": [
+                  {
+                    "id": "hole2Shine",
+                    "box": "free",
+                    "width": 58,
+                    "height": 8,
+                    "fill": "#2a2d33"
+                  }
+                ]
+              },
+              {
+                "id": "hole3",
+                "box": "column",
+                "width": 86,
+                "height": 54,
+                "x": 28,
+                "y": 244,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1b2030",
+                "stroke": {
+                  "color": "#2a2d33",
+                  "width": 2
+                },
+                "children": [
+                  {
+                    "id": "hole3Shine",
+                    "box": "free",
+                    "width": 58,
+                    "height": 8,
+                    "fill": "#2a2d33"
+                  }
+                ]
+              },
+              {
+                "id": "hole4",
+                "box": "column",
+                "width": 86,
+                "height": 54,
+                "x": 136,
+                "y": 244,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1b2030",
+                "stroke": {
+                  "color": "#2a2d33",
+                  "width": 2
+                },
+                "children": [
+                  {
+                    "id": "hole4Shine",
+                    "box": "free",
+                    "width": 58,
+                    "height": 8,
+                    "fill": "#2a2d33"
+                  }
+                ]
+              },
+              {
+                "id": "hole5",
+                "box": "column",
+                "width": 86,
+                "height": 54,
+                "x": 244,
+                "y": 244,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1b2030",
+                "stroke": {
+                  "color": "#2a2d33",
+                  "width": 2
+                },
+                "children": [
+                  {
+                    "id": "hole5Shine",
+                    "box": "free",
+                    "width": 58,
+                    "height": 8,
+                    "fill": "#2a2d33"
+                  }
+                ]
+              },
+              {
+                "id": "mole",
+                "box": "column",
+                "width": 72,
+                "height": 92,
+                "x": "{phase == 'play' ? ([35,143,251,35,143,251][moleIndex]) : 143}",
+                "y": "{phase == 'play' ? ([22,22,22,194,194,194][moleIndex]) : 22}",
+                "gap": 2,
+                "align": "center",
+                "justify": "center",
+                "fill": "#d9ff00",
+                "shadow": {
+                  "x": 0,
+                  "y": 8,
+                  "blur": 18,
+                  "color": "#d9ff0047"
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'play'",
+                    "then": [
+                      {
+                        "set": "score",
+                        "to": "score + 1"
+                      },
+                      {
+                        "set": "moleIndex",
+                        "to": "(moleIndex + 1 + floor(random() * 5)) % 6"
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "moleFace",
+                    "text": "🐹",
+                    "size": 48,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  },
+                  {
+                    "id": "moleTapLabel",
+                    "text": "TAP",
+                    "size": 10,
+                    "weight": 800,
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "playTip",
+                "text": "두더지를 탭하면 즉시 다른 구멍으로 이동합니다",
+                "width": 358,
+                "x": 0,
+                "y": 366,
+                "size": 13,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "quitHint",
+            "text": "끝나면 자동으로 결과가 표시돼요",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "결과",
+              "subtitle": "15초 챌린지 완료"
+            }
+          },
+          {
+            "id": "resultCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 24,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultEmoji",
+                "text": "🎉",
+                "size": 72,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resultTitle",
+                "text": "기록 달성!",
+                "size": 30,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "finalScore",
+                "use": "StatCard",
+                "props": {
+                  "label": "최종 점수",
+                  "value": "{phase == 'result' ? (('' + (score) + '점')) : '0점'}"
+                }
+              },
+              {
+                "id": "resultMessage",
+                "text": "{phase == 'result' ? (score >= 20 ? '엄청난 반응속도예요! 두더지들이 정신을 못 차렸어요.' : score >= 12 ? '좋아요! 조금만 더 빠르면 최고 기록이 보여요.' : '괜찮아요. 리듬을 익히고 다시 잡아봐요!') : '다시 도전해서 더 빠른 손을 만들어보세요.'}",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시하기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "go": "ready"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "resultHint",
+            "text": "시작 화면으로 돌아가 새 게임을 준비합니다",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      }
+    ]
+  }
+}

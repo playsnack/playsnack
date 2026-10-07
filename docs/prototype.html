@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#080809" />
+<title>Social Snack-App Player</title>
+<style>
+  :root{
+    --bg:#080809;
+    --surface:#141416;
+    --surface-2:#1c1c21;
+    --border:rgba(255,255,255,.08);
+    --border-strong:rgba(255,255,255,.14);
+    --accent:#c9f25e;
+    --accent-2:#a8e63a;
+    --accent-soft:rgba(201,242,94,.12);
+    --text:#f5f5f7;
+    --muted:#8b8b92;
+    --dim:#64646b;
+    --pink:#ff5d8f;
+    --blue:#5db0ff;
+    --radius:20px;
+    --safe-b:env(safe-area-inset-bottom,0px);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    background:#000;color:var(--text);
+    display:flex;align-items:center;justify-content:center;
+    min-height:100dvh;overflow:hidden;
+  }
+  /* phone frame for desktop preview; on mobile it fills the screen */
+  #phone{
+    position:relative;width:100%;max-width:430px;height:100dvh;max-height:932px;
+    background:var(--bg);overflow:hidden;display:flex;flex-direction:column;
+    box-shadow:0 0 0 1px rgba(255,255,255,.06),0 40px 120px rgba(0,0,0,.6);
+  }
+  @media(min-width:480px){ #phone{border-radius:42px;height:min(92dvh,900px);} }
+
+  /* ambient glow */
+  #phone::before{
+    content:"";position:absolute;top:-15%;right:-25%;width:80%;height:45%;
+    background:radial-gradient(circle,rgba(201,242,94,.10),transparent 70%);
+    pointer-events:none;z-index:0;
+  }
+
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;
+    opacity:0;visibility:hidden;transform:translateX(16px);
+    transition:opacity .32s ease,transform .32s ease,visibility .32s;z-index:1;}
+  .screen.active{opacity:1;visibility:visible;transform:none;z-index:2;}
+  .scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;}
+  .scroll::-webkit-scrollbar{width:0;}
+
+  /* ---------- top bar ---------- */
+  .topbar{display:flex;align-items:center;gap:12px;padding:18px 20px 14px;position:relative;z-index:3;}
+  .topbar .back{font-size:22px;color:var(--text);background:none;border:none;cursor:pointer;line-height:1;width:30px;}
+  .topbar h2{font-size:17px;font-weight:700;letter-spacing:-.01em;}
+  .brand{display:flex;align-items:baseline;gap:0;font-weight:800;font-size:19px;letter-spacing:-.02em;}
+  .brand .g{color:var(--accent);}
+  .topbar .spacer{flex:1;}
+  .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#3a3a40,#1c1c21);
+    border:1px solid var(--border);display:grid;place-items:center;font-size:14px;}
+
+  /* ---------- discover ---------- */
+  .hero{padding:6px 20px 18px;}
+  .hero h1{font-size:27px;font-weight:800;line-height:1.18;letter-spacing:-.03em;}
+  .hero h1 .g{color:var(--accent);}
+  .hero p{color:var(--muted);font-size:13.5px;margin-top:8px;line-height:1.5;}
+
+  .section-label{display:flex;align-items:center;gap:8px;padding:8px 20px 12px;font-size:12px;
+    font-weight:700;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;}
+  .section-label .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);}
+
+  .trend-rail{display:flex;gap:10px;overflow-x:auto;padding:0 20px 6px;}
+  .trend-rail::-webkit-scrollbar{display:none;}
+  .chip{flex:none;border:1px solid var(--border);background:var(--surface);color:var(--text);
+    padding:9px 14px;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;
+    display:flex;align-items:center;gap:6px;transition:.15s;}
+  .chip:active{transform:scale(.96);}
+  .chip .fire{font-size:12px;}
+
+  .feed{padding:14px 20px 120px;display:flex;flex-direction:column;gap:14px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    overflow:hidden;cursor:pointer;transition:.18s;position:relative;}
+  .card:active{transform:scale(.985);border-color:var(--border-strong);}
+  .card .thumb{height:150px;position:relative;display:flex;align-items:flex-end;padding:14px;
+    background-size:cover;background-position:center;}
+  .card .thumb .badge{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.18);padding:5px 10px;border-radius:999px;font-size:11px;font-weight:700;}
+  .card .thumb .live{position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:5px;
+    background:rgba(0,0,0,.5);backdrop-filter:blur(8px);padding:5px 10px;border-radius:999px;font-size:11px;font-weight:700;}
+  .card .thumb .live .pulse{width:7px;height:7px;border-radius:50%;background:var(--pink);animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.45;transform:scale(.7);}}
+  .card .thumb .ttl{font-size:18px;font-weight:800;letter-spacing:-.02em;text-shadow:0 2px 12px rgba(0,0,0,.6);line-height:1.2;}
+  .card .meta{display:flex;align-items:center;gap:10px;padding:12px 14px;}
+  .card .meta .who{display:flex;align-items:center;gap:8px;flex:1;min-width:0;}
+  .card .meta .pf{width:26px;height:26px;border-radius:50%;flex:none;background-size:cover;background-position:center;
+    border:1px solid var(--border);}
+  .card .meta .name{font-size:13px;font-weight:600;}
+  .card .meta .name small{display:block;color:var(--dim);font-weight:500;font-size:11px;margin-top:1px;}
+  .card .meta .stat{color:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px;}
+
+  /* ---------- FAB ---------- */
+  .fab{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(26px + var(--safe-b));z-index:20;
+    background:var(--accent);color:#000;border:none;border-radius:999px;font-weight:800;font-size:15px;
+    padding:15px 26px;display:flex;align-items:center;gap:9px;cursor:pointer;letter-spacing:-.01em;
+    box-shadow:0 8px 30px rgba(201,242,94,.35),0 2px 8px rgba(0,0,0,.4);transition:.15s;}
+  .fab:active{transform:translateX(-50%) scale(.95);}
+  .fab .plus{font-size:19px;font-weight:700;line-height:1;}
+
+  /* ---------- create / chat ---------- */
+  #create .scroll{padding:8px 18px 16px;}
+  .builder-intro{text-align:center;padding:18px 12px 22px;}
+  .builder-intro .orb{width:64px;height:64px;border-radius:20px;margin:0 auto 16px;display:grid;place-items:center;
+    font-size:30px;background:var(--accent-soft);border:1px solid rgba(201,242,94,.25);
+    box-shadow:0 0 40px rgba(201,242,94,.18);}
+  .builder-intro h3{font-size:20px;font-weight:800;letter-spacing:-.02em;}
+  .builder-intro p{color:var(--muted);font-size:13.5px;margin-top:8px;line-height:1.55;}
+
+  .msg{display:flex;margin-bottom:12px;gap:9px;animation:rise .3s ease;}
+  @keyframes rise{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+  .msg.ai .ic{width:30px;height:30px;border-radius:9px;flex:none;background:var(--accent-soft);
+    border:1px solid rgba(201,242,94,.25);display:grid;place-items:center;font-size:15px;}
+  .bubble{max-width:80%;padding:12px 15px;border-radius:16px;font-size:14px;line-height:1.5;}
+  .msg.ai .bubble{background:var(--surface);border:1px solid var(--border);border-top-left-radius:5px;}
+  .msg.me{justify-content:flex-end;}
+  .msg.me .bubble{background:var(--accent);color:#000;font-weight:600;border-top-right-radius:5px;}
+
+  .sugg{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 8px 39px;}
+  .sugg .s{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);
+    padding:9px 13px;border-radius:13px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;}
+  .sugg .s:active{transform:scale(.95);background:var(--accent-soft);}
+
+  .typing{display:inline-flex;gap:4px;align-items:center;padding:4px 2px;}
+  .typing span{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite;}
+  .typing span:nth-child(2){animation-delay:.2s;}.typing span:nth-child(3){animation-delay:.4s;}
+  @keyframes blink{0%,60%,100%{opacity:.3;}30%{opacity:1;}}
+
+  .composer{display:flex;gap:10px;padding:12px 16px calc(14px + var(--safe-b));
+    border-top:1px solid var(--border);background:var(--bg);align-items:center;}
+  .composer input{flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);
+    padding:13px 16px;border-radius:999px;font-size:14.5px;outline:none;font-family:inherit;}
+  .composer input::placeholder{color:var(--dim);}
+  .composer input:focus{border-color:var(--border-strong);}
+  .composer .send{width:46px;height:46px;flex:none;border-radius:50%;background:var(--accent);border:none;
+    color:#000;font-size:18px;cursor:pointer;display:grid;place-items:center;transition:.15s;}
+  .composer .send:active{transform:scale(.9);}
+  .composer .send:disabled{opacity:.4;}
+
+  /* ---------- build overlay ---------- */
+  .build-steps{margin:8px 0 4px 39px;background:var(--surface);border:1px solid var(--border);
+    border-radius:16px;padding:14px 16px;max-width:80%;}
+  .build-steps .row{display:flex;align-items:center;gap:10px;font-size:13.5px;padding:5px 0;color:var(--dim);
+    transition:color .3s;}
+  .build-steps .row.done{color:var(--text);}
+  .build-steps .row.active{color:var(--accent);}
+  .build-steps .row .mk{width:18px;height:18px;flex:none;border-radius:50%;border:2px solid currentColor;
+    display:grid;place-items:center;font-size:10px;}
+  .build-steps .row.done .mk{background:var(--accent);border-color:var(--accent);color:#000;}
+  .build-steps .row .spin{width:14px;height:14px;border:2px solid var(--accent);border-top-color:transparent;
+    border-radius:50%;animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .ready-cta{margin:10px 0 4px 39px;}
+  .ready-cta button{background:var(--accent);color:#000;border:none;border-radius:14px;font-weight:800;
+    font-size:15px;padding:14px 22px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:.15s;}
+  .ready-cta button:active{transform:scale(.96);}
+
+  /* ---------- player ---------- */
+  #player .player-head{padding:16px 20px 4px;}
+  #player .player-head .tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;
+    color:var(--accent);background:var(--accent-soft);padding:5px 11px;border-radius:999px;margin-bottom:12px;}
+  #player .player-head h1{font-size:25px;font-weight:800;letter-spacing:-.03em;line-height:1.2;}
+  #player .player-head .by{color:var(--muted);font-size:13px;margin-top:8px;display:flex;align-items:center;gap:6px;}
+  .app-body{padding:18px 20px 24px;}
+
+  /* poll */
+  .poll-q{font-size:18px;font-weight:700;margin-bottom:18px;line-height:1.35;letter-spacing:-.01em;}
+  .poll-opt{position:relative;border:1px solid var(--border);background:var(--surface);border-radius:16px;
+    padding:16px 18px;margin-bottom:11px;cursor:pointer;overflow:hidden;transition:.18s;}
+  .poll-opt:active{transform:scale(.98);}
+  .poll-opt .fill{position:absolute;inset:0;background:var(--accent-soft);width:0;transition:width .8s cubic-bezier(.2,.8,.2,1);z-index:0;}
+  .poll-opt.picked{border-color:var(--accent);}
+  .poll-opt .label{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:center;
+    font-size:15.5px;font-weight:600;}
+  .poll-opt .pct{font-weight:800;color:var(--accent);opacity:0;transition:.4s;}
+  .poll-opt.revealed .pct{opacity:1;}
+  .poll-total{text-align:center;color:var(--muted);font-size:13px;margin-top:8px;font-weight:600;}
+
+  /* quiz */
+  .quiz-prog{height:5px;background:var(--surface-2);border-radius:999px;overflow:hidden;margin-bottom:22px;}
+  .quiz-prog .bar{height:100%;background:var(--accent);width:0;transition:width .4s ease;border-radius:999px;}
+  .quiz-q{font-size:20px;font-weight:800;line-height:1.3;margin-bottom:22px;letter-spacing:-.02em;}
+  .quiz-a{border:1px solid var(--border);background:var(--surface);border-radius:16px;padding:17px 18px;
+    margin-bottom:11px;cursor:pointer;font-size:15.5px;font-weight:600;transition:.15s;display:flex;align-items:center;gap:12px;}
+  .quiz-a:active{transform:scale(.98);border-color:var(--accent);background:var(--accent-soft);}
+  .quiz-a .em{font-size:20px;}
+  .quiz-result{text-align:center;padding:10px 0;animation:rise .4s;}
+  .quiz-result .big-em{font-size:64px;margin-bottom:14px;}
+  .quiz-result .rtitle{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--accent);}
+  .quiz-result .rdesc{color:var(--muted);font-size:14.5px;line-height:1.6;margin-top:12px;}
+  .quiz-result .spice{display:flex;justify-content:center;gap:4px;margin:16px 0;font-size:22px;}
+
+  .ghost-btn{width:100%;border:1px solid var(--border-strong);background:transparent;color:var(--text);
+    border-radius:14px;font-weight:700;font-size:15px;padding:15px;cursor:pointer;margin-top:8px;transition:.15s;}
+  .ghost-btn:active{transform:scale(.98);background:var(--surface);}
+  .accent-btn{width:100%;border:none;background:var(--accent);color:#000;border-radius:14px;font-weight:800;
+    font-size:15.5px;padding:16px;cursor:pointer;margin-top:14px;transition:.15s;display:flex;align-items:center;justify-content:center;gap:8px;}
+  .accent-btn:active{transform:scale(.98);}
+
+  /* reaction bar in player */
+  .react-bar{display:flex;gap:10px;padding:14px 20px calc(16px + var(--safe-b));border-top:1px solid var(--border);
+    background:var(--bg);}
+  .react-bar .rb{flex:1;border:1px solid var(--border);background:var(--surface);border-radius:14px;
+    padding:12px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:.15s;}
+  .react-bar .rb:active{transform:scale(.95);background:var(--accent-soft);}
+  .react-bar .rb .cnt{color:var(--muted);font-size:13px;}
+
+  .float-emoji{position:absolute;font-size:26px;pointer-events:none;z-index:50;animation:floatUp 1.6s ease-out forwards;}
+  @keyframes floatUp{0%{opacity:0;transform:translateY(0) scale(.5);}15%{opacity:1;}
+    100%{opacity:0;transform:translateY(-220px) scale(1.3);}}
+
+  /* ---------- share ---------- */
+  .share-wrap{padding:8px 22px 30px;text-align:center;}
+  .confetti-mark{width:74px;height:74px;border-radius:22px;margin:14px auto 18px;display:grid;place-items:center;
+    font-size:36px;background:var(--accent-soft);border:1px solid rgba(201,242,94,.3);
+    box-shadow:0 0 50px rgba(201,242,94,.25);}
+  .share-wrap h1{font-size:24px;font-weight:800;letter-spacing:-.02em;}
+  .share-wrap .sub{color:var(--muted);font-size:14px;margin-top:8px;line-height:1.5;}
+
+  .link-box{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;padding:14px 16px;margin:22px 0 14px;text-align:left;}
+  .link-box .lk{flex:1;font-size:13.5px;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .link-box .cp{background:var(--accent);color:#000;border:none;border-radius:10px;padding:9px 15px;
+    font-weight:800;font-size:13px;cursor:pointer;flex:none;transition:.15s;}
+  .link-box .cp:active{transform:scale(.94);}
+
+  .live-stat{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:18px;margin:8px 0 18px;
+    display:flex;align-items:center;justify-content:space-between;}
+  .live-stat .l{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;font-weight:600;}
+  .live-stat .l .pulse{width:8px;height:8px;border-radius:50%;background:var(--pink);animation:pulse 1.4s infinite;}
+  .live-stat .n{font-size:28px;font-weight:800;letter-spacing:-.02em;color:var(--accent);font-variant-numeric:tabular-nums;}
+
+  .share-targets{display:flex;gap:12px;margin-bottom:10px;}
+  .share-targets .t{flex:1;border:1px solid var(--border);background:var(--surface);border-radius:16px;
+    padding:16px 10px;cursor:pointer;transition:.15s;display:flex;flex-direction:column;align-items:center;gap:8px;}
+  .share-targets .t:active{transform:scale(.96);border-color:var(--border-strong);}
+  .share-targets .t .ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:20px;
+    background:var(--surface-2);}
+  .share-targets .t .tn{font-size:12.5px;font-weight:700;}
+
+  /* toast */
+  #toast{position:absolute;left:50%;bottom:calc(110px + var(--safe-b));transform:translateX(-50%) translateY(20px);
+    background:#fff;color:#000;font-weight:700;font-size:13.5px;padding:11px 20px;border-radius:999px;
+    opacity:0;transition:.3s;z-index:100;pointer-events:none;white-space:nowrap;}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<div id="phone">
+
+  <!-- ============ DISCOVER ============ -->
+  <section class="screen active" id="discover">
+    <div class="topbar">
+      <div class="brand"><span class="g">SNACK</span>·PLAYER</div>
+      <div class="spacer"></div>
+      <div class="avatar">😎</div>
+    </div>
+    <div class="scroll">
+      <div class="hero">
+        <h1>코드는 몰라도<br><span class="g">팬들과 노는 앱</span>은 만든다</h1>
+        <p>지금 숏폼에서 터지는 인터랙션을 3분 만에. 링크 하나로 수만 명과 실시간 소통하세요.</p>
+      </div>
+
+      <div class="section-label"><span class="dot"></span>지금 뜨는 트렌드</div>
+      <div class="trend-rail" id="trendRail"></div>
+
+      <div class="section-label" style="margin-top:6px"><span class="dot"></span>실시간 인기 스낵앱</div>
+      <div class="feed" id="feed"></div>
+    </div>
+    <button class="fab" onclick="goCreate()"><span class="plus">+</span>스낵앱 만들기</button>
+  </section>
+
+  <!-- ============ CREATE / AI BUILDER ============ -->
+  <section class="screen" id="create">
+    <div class="topbar">
+      <button class="back" onclick="go('discover')">‹</button>
+      <h2>AI 컨셉 빌더</h2>
+    </div>
+    <div class="scroll" id="chatScroll">
+      <div class="builder-intro">
+        <div class="orb">💬</div>
+        <h3>어떤 앱으로 놀아볼까요?</h3>
+        <p>만들고 싶은 인터랙션을 말로 설명하거나<br>아래 트렌드를 골라보세요.</p>
+      </div>
+      <div class="sugg" id="seedSugg"></div>
+    </div>
+    <div class="composer">
+      <input id="chatInput" placeholder="예) 내 MBTI 맞히는 테스트 만들어줘" autocomplete="off"
+        onkeydown="if(event.key==='Enter')sendChat()" oninput="toggleSend()" />
+      <button class="send" id="sendBtn" onclick="sendChat()" disabled>↑</button>
+    </div>
+  </section>
+
+  <!-- ============ PLAYER ============ -->
+  <section class="screen" id="player">
+    <div class="topbar">
+      <button class="back" onclick="go('discover')">‹</button>
+      <h2 id="playerNav">미리보기</h2>
+      <div class="spacer"></div>
+      <div class="avatar" style="font-size:13px;cursor:pointer" onclick="goShare()">⤴</div>
+    </div>
+    <div class="scroll">
+      <div class="player-head">
+        <span class="tag" id="playerTag">⚡ 실시간</span>
+        <h1 id="playerTitle"></h1>
+        <div class="by" id="playerBy"></div>
+      </div>
+      <div class="app-body" id="appBody"></div>
+    </div>
+    <div class="react-bar" id="reactBar"></div>
+  </section>
+
+  <!-- ============ SHARE ============ -->
+  <section class="screen" id="share">
+    <div class="topbar">
+      <button class="back" onclick="go('player')">‹</button>
+      <h2>인스턴트 쉐어</h2>
+    </div>
+    <div class="scroll">
+      <div class="share-wrap">
+        <div class="confetti-mark">🚀</div>
+        <h1>앱이 배포됐어요!</h1>
+        <p class="sub">설치 없이 링크 하나로. 지금 바로 팬들과 공유하세요.</p>
+
+        <div class="link-box">
+          <span class="lk" id="shareLink">vibeplayer.io/p/...</span>
+          <button class="cp" onclick="copyLink()">복사</button>
+        </div>
+
+        <div class="live-stat">
+          <span class="l"><span class="pulse"></span>지금 참여 중</span>
+          <span class="n" id="liveCount">0</span>
+        </div>
+
+        <div class="share-targets">
+          <div class="t" onclick="toast('TikTok 프로필에 링크가 추가됐어요')">
+            <div class="ic">🎵</div><div class="tn">TikTok</div></div>
+          <div class="t" onclick="toast('Reels 댓글에 링크가 배포됐어요')">
+            <div class="ic">📸</div><div class="tn">Reels</div></div>
+          <div class="t" onclick="toast('스토리에 공유됐어요')">
+            <div class="ic">💬</div><div class="tn">Story</div></div>
+        </div>
+
+        <button class="accent-btn" onclick="go('discover')">🏠 홈으로 — 내 피드에서 확인</button>
+        <button class="ghost-btn" onclick="go('player')">앱 다시 보기</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+/* ============================================================
+   Social Snack-App Player — interactive prototype
+   ============================================================ */
+
+const $ = s => document.querySelector(s);
+
+/* ---------- screen routing ---------- */
+let liveTimer = null;
+function go(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $('#'+id).classList.add('active');
+  if(liveTimer){clearInterval(liveTimer);liveTimer=null;}
+}
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg){
+  const t=$('#toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1900);
+}
+
+/* ---------- gradient helper for thumbnails ---------- */
+const GRADS=[
+  'linear-gradient(135deg,#ff5d8f,#7b5dff)',
+  'linear-gradient(135deg,#5db0ff,#5dffce)',
+  'linear-gradient(135deg,#c9f25e,#5db0ff)',
+  'linear-gradient(135deg,#ff9d5d,#ff5d8f)',
+  'linear-gradient(135deg,#b15dff,#5db0ff)',
+  'linear-gradient(135deg,#5dffce,#c9f25e)'
+];
+const PFGRADS=['#ff5d8f','#5db0ff','#c9f25e','#ff9d5d','#b15dff'];
+
+/* ============================================================
+   APP TEMPLATES — what the "Vibe Engine" can build
+   ============================================================ */
+const TEMPLATES = {
+  poll:{
+    tag:'⚡ 실시간 투표',
+    build:(title)=>({
+      type:'poll', title:title||'실시간 밸런스 게임',
+      q:'당신의 선택은?',
+      opts:[
+        {label:'🍕 평생 피자만',  votes:rand(1200,4200)},
+        {label:'🍜 평생 라면만', votes:rand(1200,4200)}
+      ]
+    })
+  },
+  balance:{
+    tag:'⚖️ 밸런스 게임',
+    build:(title)=>({
+      type:'poll', title:title||'극한의 밸런스 게임',
+      q:'둘 중 하나만 골라야 한다면?',
+      opts:[
+        {label:'💸 월급 2배 받기',     votes:rand(800,3000)},
+        {label:'🏖️ 휴가 2배 받기', votes:rand(800,3000)}
+      ]
+    })
+  },
+  quiz:{
+    tag:'🌶️ 성격 테스트',
+    build:(title)=>({
+      type:'quiz', title:title||'나의 매운맛 성격 테스트',
+      questions:[
+        {q:'친구가 약속에 1시간 늦었다. 나는?',
+         answers:[{em:'😤',t:'바로 한마디 한다',s:2},{em:'🙂',t:'괜찮다고 한다',s:0},{em:'😏',t:'똑같이 늦어준다',s:1}]},
+        {q:'단톡방에서 내 의견이 무시당했다.',
+         answers:[{em:'🔥',t:'다시 강하게 어필',s:2},{em:'😶',t:'조용히 캡처해둔다',s:1},{em:'😌',t:'그럴 수 있지',s:0}]},
+        {q:'맛집에서 음식이 잘못 나왔다.',
+         answers:[{em:'🚨',t:'당장 직원 호출',s:2},{em:'🤔',t:'먹을 만하면 먹는다',s:1},{em:'🥲',t:'그냥 먹는다',s:0}]}
+      ],
+      results:[
+        {min:0,em:'🍼',title:'순한맛',spice:1,desc:'당신은 평화주의자! 웬만한 건 다 이해하고 넘어가는 둥글둥글 성격이에요.'},
+        {min:2,em:'🌶️',title:'중간맛',spice:2,desc:'할 말은 하는 균형형! 평소엔 온화하지만 선을 넘으면 한마디 합니다.'},
+        {min:4,em:'🔥',title:'매운맛',spice:3,desc:'직진하는 화끈한 타입! 아닌 건 아니라고, 불의를 못 참는 사이다 성격이에요.'}
+      ]
+    })
+  }
+};
+
+function rand(a,b){return Math.floor(Math.random()*(b-a))+a;}
+
+/* keyword → template */
+function pickTemplate(text){
+  const t=text.toLowerCase();
+  if(/(밸런스|balance|vs|둘 중|골라)/.test(t)) return 'balance';
+  if(/(테스트|성격|mbti|매운맛|유형|심리|quiz)/.test(t)) return 'quiz';
+  if(/(투표|poll|랭킹|순위|선택|투개표)/.test(t)) return 'poll';
+  // default: alternate something fun
+  return /(게임|놀이|game)/.test(t) ? 'balance' : 'quiz';
+}
+
+/* ============================================================
+   SEED DATA — discover feed
+   ============================================================ */
+const TRENDS=[
+  {label:'성격 매운맛 테스트',key:'나의 매운맛 성격 테스트 만들어줘'},
+  {label:'실시간 투표',key:'우리 팬들 실시간 투표 만들어줘'},
+  {label:'밸런스 게임',key:'극한 밸런스 게임 만들어줘'},
+  {label:'MBTI 맞히기',key:'내 MBTI 맞히는 테스트'},
+  {label:'최애 월드컵',key:'최애 멤버 이상형 월드컵 투표'}
+];
+
+const SEED_FEED=[
+  {title:'우리 컴백 콘셉트 투표 🗳️', creator:'@minji_official', sub:'K-POP 크리에이터', plays:'12.4만', live:842, gi:0, pi:0},
+  {title:'너의 매운맛은? 🌶️', creator:'@spicy.luna', sub:'라이프스타일', plays:'8.9만', live:531, gi:3, pi:1},
+  {title:'겨울 vs 여름 밸런스 ⚖️', creator:'@daily_kim', sub:'브이로거', plays:'5.1만', live:204, gi:1, pi:2},
+  {title:'내 아이돌력 테스트 ✨', creator:'@stage.diary', sub:'댄스 크리에이터', plays:'21.7만', live:1290, gi:4, pi:3}
+];
+
+function renderDiscover(){
+  // trends
+  $('#trendRail').innerHTML = TRENDS.map((t,i)=>
+    `<button class="chip" onclick="seedAndCreate('${esc(t.key)}')">${i<2?'<span class=\"fire\">🔥</span>':''}${t.label}</button>`
+  ).join('');
+
+  // feed = user-created (from session) + seed
+  const mine = window.__myApps || [];
+  const feed = [...mine, ...SEED_FEED];
+  $('#feed').innerHTML = feed.map((c,idx)=>{
+    const grad = GRADS[c.gi % GRADS.length];
+    const pf = PFGRADS[c.pi % PFGRADS.length];
+    const mineBadge = c.__mine ? '<div class="badge">✨ 내가 만든 앱</div>' : '<div class="badge">'+(c.tag||'⚡ 인터랙션')+'</div>';
+    return `<div class="card" onclick="openFeed(${idx})">
+      <div class="thumb" style="background:${grad}">
+        ${mineBadge}
+        <div class="live"><span class="pulse"></span>${c.live.toLocaleString()} live</div>
+        <div class="ttl">${c.title}</div>
+      </div>
+      <div class="meta">
+        <div class="who">
+          <div class="pf" style="background:${pf}"></div>
+          <div class="name">${c.creator}<small>${c.sub}</small></div>
+        </div>
+        <div class="stat">▶ ${c.plays}</div>
+      </div>
+    </div>`;
+  }).join('');
+  window.__feedCache = feed;
+}
+
+function openFeed(idx){
+  const c = window.__feedCache[idx];
+  if(c.__app){ launchApp(c.__app, c.creator); return; }
+  // seed apps: spin up a representative template by title
+  let tplKey = 'poll';
+  if(/테스트|매운맛|아이돌력/.test(c.title)) tplKey='quiz';
+  else if(/밸런스|vs/.test(c.title)) tplKey='balance';
+  const app = TEMPLATES[tplKey].build(c.title);
+  app.tag = TEMPLATES[tplKey].tag;
+  launchApp(app, c.creator);
+}
+
+function esc(s){return s.replace(/'/g,"\\'");}
+
+/* ============================================================
+   CREATE FLOW
+   ============================================================ */
+function goCreate(){
+  go('create');
+  resetChat();
+}
+function seedAndCreate(text){
+  goCreate();
+  $('#chatInput').value=text;
+  toggleSend();
+  setTimeout(sendChat, 250);
+}
+function resetChat(){
+  // keep intro + seed suggestions
+  $('#seedSugg').innerHTML = TRENDS.slice(0,4).map(t=>
+    `<div class="s" onclick="seedAndCreate('${esc(t.key)}')">${t.label}</div>`
+  ).join('');
+  // remove any prior messages
+  document.querySelectorAll('#chatScroll .msg,#chatScroll .build-steps,#chatScroll .ready-cta').forEach(e=>e.remove());
+  $('#chatInput').value='';toggleSend();
+  window.__pendingApp = null;
+}
+function toggleSend(){ $('#sendBtn').disabled = !$('#chatInput').value.trim(); }
+
+function addMsg(role, html){
+  const wrap=document.createElement('div');
+  wrap.className='msg '+role;
+  wrap.innerHTML = (role==='ai'?'<div class="ic">🤖</div>':'') + `<div class="bubble">${html}</div>`;
+  $('#chatScroll').appendChild(wrap);
+  scrollChat();
+  return wrap;
+}
+function scrollChat(){ const s=$('#chatScroll'); s.scrollTop=s.scrollHeight; }
+
+function sendChat(){
+  const v=$('#chatInput').value.trim();
+  if(!v) return;
+  // hide intro/seed after first message
+  document.querySelector('#create .builder-intro')?.classList.add('hidden');
+  $('#seedSugg').innerHTML='';
+  addMsg('me', v);
+  $('#chatInput').value='';toggleSend();
+
+  const tplKey = pickTemplate(v);
+  const app = TEMPLATES[tplKey].build(v.length<24 ? '' : v.slice(0,24));
+  app.tag = TEMPLATES[tplKey].tag;
+  window.__pendingApp = app;
+
+  // AI thinking
+  const typing = addMsg('ai','<div class="typing"><span></span><span></span><span></span></div>');
+  setTimeout(()=>{
+    typing.querySelector('.bubble').innerHTML =
+      `좋아요! <b>${labelFor(tplKey)}</b> 컨셉이 딱이네요 🔥<br>바이브 엔진으로 바로 빌드할게요.`;
+    scrollChat();
+    runBuild();
+  }, 900);
+}
+
+function labelFor(k){return {poll:'실시간 투표',balance:'밸런스 게임',quiz:'성격 테스트'}[k];}
+
+function runBuild(){
+  const steps=['숏폼 트렌드 분석','모바일 UI 자동 구성','실시간 데이터 레이어 연결','배포 준비'];
+  const box=document.createElement('div');
+  box.className='build-steps';
+  box.innerHTML = steps.map((s,i)=>
+    `<div class="row" data-i="${i}"><span class="mk">${i+1}</span><span>${s}</span></div>`
+  ).join('');
+  $('#chatScroll').appendChild(box);scrollChat();
+
+  let i=0;
+  const rows=box.querySelectorAll('.row');
+  function step(){
+    if(i>0){rows[i-1].classList.remove('active');rows[i-1].classList.add('done');
+      rows[i-1].querySelector('.mk').textContent='✓';}
+    if(i<rows.length){
+      rows[i].classList.add('active');
+      rows[i].querySelector('.mk').outerHTML='<span class="spin"></span>';
+      i++;
+      setTimeout(step, 750);
+    } else {
+      showReady();
+    }
+  }
+  step();
+}
+
+function showReady(){
+  const cta=document.createElement('div');
+  cta.className='ready-cta';
+  cta.innerHTML='<button onclick="launchPending()">✨ 앱 실행하기</button>';
+  $('#chatScroll').appendChild(cta);scrollChat();
+}
+
+function launchPending(){
+  const app = window.__pendingApp;
+  // save to "my apps" for the feed
+  window.__myApps = window.__myApps||[];
+  const live = rand(40,160);
+  window.__myApps.unshift({
+    title: app.title, creator:'@me', sub:'나의 스낵앱', plays:'NEW',
+    live, gi:2, pi:2, __mine:true, tag:app.tag, __app:app
+  });
+  launchApp(app, '@me');
+}
+
+/* ============================================================
+   PLAYER — render the live app
+   ============================================================ */
+function launchApp(app, creator){
+  window.__currentApp = app;
+  $('#playerTag').textContent = app.tag || '⚡ 실시간';
+  $('#playerTitle').textContent = app.title;
+  $('#playerBy').innerHTML = `<span style="width:18px;height:18px;border-radius:50%;background:${PFGRADS[2]};display:inline-block"></span> ${creator||'@me'} · 방금 배포됨`;
+  $('#playerNav').textContent = app.tag?.includes('테스트')?'테스트':'플레이';
+  go('player');
+  renderReactBar();
+  if(app.type==='poll') renderPoll(app);
+  else if(app.type==='quiz') renderQuiz(app);
+}
+
+function renderReactBar(){
+  const reacts=[{e:'🔥',n:'불',c:rand(200,900)},{e:'😂',n:'웃김',c:rand(100,600)},{e:'❤️',n:'좋아요',c:rand(300,1200)}];
+  $('#reactBar').innerHTML = reacts.map((r,i)=>
+    `<div class="rb" onclick="popReact(this,'${r.e}',${i})"><span>${r.e}</span><span class="cnt" id="rc${i}">${r.c.toLocaleString()}</span></div>`
+  ).join('');
+  window.__reactCounts = reacts.map(r=>r.c);
+}
+function popReact(el,emoji,i){
+  window.__reactCounts[i]++;
+  $('#rc'+i).textContent = window.__reactCounts[i].toLocaleString();
+  const rect=el.getBoundingClientRect();
+  const ph=$('#phone').getBoundingClientRect();
+  const f=document.createElement('div');
+  f.className='float-emoji';f.textContent=emoji;
+  f.style.left=(rect.left-ph.left+rect.width/2-13)+'px';
+  f.style.top=(rect.top-ph.top-10)+'px';
+  $('#phone').appendChild(f);
+  setTimeout(()=>f.remove(),1600);
+}
+
+/* ---- POLL ---- */
+function renderPoll(app){
+  const total=app.opts.reduce((s,o)=>s+o.votes,0);
+  $('#appBody').innerHTML=`
+    <div class="poll-q">${app.q}</div>
+    <div id="pollOpts">${app.opts.map((o,i)=>
+      `<div class="poll-opt" id="po${i}" onclick="votePoll(${i})">
+        <div class="fill" id="pf${i}"></div>
+        <div class="label"><span>${o.label}</span><span class="pct" id="pp${i}"></span></div>
+      </div>`).join('')}</div>
+    <div class="poll-total" id="pollTotal">${total.toLocaleString()}명 참여 중 · 탭해서 투표하세요</div>
+    <button class="accent-btn" onclick="goShare()">⤴ 이 앱 공유하기</button>`;
+  window.__voted=false;
+}
+function votePoll(idx){
+  const app=window.__currentApp;
+  if(window.__voted) return;
+  window.__voted=true;
+  app.opts[idx].votes += 1;
+  const total=app.opts.reduce((s,o)=>s+o.votes,0);
+  app.opts.forEach((o,i)=>{
+    const pct=Math.round(o.votes/total*100);
+    $('#po'+i).classList.add('revealed');
+    $('#pf'+i).style.width=pct+'%';
+    $('#pp'+i).textContent=pct+'%';
+  });
+  $('#po'+idx).classList.add('picked');
+  $('#pollTotal').textContent=`${total.toLocaleString()}명이 참여했어요 · 결과는 실시간 반영됩니다`;
+  toast('투표 완료! 친구에게도 공유해보세요');
+}
+
+/* ---- QUIZ ---- */
+function renderQuiz(app){
+  window.__qi=0;window.__score=0;
+  drawQuizQ();
+}
+function drawQuizQ(){
+  const app=window.__currentApp;
+  const i=window.__qi;
+  const q=app.questions[i];
+  const prog=Math.round(i/app.questions.length*100);
+  $('#appBody').innerHTML=`
+    <div class="quiz-prog"><div class="bar" style="width:${prog}%"></div></div>
+    <div class="quiz-q">Q${i+1}. ${q.q}</div>
+    ${q.answers.map((a,ai)=>
+      `<div class="quiz-a" onclick="answerQuiz(${a.s})"><span class="em">${a.em}</span>${a.t}</div>`).join('')}`;
+  requestAnimationFrame(()=>$('.quiz-prog .bar').style.width=prog+'%');
+}
+function answerQuiz(score){
+  window.__score+=score;window.__qi++;
+  const app=window.__currentApp;
+  if(window.__qi<app.questions.length){drawQuizQ();}
+  else{showQuizResult();}
+}
+function showQuizResult(){
+  const app=window.__currentApp;
+  const res=[...app.results].reverse().find(r=>window.__score>=r.min)||app.results[0];
+  const spicy='🌶️'.repeat(res.spice)+'　';
+  $('.quiz-prog .bar') && ($('#appBody').innerHTML=`
+    <div class="quiz-result">
+      <div class="big-em">${res.em}</div>
+      <div class="rtitle">당신은 "${res.title}"</div>
+      <div class="spice">${'🌶️'.repeat(res.spice)}</div>
+      <div class="rdesc">${res.desc}</div>
+      <button class="accent-btn" onclick="goShare()">⤴ 내 결과 공유하기</button>
+      <button class="ghost-btn" onclick="renderQuiz(window.__currentApp)">다시 하기</button>
+    </div>`);
+  toast('결과 완성! 친구들도 시켜보세요 😏');
+}
+
+/* ============================================================
+   SHARE
+   ============================================================ */
+function goShare(){
+  const app=window.__currentApp||{};
+  const slug = (app.type||'app')+'-'+rand(1000,9999);
+  $('#shareLink').textContent='vibeplayer.io/p/'+slug;
+  go('share');
+  // live counter ticks up
+  let n = rand(60,220);
+  $('#liveCount').textContent=n.toLocaleString();
+  liveTimer=setInterval(()=>{ n+=rand(1,9); $('#liveCount').textContent=n.toLocaleString(); }, 700);
+}
+function copyLink(){
+  const txt=$('#shareLink').textContent;
+  navigator.clipboard?.writeText('https://'+txt).catch(()=>{});
+  toast('링크가 복사됐어요 📋');
+}
+
+/* ---------- init ---------- */
+renderDiscover();
+</script>
+</body>
+</html>

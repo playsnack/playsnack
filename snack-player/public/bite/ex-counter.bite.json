@@ -1,0 +1,124 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "숫자 카운터 앱"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "count": 0
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "background",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#F6F8FF"
+      },
+      {
+        "id": "title",
+        "text": "카운터",
+        "x": 180,
+        "y": 92,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 34,
+        "weight": 700,
+        "color": "#1F2937"
+      },
+      {
+        "id": "card",
+        "box": "free",
+        "width": 288,
+        "height": 220,
+        "x": 36,
+        "y": 150,
+        "fill": "#FFFFFF",
+        "radius": 28
+      },
+      {
+        "id": "countLabel",
+        "text": "현재 숫자",
+        "x": 180,
+        "y": 215,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 18,
+        "weight": 600,
+        "color": "#6B7280"
+      },
+      {
+        "id": "countText",
+        "text": "{count}",
+        "x": 180,
+        "y": 285,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 72,
+        "font": "display",
+        "color": "#2563EB"
+      },
+      {
+        "id": "addButton",
+        "box": "free",
+        "width": 250,
+        "height": 76,
+        "x": 55,
+        "y": 430,
+        "fill": "#2563EB",
+        "radius": 22,
+        "onTap": [
+          {
+            "set": "count",
+            "to": "count + 1"
+          }
+        ],
+        "children": [
+          {
+            "id": "addButtonLabel",
+            "text": "+ 1 올리기",
+            "x": 125,
+            "y": 38,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 25,
+            "weight": 700,
+            "color": "#FFFFFF"
+          }
+        ]
+      },
+      {
+        "id": "hint",
+        "text": "버튼을 누를 때마다 숫자가 1씩 올라가요",
+        "x": 180,
+        "y": 545,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 500,
+        "color": "#6B7280"
+      }
+    ]
+  }
+}

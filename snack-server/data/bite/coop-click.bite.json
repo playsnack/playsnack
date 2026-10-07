@@ -1,0 +1,348 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "다같이 목표 클릭 챌린지"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "coopTotal": 0,
+    "goal": 300,
+    "myTaps": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "page",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "공동 클릭 챌린지",
+              "subtitle": "모두의 탭으로 300을 채워요"
+            }
+          },
+          {
+            "id": "heroCard",
+            "box": "column",
+            "height": 248,
+            "gap": 12,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "shadow": {
+              "x": 0,
+              "y": 10,
+              "blur": 18,
+              "color": "#00000047"
+            },
+            "children": [
+              {
+                "id": "heroChip",
+                "use": "Chip",
+                "props": {
+                  "label": "LIVE CO-OP"
+                }
+              },
+              {
+                "id": "totalText",
+                "text": "{coopTotal.toLocaleString()}",
+                "size": 54,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "goalText",
+                "text": "/ {goal.toLocaleString()}",
+                "size": 17,
+                "weight": 700,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "barFrame",
+                "box": "row",
+                "width": 322,
+                "height": 18,
+                "align": "center",
+                "fill": "#2a2d33",
+                "children": [
+                  {
+                    "id": "barFill",
+                    "box": "free",
+                    "width": "{round(min(1, coopTotal / goal) * 322)}",
+                    "height": 18,
+                    "fill": "#d9ff00"
+                  }
+                ]
+              },
+              {
+                "id": "percentText",
+                "text": "{round(min(1, coopTotal / goal) * 100)}% 완료",
+                "size": 15,
+                "weight": 700,
+                "color": "#d9ff00",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "statsRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "sharedStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "전체 탭",
+                  "value": "{coopTotal.toLocaleString()}회"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "myStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "내 탭",
+                  "value": "{myTaps.toLocaleString()}회"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "tapZone",
+            "box": "column",
+            "height": 174,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#1e2127",
+            "stroke": {
+              "color": "#2a2d33",
+              "width": 1
+            },
+            "onTap": [
+              {
+                "set": "myTaps",
+                "to": "myTaps + 1"
+              },
+              {
+                "emit": "tally",
+                "payload": {
+                  "delta": 1
+                }
+              }
+            ],
+            "children": [
+              {
+                "id": "tapIcon",
+                "text": "⚡️",
+                "size": 38,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "tapTitle",
+                "text": "탭해서 힘 보태기",
+                "size": 24,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "tapHint",
+                "text": "누를 때마다 공동 게이지가 함께 차오릅니다",
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "tapBtn",
+            "use": "Button",
+            "props": {
+              "label": "+1 공동 탭"
+            },
+            "onTap": [
+              {
+                "set": "myTaps",
+                "to": "myTaps + 1"
+              },
+              {
+                "emit": "tally",
+                "payload": {
+                  "delta": 1
+                }
+              }
+            ]
+          },
+          {
+            "id": "bottomHint",
+            "text": "서버가 모두의 탭을 합산해 실시간으로 반영합니다.",
+            "size": 12,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      }
+    ]
+  }
+}

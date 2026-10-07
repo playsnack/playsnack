@@ -1,0 +1,182 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "좋아요 버튼"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "liked": false,
+    "likeCount": 128
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#FFF7FA"
+      },
+      {
+        "id": "card",
+        "box": "free",
+        "width": 300,
+        "height": 360,
+        "x": 30,
+        "y": 120,
+        "fill": "#FFFFFF",
+        "radius": 28,
+        "children": [
+          {
+            "id": "title",
+            "text": "오늘의 마음",
+            "x": 150,
+            "y": 52,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 24,
+            "weight": 700,
+            "color": "#1C1C1E"
+          },
+          {
+            "id": "subtitle",
+            "text": "버튼을 눌러 좋아요를 남겨보세요",
+            "x": 150,
+            "y": 88,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 14,
+            "weight": 400,
+            "color": "#6B7280"
+          },
+          {
+            "id": "heartBg",
+            "box": "free",
+            "width": 130,
+            "height": 130,
+            "x": 85,
+            "y": 128,
+            "fill": "{liked ? '#FFD6E0' : '#FFEFF3'}",
+            "radius": "full"
+          },
+          {
+            "id": "heartIcon",
+            "text": "{liked ? '♥' : '♡'}",
+            "x": 150,
+            "y": 195,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 82,
+            "weight": 700,
+            "color": "{liked ? '#FF2D55' : '#FF8FA3'}"
+          },
+          {
+            "id": "likeCountText",
+            "text": "좋아요 {likeCount}",
+            "x": 150,
+            "y": 278,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 22,
+            "weight": 700,
+            "color": "#111827"
+          },
+          {
+            "id": "statusText",
+            "text": "{liked ? '좋아요를 눌렀어요!' : '아직 좋아요를 누르지 않았어요'}",
+            "x": 150,
+            "y": 312,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 14,
+            "weight": 400,
+            "color": "{liked ? '#FF2D55' : '#8A8A8E'}"
+          }
+        ]
+      },
+      {
+        "id": "likeButton",
+        "box": "free",
+        "width": 252,
+        "height": 64,
+        "x": 54,
+        "y": 520,
+        "fill": "{liked ? '#FF2D55' : '#FF5A7A'}",
+        "radius": 32,
+        "onTap": [
+          {
+            "if": "liked",
+            "then": [
+              {
+                "set": "likeCount",
+                "to": "likeCount - 1"
+              },
+              {
+                "set": "liked",
+                "to": "false"
+              }
+            ],
+            "else": [
+              {
+                "set": "likeCount",
+                "to": "likeCount + 1"
+              },
+              {
+                "set": "liked",
+                "to": "true"
+              }
+            ]
+          }
+        ],
+        "children": [
+          {
+            "id": "buttonHeart",
+            "text": "{liked ? '♥' : '♡'}",
+            "x": 76,
+            "y": 32,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 28,
+            "weight": 700,
+            "color": "#FFFFFF"
+          },
+          {
+            "id": "buttonLabel",
+            "text": "{liked ? '좋아요 완료' : '좋아요'}",
+            "x": 142,
+            "y": 32,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 20,
+            "weight": 700,
+            "color": "#FFFFFF"
+          }
+        ]
+      }
+    ]
+  }
+}

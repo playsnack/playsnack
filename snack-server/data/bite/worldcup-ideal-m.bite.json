@@ -1,0 +1,359 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "이상형 월드컵 (남)"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "current": [],
+    "seed": [],
+    "winners": [],
+    "roundSize": 16,
+    "matchIndex": 0,
+    "champion": null
+  },
+  "data": {
+    "url": "/api/content?kind=worldcup&theme=한국 남자 연예인"
+  },
+  "start": "play",
+  "phases": {
+    "play": {},
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 10,
+        "pad": [
+          56,
+          16,
+          24,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "title",
+            "text": "최애 월드컵",
+            "size": 26,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "roundLabel",
+            "text": "{phase == 'result' ? '16강 · 1번째 대결' : (current.length ? ('' + (roundSize === 16 ? '16강' : roundSize === 8 ? '8강' : roundSize === 4 ? '4강' : '결승') + ' · ' + (matchIndex + 1) + '번째 대결') : '불러오는 중…')}",
+            "size": 15,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "optionA",
+            "box": "free",
+            "height": 300,
+            "clip": true,
+            "fill": "#16181c",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "if": "roundSize === 2",
+                    "then": [
+                      {
+                        "set": "champion",
+                        "to": "current[matchIndex * 2]"
+                      },
+                      {
+                        "go": "result"
+                      }
+                    ],
+                    "else": [
+                      {
+                        "if": "matchIndex >= roundSize / 2 - 1",
+                        "then": [
+                          {
+                            "set": "current",
+                            "to": "winners.concat([current[matchIndex * 2]])"
+                          },
+                          {
+                            "set": "winners",
+                            "to": "[]"
+                          },
+                          {
+                            "set": "roundSize",
+                            "to": "roundSize / 2"
+                          },
+                          {
+                            "set": "matchIndex",
+                            "to": "0"
+                          }
+                        ],
+                        "else": [
+                          {
+                            "set": "winners",
+                            "to": "winners.concat([current[matchIndex * 2]])"
+                          },
+                          {
+                            "set": "matchIndex",
+                            "to": "matchIndex + 1"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "topImg",
+                "image": "{phase == 'result' ? undefined : (current[matchIndex * 2] ? '/api/img?strict=1&q=' + current[matchIndex * 2].q : '')}",
+                "width": 358,
+                "height": 300,
+                "x": 0,
+                "y": 0,
+                "focus": "top"
+              },
+              {
+                "id": "topShade",
+                "box": "free",
+                "width": 358,
+                "height": 76,
+                "x": 0,
+                "y": 224,
+                "opacity": 0.5,
+                "fill": "#000000"
+              },
+              {
+                "id": "topName",
+                "text": "{phase == 'result' ? '' : (current[matchIndex * 2] ? current[matchIndex * 2].name : '')}",
+                "width": 322,
+                "x": 18,
+                "y": 250,
+                "size": 24,
+                "font": "display",
+                "color": "#ffffff"
+              }
+            ]
+          },
+          {
+            "id": "vs",
+            "text": "VS",
+            "width": 358,
+            "size": 18,
+            "weight": 800,
+            "color": "#d9ff00",
+            "align": "center"
+          },
+          {
+            "id": "optionB",
+            "box": "free",
+            "height": 300,
+            "clip": true,
+            "fill": "#16181c",
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "if": "roundSize === 2",
+                    "then": [
+                      {
+                        "set": "champion",
+                        "to": "current[matchIndex * 2 + 1]"
+                      },
+                      {
+                        "go": "result"
+                      }
+                    ],
+                    "else": [
+                      {
+                        "if": "matchIndex >= roundSize / 2 - 1",
+                        "then": [
+                          {
+                            "set": "current",
+                            "to": "winners.concat([current[matchIndex * 2 + 1]])"
+                          },
+                          {
+                            "set": "winners",
+                            "to": "[]"
+                          },
+                          {
+                            "set": "roundSize",
+                            "to": "roundSize / 2"
+                          },
+                          {
+                            "set": "matchIndex",
+                            "to": "0"
+                          }
+                        ],
+                        "else": [
+                          {
+                            "set": "winners",
+                            "to": "winners.concat([current[matchIndex * 2 + 1]])"
+                          },
+                          {
+                            "set": "matchIndex",
+                            "to": "matchIndex + 1"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "botImg",
+                "image": "{phase == 'result' ? undefined : (current[matchIndex * 2 + 1] ? '/api/img?strict=1&q=' + current[matchIndex * 2 + 1].q : '')}",
+                "width": 358,
+                "height": 300,
+                "x": 0,
+                "y": 0,
+                "focus": "top"
+              },
+              {
+                "id": "botShade",
+                "box": "free",
+                "width": 358,
+                "height": 76,
+                "x": 0,
+                "y": 224,
+                "opacity": 0.5,
+                "fill": "#000000"
+              },
+              {
+                "id": "botName",
+                "text": "{phase == 'result' ? '' : (current[matchIndex * 2 + 1] ? current[matchIndex * 2 + 1].name : '')}",
+                "width": 322,
+                "x": 18,
+                "y": 250,
+                "size": 24,
+                "font": "display",
+                "color": "#ffffff"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          80,
+          24,
+          40,
+          24
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#0b0c0e",
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultTop",
+            "text": "🏆 나의 최애",
+            "size": 16,
+            "weight": 700,
+            "color": "#d9ff00"
+          },
+          {
+            "id": "winnerImg",
+            "image": "{phase == 'result' ? (champion ? '/api/img?strict=1&q=' + champion.q : '') : undefined}",
+            "width": 260,
+            "height": 260,
+            "focus": "top"
+          },
+          {
+            "id": "winnerName",
+            "text": "{phase == 'result' ? (champion ? champion.name : '') : ''}",
+            "size": 30,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "winnerSub",
+            "text": "수많은 대결을 뚫고 뽑힌 오늘의 최애!",
+            "width": 320,
+            "size": 14,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "restartBtn",
+            "box": "row",
+            "width": 200,
+            "height": 52,
+            "align": "center",
+            "justify": "center",
+            "fill": "#d9ff00",
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "current",
+                    "to": "seed"
+                  },
+                  {
+                    "set": "winners",
+                    "to": "[]"
+                  },
+                  {
+                    "set": "roundSize",
+                    "to": "16"
+                  },
+                  {
+                    "set": "matchIndex",
+                    "to": "0"
+                  },
+                  {
+                    "set": "champion",
+                    "to": "null"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "restartLabel",
+                "text": "다시하기",
+                "size": 16,
+                "weight": 700,
+                "color": "#0b0c0e"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

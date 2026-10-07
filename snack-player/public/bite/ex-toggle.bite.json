@@ -1,0 +1,121 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "ON/OFF 토글 스위치"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "isOn": false
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "{isOn ? '#ECFDF5' : '#F4F6FA'}"
+      },
+      {
+        "id": "title",
+        "text": "토글 스위치",
+        "x": 180,
+        "y": 110,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 30,
+        "weight": 700,
+        "color": "#1C1C1E"
+      },
+      {
+        "id": "hint",
+        "text": "스위치를 눌러 ON/OFF를 바꿔보세요",
+        "x": 180,
+        "y": 155,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 400,
+        "color": "#6B7280"
+      },
+      {
+        "id": "switchTrack",
+        "box": "free",
+        "width": 180,
+        "height": 92,
+        "x": 90,
+        "y": 250,
+        "fill": "{isOn ? '#34C759' : '#D1D5DB'}",
+        "radius": 46,
+        "onTap": [
+          {
+            "set": "isOn",
+            "to": "!isOn"
+          }
+        ],
+        "children": [
+          {
+            "id": "switchKnob",
+            "box": "free",
+            "width": 72,
+            "height": 72,
+            "x": "{isOn ? 98 : 10}",
+            "y": 10,
+            "fill": "#FFFFFF",
+            "radius": "full"
+          },
+          {
+            "id": "switchText",
+            "text": "{isOn ? 'ON' : 'OFF'}",
+            "x": "{isOn ? 62 : 118}",
+            "y": 46,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 22,
+            "weight": 700,
+            "color": "#FFFFFF"
+          }
+        ]
+      },
+      {
+        "id": "statusCard",
+        "box": "free",
+        "width": 240,
+        "height": 90,
+        "x": 60,
+        "y": 395,
+        "fill": "#FFFFFF",
+        "radius": 20
+      },
+      {
+        "id": "statusText",
+        "text": "현재 상태: {isOn ? 'ON' : 'OFF'}",
+        "x": 180,
+        "y": 440,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 22,
+        "weight": 700,
+        "color": "{isOn ? '#16A34A' : '#6B7280'}"
+      }
+    ]
+  }
+}

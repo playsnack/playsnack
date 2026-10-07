@@ -1,0 +1,560 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "상식 OX 퀴즈"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "qIndex": 0,
+    "score": 0,
+    "answered": false,
+    "selected": "",
+    "questions": [
+      "지구에서 가장 큰 바다는 태평양이다.",
+      "사람의 심장은 보통 오른쪽에 있다.",
+      "물은 섭씨 0도에서 언다.",
+      "한글은 세종대왕이 창제했다.",
+      "빛은 소리보다 빠르다."
+    ],
+    "answers": [
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "data": {
+    "url": "/api/content?kind=ox"
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "OptionCard": {
+      "props": {
+        "label": "",
+        "accent": false
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 88,
+        "pad": 12,
+        "align": "center",
+        "justify": "center",
+        "fill": "#16181c",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "width": "fill",
+            "size": 18,
+            "weight": 700,
+            "color": "#ffffff",
+            "align": "center"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "quiz",
+  "phases": {
+    "quiz": {},
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "quizScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'quiz'",
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "상식 OX 퀴즈",
+              "subtitle": "5문제에 도전해 보세요"
+            }
+          },
+          {
+            "id": "topStats",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "progressStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "문제",
+                  "value": "{phase == 'result' ? '1 / 5' : (('' + (qIndex + 1) + ' / 5'))}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "scoreStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "점수",
+                  "value": "{phase == 'result' ? '0점' : (('' + (score) + '점'))}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "questionCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 20,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip",
+                "use": "Chip",
+                "props": {
+                  "label": "상식"
+                }
+              },
+              {
+                "id": "qNoText",
+                "text": "{phase == 'result' ? 'Q1' : (('Q' + (qIndex + 1)))}",
+                "size": 18,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "questionText",
+                "text": "{phase == 'result' ? '지구에서 가장 큰 바다는 태평양이다.' : (questions[qIndex])}",
+                "width": 318,
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "subText",
+                "text": "맞으면 O, 틀리면 X를 눌러주세요.",
+                "width": 300,
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "answerRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "optO",
+                "use": "OptionCard",
+                "props": {
+                  "label": "O",
+                  "accent": "{phase == 'result' ? false : (answered && answers[qIndex] === true)}"
+                },
+                "width": "fill",
+                "onTap": [
+                  {
+                    "if": "phase == 'quiz'",
+                    "then": [
+                      {
+                        "if": "!answered",
+                        "then": [
+                          {
+                            "set": "selected",
+                            "to": "'O'"
+                          },
+                          {
+                            "if": "answers[qIndex] === true",
+                            "then": [
+                              {
+                                "set": "score",
+                                "to": "score + 1"
+                              }
+                            ]
+                          },
+                          {
+                            "set": "answered",
+                            "to": "true"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "optX",
+                "use": "OptionCard",
+                "props": {
+                  "label": "X",
+                  "accent": "{phase == 'result' ? false : (answered && answers[qIndex] === false)}"
+                },
+                "width": "fill",
+                "onTap": [
+                  {
+                    "if": "phase == 'quiz'",
+                    "then": [
+                      {
+                        "if": "!answered",
+                        "then": [
+                          {
+                            "set": "selected",
+                            "to": "'X'"
+                          },
+                          {
+                            "if": "answers[qIndex] === false",
+                            "then": [
+                              {
+                                "set": "score",
+                                "to": "score + 1"
+                              }
+                            ]
+                          },
+                          {
+                            "set": "answered",
+                            "to": "true"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "feedbackCard",
+            "box": "column",
+            "height": "hug",
+            "gap": 6,
+            "pad": 16,
+            "align": "center",
+            "fill": "#1e2127",
+            "show": "phase == 'result' ? true : (answered)",
+            "children": [
+              {
+                "id": "feedbackTitle",
+                "text": "{phase == 'result' ? '정답!' : (selected === (answers[qIndex] ? 'O' : 'X') ? '정답!' : '오답!')}",
+                "size": 20,
+                "weight": 800,
+                "color": "{phase == 'result' ? '#d9ff00' : (selected === (answers[qIndex] ? 'O' : 'X') ? '#d9ff00' : '#FF5A5F')}",
+                "align": "center"
+              },
+              {
+                "id": "feedbackBody",
+                "text": "{phase == 'result' ? '좋아요. 다음 문제로 가볼까요?' : (selected === (answers[qIndex] ? 'O' : 'X') ? '좋아요. 다음 문제로 가볼까요?' : ('정답은 ' + (answers[qIndex] ? 'O' : 'X') + '예요.'))}",
+                "width": 310,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "nextBtn",
+            "use": "Button",
+            "props": {
+              "label": "다음 문제"
+            },
+            "show": "phase == 'result' ? true : (answered)",
+            "onTap": [
+              {
+                "if": "phase == 'quiz'",
+                "then": [
+                  {
+                    "if": "qIndex >= 4",
+                    "then": [
+                      {
+                        "go": "result"
+                      }
+                    ],
+                    "else": [
+                      {
+                        "set": "qIndex",
+                        "to": "qIndex + 1"
+                      },
+                      {
+                        "set": "answered",
+                        "to": "false"
+                      },
+                      {
+                        "set": "selected",
+                        "to": "''"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "퀴즈 결과",
+              "subtitle": "오늘의 상식 점수"
+            }
+          },
+          {
+            "id": "resultHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 16,
+            "pad": 24,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultBadge",
+                "box": "free",
+                "width": 96,
+                "height": 96,
+                "fill": "#d9ff00",
+                "radius": "full"
+              },
+              {
+                "id": "resultEmoji",
+                "text": "🏆",
+                "size": 46,
+                "font": "display",
+                "color": "#0b0c0e",
+                "align": "center"
+              },
+              {
+                "id": "resultTitle",
+                "text": "완료!",
+                "size": 32,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "finalScore",
+                "text": "{phase == 'result' ? (('' + (score) + ' / 5점')) : '0 / 5점'}",
+                "size": 54,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "resultMessage",
+                "text": "{phase == 'result' ? (score === 5 ? '완벽해요! 상식 마스터입니다.' : score >= 3 ? '좋아요! 조금만 더 하면 만점이에요.' : '괜찮아요. 다시 도전해 볼까요?') : '다시 도전해서 만점을 노려보세요.'}",
+                "width": 300,
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시하기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "qIndex",
+                    "to": "0"
+                  },
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "answered",
+                    "to": "false"
+                  },
+                  {
+                    "set": "selected",
+                    "to": "''"
+                  },
+                  {
+                    "go": "quiz"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

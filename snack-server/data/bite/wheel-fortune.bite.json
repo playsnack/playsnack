@@ -1,0 +1,1066 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "행운의 룰렛"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "spinStartedAt": 0,
+    "duration": 3400,
+    "finalIndex": 0,
+    "finalAngle": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "spinning": {
+      "tick": [
+        {
+          "if": "now - spinStartedAt >= duration",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "readyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "readyNav",
+            "use": "NavBar",
+            "props": {
+              "title": "행운의 룰렛",
+              "subtitle": "탭하면 룰렛이 돌고, 한 칸에 멈춰요."
+            }
+          },
+          {
+            "id": "readyHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "readyPlayArea",
+                "box": "column",
+                "height": 332,
+                "align": "center",
+                "justify": "center",
+                "children": [
+                  {
+                    "id": "readyWheelWrap",
+                    "box": "free",
+                    "width": 300,
+                    "height": 300,
+                    "children": [
+                      {
+                        "id": "readyWheelBg",
+                        "box": "free",
+                        "width": 300,
+                        "height": 300,
+                        "x": 0,
+                        "y": 0,
+                        "gradient": {
+                          "colors": [
+                            "#d9ff00",
+                            "#7dd3fc",
+                            "#c084fc",
+                            "#FF5A5F"
+                          ],
+                          "angle": 135
+                        },
+                        "radius": "full",
+                        "shadow": {
+                          "x": 0,
+                          "y": 14,
+                          "blur": 24,
+                          "color": "#00000059"
+                        }
+                      },
+                      {
+                        "id": "readyWheelInner",
+                        "box": "free",
+                        "width": 264,
+                        "height": 264,
+                        "x": 18,
+                        "y": 18,
+                        "fill": "#1e2127",
+                        "radius": "full",
+                        "stroke": {
+                          "color": "#2a2d33",
+                          "width": 2
+                        }
+                      },
+                      {
+                        "id": "readySpoke0",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "readySpoke1",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 45,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "readySpoke2",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 90,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "readySpoke3",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 135,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "readySpoke4",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 180,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "readySpoke5",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 225,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "readySpoke6",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 270,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "readySpoke7",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 315,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "readyReward1",
+                        "text": "커피",
+                        "width": 64,
+                        "x": 118,
+                        "y": 23,
+                        "size": 17,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "readyReward2",
+                        "text": "칭찬",
+                        "width": 74,
+                        "x": 196,
+                        "y": 58,
+                        "size": 17,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "readyReward3",
+                        "text": "간식",
+                        "width": 64,
+                        "x": 221,
+                        "y": 139,
+                        "size": 17,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "readyReward4",
+                        "text": "스트레칭",
+                        "width": 82,
+                        "x": 190,
+                        "y": 220,
+                        "size": 16,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "readyReward5",
+                        "text": "꽝!",
+                        "width": 64,
+                        "x": 118,
+                        "y": 254,
+                        "size": 17,
+                        "weight": 900,
+                        "color": "#FF5A5F",
+                        "align": "center"
+                      },
+                      {
+                        "id": "readyReward6",
+                        "text": "물 한잔",
+                        "width": 82,
+                        "x": 28,
+                        "y": 220,
+                        "size": 16,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "readyReward7",
+                        "text": "노래",
+                        "width": 64,
+                        "x": 15,
+                        "y": 139,
+                        "size": 17,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "readyReward8",
+                        "text": "벌칙",
+                        "width": 74,
+                        "x": 30,
+                        "y": 58,
+                        "size": 17,
+                        "weight": 900,
+                        "color": "#FF5A5F",
+                        "align": "center"
+                      },
+                      {
+                        "id": "readyHub",
+                        "box": "free",
+                        "width": 64,
+                        "height": 64,
+                        "x": 118,
+                        "y": 118,
+                        "fill": "#0b0c0e",
+                        "radius": "full",
+                        "stroke": {
+                          "color": "#d9ff00",
+                          "width": 3
+                        }
+                      },
+                      {
+                        "id": "readyHubText",
+                        "text": "LUCK",
+                        "width": 56,
+                        "x": 122,
+                        "y": 139,
+                        "size": 13,
+                        "weight": 900,
+                        "color": "#d9ff00",
+                        "align": "center"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "readyPointer",
+                "box": "column",
+                "width": 72,
+                "height": 56,
+                "align": "center",
+                "justify": "center",
+                "fill": "#d9ff00",
+                "children": [
+                  {
+                    "id": "readyPointerText",
+                    "text": "▼",
+                    "size": 28,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "readyTitle",
+                "text": "오늘의 운을 돌려보세요",
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyBody",
+                "text": "6초도 안 걸려요. 룰렛은 빠르게 돌다가 부드럽게 감속해 멈춥니다.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "spinButton",
+            "use": "Button",
+            "props": {
+              "label": "룰렛 돌리기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "finalIndex",
+                    "to": "floor(random() * 8)"
+                  },
+                  {
+                    "set": "finalAngle",
+                    "to": "2160 - finalIndex * 45"
+                  },
+                  {
+                    "set": "spinStartedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "spinning"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "spinScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'spinning'",
+        "children": [
+          {
+            "id": "spinNav",
+            "use": "NavBar",
+            "props": {
+              "title": "행운의 룰렛",
+              "subtitle": "두근두근… 감속 중입니다."
+            }
+          },
+          {
+            "id": "spinStats",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "timerCard",
+                "use": "StatCard",
+                "props": {
+                  "label": "남은 시간",
+                  "value": "{phase == 'spinning' ? (('' + (max(0, ceil((duration - (now - spinStartedAt)) / 1000))) + '초')) : '4초'}"
+                },
+                "width": "fill",
+                "height": 118
+              },
+              {
+                "id": "speedCard",
+                "use": "StatCard",
+                "props": {
+                  "label": "상태",
+                  "value": "{phase == 'spinning' ? ((now - spinStartedAt) < duration * 0.45 ? '빠름' : ((now - spinStartedAt) < duration * 0.82 ? '감속' : '정지')) : '대기'}"
+                },
+                "width": "fill",
+                "height": 118
+              }
+            ]
+          },
+          {
+            "id": "spinHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "spinPointer",
+                "box": "column",
+                "width": 76,
+                "height": 58,
+                "align": "center",
+                "justify": "center",
+                "fill": "#d9ff00",
+                "children": [
+                  {
+                    "id": "spinPointerText",
+                    "text": "▼",
+                    "size": 30,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "spinPlayArea",
+                "box": "column",
+                "height": 332,
+                "align": "center",
+                "justify": "center",
+                "children": [
+                  {
+                    "id": "wheelSpin",
+                    "box": "free",
+                    "width": 300,
+                    "height": 300,
+                    "origin": [
+                      50,
+                      50
+                    ],
+                    "rotate": "{phase == 'spinning' ? (finalAngle * (1 - pow(1 - min(1, (now - spinStartedAt) / duration), 3))) : undefined}",
+                    "children": [
+                      {
+                        "id": "spinWheelBg",
+                        "box": "free",
+                        "width": 300,
+                        "height": 300,
+                        "x": 0,
+                        "y": 0,
+                        "gradient": {
+                          "colors": [
+                            "#d9ff00",
+                            "#7dd3fc",
+                            "#c084fc",
+                            "#FF5A5F"
+                          ],
+                          "angle": 135
+                        },
+                        "radius": "full",
+                        "shadow": {
+                          "x": 0,
+                          "y": 16,
+                          "blur": 28,
+                          "color": "#0000006b"
+                        }
+                      },
+                      {
+                        "id": "spinWheelInner",
+                        "box": "free",
+                        "width": 264,
+                        "height": 264,
+                        "x": 18,
+                        "y": 18,
+                        "fill": "#1e2127",
+                        "radius": "full",
+                        "stroke": {
+                          "color": "#2a2d33",
+                          "width": 2
+                        }
+                      },
+                      {
+                        "id": "spinSpoke0",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "spinSpoke1",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 45,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "spinSpoke2",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 90,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "spinSpoke3",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 135,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "spinSpoke4",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 180,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "spinSpoke5",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 225,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "spinSpoke6",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 270,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "spinSpoke7",
+                        "box": "free",
+                        "width": 2,
+                        "height": 132,
+                        "x": 149,
+                        "y": 18,
+                        "opacity": 0.12,
+                        "rotate": 315,
+                        "origin": [
+                          50,
+                          100
+                        ],
+                        "fill": "#ffffff"
+                      },
+                      {
+                        "id": "spinReward1",
+                        "text": "커피",
+                        "width": 64,
+                        "x": 118,
+                        "y": 23,
+                        "size": 17,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "spinReward2",
+                        "text": "칭찬",
+                        "width": 74,
+                        "x": 196,
+                        "y": 58,
+                        "size": 17,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "spinReward3",
+                        "text": "간식",
+                        "width": 64,
+                        "x": 221,
+                        "y": 139,
+                        "size": 17,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "spinReward4",
+                        "text": "스트레칭",
+                        "width": 82,
+                        "x": 190,
+                        "y": 220,
+                        "size": 16,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "spinReward5",
+                        "text": "꽝!",
+                        "width": 64,
+                        "x": 118,
+                        "y": 254,
+                        "size": 17,
+                        "weight": 900,
+                        "color": "#FF5A5F",
+                        "align": "center"
+                      },
+                      {
+                        "id": "spinReward6",
+                        "text": "물 한잔",
+                        "width": 82,
+                        "x": 28,
+                        "y": 220,
+                        "size": 16,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "spinReward7",
+                        "text": "노래",
+                        "width": 64,
+                        "x": 15,
+                        "y": 139,
+                        "size": 17,
+                        "weight": 800,
+                        "color": "#ffffff",
+                        "align": "center"
+                      },
+                      {
+                        "id": "spinReward8",
+                        "text": "벌칙",
+                        "width": 74,
+                        "x": 30,
+                        "y": 58,
+                        "size": 17,
+                        "weight": 900,
+                        "color": "#FF5A5F",
+                        "align": "center"
+                      },
+                      {
+                        "id": "spinHub",
+                        "box": "free",
+                        "width": 64,
+                        "height": 64,
+                        "x": 118,
+                        "y": 118,
+                        "fill": "#0b0c0e",
+                        "radius": "full",
+                        "stroke": {
+                          "color": "#d9ff00",
+                          "width": 3
+                        }
+                      },
+                      {
+                        "id": "spinHubText",
+                        "text": "SPIN",
+                        "width": 56,
+                        "x": 122,
+                        "y": 139,
+                        "size": 13,
+                        "weight": 900,
+                        "color": "#d9ff00",
+                        "align": "center"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "spinHint",
+                "text": "멈추는 순간까지 결과는 비밀이에요.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "행운의 룰렛",
+              "subtitle": "룰렛이 선택한 오늘의 결과"
+            }
+          },
+          {
+            "id": "resultCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultChip",
+                "use": "Chip",
+                "props": {
+                  "label": "RESULT"
+                }
+              },
+              {
+                "id": "resultTitle",
+                "text": "{phase == 'result' ? (finalIndex === 0 ? '커피 쿠폰' : (finalIndex === 1 ? '칭찬 3번' : (finalIndex === 2 ? '간식 타임' : (finalIndex === 3 ? '스트레칭 5분' : (finalIndex === 4 ? '꽝! 다음 기회' : (finalIndex === 5 ? '물 한잔 미션' : (finalIndex === 6 ? '좋아하는 노래' : '귀여운 벌칙'))))))) : '결과'}",
+                "size": 34,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resultSub",
+                "text": "룰렛이 부드럽게 멈춘 칸이에요.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "resultBadge",
+                "box": "column",
+                "height": 132,
+                "gap": 4,
+                "pad": 16,
+                "align": "center",
+                "justify": "center",
+                "fill": "#d9ff00",
+                "children": [
+                  {
+                    "id": "resultLabel",
+                    "text": "{phase == 'result' ? (finalIndex === 4 || finalIndex === 7 ? '오늘의 벌칙' : '오늘의 보상') : '오늘의 보상'}",
+                    "size": 14,
+                    "weight": 800,
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  },
+                  {
+                    "id": "resultText",
+                    "text": "{phase == 'result' ? (finalIndex === 0 ? '커피 쿠폰' : (finalIndex === 1 ? '칭찬 3번' : (finalIndex === 2 ? '간식 타임' : (finalIndex === 3 ? '스트레칭 5분' : (finalIndex === 4 ? '꽝! 다음 기회' : (finalIndex === 5 ? '물 한잔 미션' : (finalIndex === 6 ? '좋아하는 노래' : '귀여운 벌칙'))))))) : '커피 쿠폰'}",
+                    "size": 30,
+                    "font": "display",
+                    "color": "#0b0c0e",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "resultNote",
+                "text": "마음에 들지 않아도 한 번 더 돌리면 새로운 운이 찾아옵니다.",
+                "size": 15,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "againButton",
+            "use": "Button",
+            "props": {
+              "label": "다시 돌리기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "finalIndex",
+                    "to": "floor(random() * 8)"
+                  },
+                  {
+                    "set": "finalAngle",
+                    "to": "2160 - finalIndex * 45"
+                  },
+                  {
+                    "set": "spinStartedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "spinning"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

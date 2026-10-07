@@ -1,0 +1,774 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "상식 트리비아 스피드 레이스"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "score": 0,
+    "startedAt": 0,
+    "duration": 30000,
+    "currentQ": 0,
+    "leaderboard": [],
+    "questions": [
+      {
+        "q": "세계에서 가장 큰 바다는?",
+        "opts": [
+          "태평양",
+          "대서양",
+          "인도양",
+          "북극해"
+        ],
+        "a": 0
+      },
+      {
+        "q": "빛이 1초 동안 이동하는 거리는 약?",
+        "opts": [
+          "30만 km",
+          "3만 km",
+          "300만 km",
+          "3천 km"
+        ],
+        "a": 0
+      },
+      {
+        "q": "대한민국의 국보 1호는?",
+        "opts": [
+          "숭례문",
+          "훈민정음",
+          "석굴암",
+          "첨성대"
+        ],
+        "a": 0
+      },
+      {
+        "q": "인체에서 가장 큰 장기는?",
+        "opts": [
+          "간",
+          "피부",
+          "폐",
+          "심장"
+        ],
+        "a": 1
+      },
+      {
+        "q": "물의 화학식은?",
+        "opts": [
+          "CO2",
+          "O2",
+          "H2O",
+          "NaCl"
+        ],
+        "a": 2
+      },
+      {
+        "q": "지구에서 가장 높은 산은?",
+        "opts": [
+          "K2",
+          "에베레스트",
+          "한라산",
+          "마터호른"
+        ],
+        "a": 1
+      },
+      {
+        "q": "피카소가 주로 활동한 예술 사조는?",
+        "opts": [
+          "입체주의",
+          "인상주의",
+          "낭만주의",
+          "초현실주의"
+        ],
+        "a": 0
+      },
+      {
+        "q": "태양계에서 가장 큰 행성은?",
+        "opts": [
+          "토성",
+          "지구",
+          "목성",
+          "해왕성"
+        ],
+        "a": 2
+      },
+      {
+        "q": "컴퓨터의 두뇌라 불리는 부품은?",
+        "opts": [
+          "RAM",
+          "SSD",
+          "CPU",
+          "GPU"
+        ],
+        "a": 2
+      },
+      {
+        "q": "올림픽 오륜기의 고리는 몇 개?",
+        "opts": [
+          "4개",
+          "5개",
+          "6개",
+          "7개"
+        ],
+        "a": 1
+      }
+    ]
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "OptionCard": {
+      "props": {
+        "label": "",
+        "accent": false
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 88,
+        "pad": 12,
+        "align": "center",
+        "justify": "center",
+        "fill": "#16181c",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "width": "fill",
+            "size": 18,
+            "weight": 700,
+            "color": "#ffffff",
+            "align": "center"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "play": {
+      "tick": [
+        {
+          "if": "now - startedAt >= duration",
+          "then": [
+            {
+              "emit": "score",
+              "payload": {
+                "score": "score"
+              }
+            },
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "readyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "readyNav",
+            "use": "NavBar",
+            "props": {
+              "title": "상식 트리비아",
+              "subtitle": "스피드 레이스 · 누가 1등?"
+            }
+          },
+          {
+            "id": "readyHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "heroBadge",
+                "text": "⚡️🧠🏁",
+                "size": 54,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyTitle",
+                "text": "30초 안에 최대한 많이 맞히세요",
+                "size": 30,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "readyDesc",
+                "text": "4지선다 상식 문제를 빠르게 풀고, 끝나면 점수가 자동 제출됩니다. 실시간 리더보드에서 내 순위를 확인하세요.",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "readyChips",
+                "box": "row",
+                "height": "hug",
+                "gap": 8,
+                "justify": "center",
+                "children": [
+                  {
+                    "id": "chipTime",
+                    "use": "Chip",
+                    "props": {
+                      "label": "30초"
+                    }
+                  },
+                  {
+                    "id": "chipRank",
+                    "use": "Chip",
+                    "props": {
+                      "label": "실시간 랭킹"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "startBtn",
+            "use": "Button",
+            "props": {
+              "label": "시작"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'ready'",
+                "then": [
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "currentQ",
+                    "to": "0"
+                  },
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "playNav",
+            "use": "NavBar",
+            "props": {
+              "title": "스피드 퀴즈",
+              "subtitle": "정답을 고르면 다음 문제!"
+            }
+          },
+          {
+            "id": "statsRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "scoreStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "맞힌 수",
+                  "value": "{phase == 'play' ? (('' + (score) + '점')) : '0점'}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "timerStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "남은 시간",
+                  "value": "{phase == 'play' ? (('' + (max(0, ceil((duration - (now - startedAt)) / 1000))) + '초')) : '30초'}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "questionCard",
+            "box": "column",
+            "gap": 12,
+            "pad": 18,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "qMeta",
+                "text": "{phase == 'play' ? (('' + (currentQ + 1) + ' / ' + (questions.length))) : 'QUESTION'}",
+                "size": 12,
+                "weight": 800,
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "questionText",
+                "text": "{phase == 'play' ? (('' + (questions[currentQ].q))) : '문제'}",
+                "size": 24,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "optionsGrid",
+            "box": "grid",
+            "height": "fill",
+            "gap": 12,
+            "columns": 2,
+            "children": [
+              {
+                "id": "opt0",
+                "use": "OptionCard",
+                "props": {
+                  "label": "{phase == 'play' ? (('' + (questions[currentQ].opts[0]))) : 'A'}",
+                  "accent": false
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'play'",
+                    "then": [
+                      {
+                        "if": "questions[currentQ].a === 0",
+                        "then": [
+                          {
+                            "set": "score",
+                            "to": "score + 1"
+                          }
+                        ]
+                      },
+                      {
+                        "set": "currentQ",
+                        "to": "(currentQ + 1) % questions.length"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "opt1",
+                "use": "OptionCard",
+                "props": {
+                  "label": "{phase == 'play' ? (('' + (questions[currentQ].opts[1]))) : 'B'}",
+                  "accent": false
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'play'",
+                    "then": [
+                      {
+                        "if": "questions[currentQ].a === 1",
+                        "then": [
+                          {
+                            "set": "score",
+                            "to": "score + 1"
+                          }
+                        ]
+                      },
+                      {
+                        "set": "currentQ",
+                        "to": "(currentQ + 1) % questions.length"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "opt2",
+                "use": "OptionCard",
+                "props": {
+                  "label": "{phase == 'play' ? (('' + (questions[currentQ].opts[2]))) : 'C'}",
+                  "accent": false
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'play'",
+                    "then": [
+                      {
+                        "if": "questions[currentQ].a === 2",
+                        "then": [
+                          {
+                            "set": "score",
+                            "to": "score + 1"
+                          }
+                        ]
+                      },
+                      {
+                        "set": "currentQ",
+                        "to": "(currentQ + 1) % questions.length"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "opt3",
+                "use": "OptionCard",
+                "props": {
+                  "label": "{phase == 'play' ? (('' + (questions[currentQ].opts[3]))) : 'D'}",
+                  "accent": false
+                },
+                "onTap": [
+                  {
+                    "if": "phase == 'play'",
+                    "then": [
+                      {
+                        "if": "questions[currentQ].a === 3",
+                        "then": [
+                          {
+                            "set": "score",
+                            "to": "score + 1"
+                          }
+                        ]
+                      },
+                      {
+                        "set": "currentQ",
+                        "to": "(currentQ + 1) % questions.length"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "playHint",
+            "text": "빠르게 눌러도 괜찮아요. 문제는 계속 순환됩니다.",
+            "size": 13,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "레이스 결과",
+              "subtitle": "실시간 리더보드"
+            }
+          },
+          {
+            "id": "finalCard",
+            "box": "column",
+            "gap": 10,
+            "pad": 20,
+            "align": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "finalEmoji",
+                "text": "🏁",
+                "size": 42,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "finalTitle",
+                "text": "내 기록",
+                "size": 16,
+                "weight": 700,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "finalScore",
+                "text": "{phase == 'result' ? (('' + (score) + '점')) : '0점'}",
+                "size": 44,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "submitNote",
+                "text": "점수가 제출되었습니다. 다른 플레이어 기록이 들어오면 순위가 즉시 갱신돼요.",
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "boardCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 10,
+            "pad": 16,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "boardTitle",
+                "text": "TOP 10 리더보드",
+                "size": 19,
+                "weight": 800,
+                "color": "#ffffff"
+              },
+              {
+                "id": "leaderList",
+                "box": "column",
+                "gap": 8,
+                "each": "leaderboard",
+                "children": [
+                  {
+                    "box": "row",
+                    "height": 44,
+                    "pad": [
+                      0,
+                      14
+                    ],
+                    "align": "center",
+                    "fill": "#1e2127",
+                    "children": [
+                      {
+                        "text": "{index + 1}위 · {item}점",
+                        "size": 16,
+                        "weight": 700,
+                        "color": "#ffffff"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "emptyBoardHint",
+                "text": "아직 기록을 불러오는 중이에요.",
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center",
+                "show": "phase == 'result' ? (leaderboard.length === 0) : true"
+              }
+            ]
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 도전"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "currentQ",
+                    "to": "0"
+                  },
+                  {
+                    "set": "startedAt",
+                    "to": "now"
+                  },
+                  {
+                    "go": "play"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@snack/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env --watch src/index.mjs",
+    "start": "node --env-file=.env src/index.mjs"
+  },
+  "dependencies": {
+    "@snack/bite": "workspace:*",
+    "@snack/bite-layout": "workspace:*",
+    "express": "^4.21.0",
+    "openai": "^4.0.0",
+    "ws": "^8.18.0"
+  }
+}

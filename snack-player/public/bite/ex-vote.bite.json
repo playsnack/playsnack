@@ -1,0 +1,269 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "A vs B 투표 화면"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "selected": ""
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#F5F6FA"
+      },
+      {
+        "id": "title",
+        "text": "어느 쪽을 선택할까요?",
+        "x": 180,
+        "y": 58,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 24,
+        "weight": 700,
+        "color": "#1C1C1E"
+      },
+      {
+        "id": "subtitle",
+        "text": "A vs B 투표",
+        "x": 180,
+        "y": 92,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 15,
+        "weight": 500,
+        "color": "#7A7D86"
+      },
+      {
+        "id": "cardA",
+        "box": "free",
+        "width": 300,
+        "height": 160,
+        "x": 30,
+        "y": 135,
+        "fill": "{selected === 'A' ? '#FFF1B8' : '#FFFFFF'}",
+        "radius": 24,
+        "scale": "{selected === 'A' ? 1.04 : 1}",
+        "onTap": [
+          {
+            "set": "selected",
+            "to": "'A'"
+          },
+          {
+            "emit": "vote",
+            "payload": {
+              "choice": "A"
+            }
+          }
+        ],
+        "children": [
+          {
+            "id": "badgeA",
+            "box": "free",
+            "width": 46,
+            "height": 46,
+            "x": 24,
+            "y": 24,
+            "fill": "#2F80ED",
+            "radius": "full"
+          },
+          {
+            "id": "badgeAText",
+            "text": "A",
+            "x": 47,
+            "y": 47,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 24,
+            "font": "display",
+            "color": "#FFFFFF"
+          },
+          {
+            "id": "optionATitle",
+            "text": "Option A",
+            "x": 150,
+            "y": 72,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 28,
+            "font": "display",
+            "color": "#1C1C1E"
+          },
+          {
+            "id": "optionADesc",
+            "text": "첫 번째 선택지에 투표",
+            "x": 150,
+            "y": 108,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 15,
+            "weight": 500,
+            "color": "#5E6470"
+          },
+          {
+            "id": "checkA",
+            "text": "✓",
+            "x": 272,
+            "y": 35,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 28,
+            "font": "display",
+            "color": "#1F8A4C",
+            "show": "(selected === 'A')"
+          }
+        ]
+      },
+      {
+        "id": "vsText",
+        "text": "VS",
+        "x": 180,
+        "y": 326,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 20,
+        "weight": 900,
+        "color": "#B0B4BE"
+      },
+      {
+        "id": "cardB",
+        "box": "free",
+        "width": 300,
+        "height": 160,
+        "x": 30,
+        "y": 357,
+        "fill": "{selected === 'B' ? '#FFD6D6' : '#FFFFFF'}",
+        "radius": 24,
+        "scale": "{selected === 'B' ? 1.04 : 1}",
+        "onTap": [
+          {
+            "set": "selected",
+            "to": "'B'"
+          },
+          {
+            "emit": "vote",
+            "payload": {
+              "choice": "B"
+            }
+          }
+        ],
+        "children": [
+          {
+            "id": "badgeB",
+            "box": "free",
+            "width": 46,
+            "height": 46,
+            "x": 24,
+            "y": 24,
+            "fill": "#FF6B6B",
+            "radius": "full"
+          },
+          {
+            "id": "badgeBText",
+            "text": "B",
+            "x": 47,
+            "y": 47,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 24,
+            "font": "display",
+            "color": "#FFFFFF"
+          },
+          {
+            "id": "optionBTitle",
+            "text": "Option B",
+            "x": 150,
+            "y": 72,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 28,
+            "font": "display",
+            "color": "#1C1C1E"
+          },
+          {
+            "id": "optionBDesc",
+            "text": "두 번째 선택지에 투표",
+            "x": 150,
+            "y": 108,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 15,
+            "weight": 500,
+            "color": "#5E6470"
+          },
+          {
+            "id": "checkB",
+            "text": "✓",
+            "x": 272,
+            "y": 35,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 28,
+            "font": "display",
+            "color": "#1F8A4C",
+            "show": "(selected === 'B')"
+          }
+        ]
+      },
+      {
+        "id": "resultBox",
+        "box": "free",
+        "width": 300,
+        "height": 58,
+        "x": 30,
+        "y": 545,
+        "fill": "{selected === '' ? '#E9ECF3' : '#DFF7E8'}",
+        "radius": 18
+      },
+      {
+        "id": "resultText",
+        "text": "{selected === '' ? '원하는 쪽을 탭해서 투표하세요' : ('' + (selected) + '에 투표했어요! 선택한 카드가 강조됩니다')}",
+        "x": 180,
+        "y": 574,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 17,
+        "weight": 700,
+        "color": "{selected === '' ? '#5E6470' : '#1F8A4C'}"
+      }
+    ]
+  }
+}

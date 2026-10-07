@@ -1,0 +1,17 @@
+{
+  "name": "@snack/bite-pixi",
+  "version": "0.1.0",
+  "description": "Bite renderer — draws a Bite app with Pixi and routes taps to the runtime.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" }
+  },
+  "dependencies": {
+    "@snack/bite": "workspace:*",
+    "@snack/bite-layout": "workspace:*",
+    "pixi.js": "8.19.0"
+  }
+}

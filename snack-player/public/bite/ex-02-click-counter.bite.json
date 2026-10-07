@@ -1,0 +1,73 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "Click counter"
+  },
+  "frame": [
+    298,
+    323
+  ],
+  "vars": {
+    "count": 0
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 320,
+        "height": 320,
+        "x": -22,
+        "y": 3,
+        "fill": "#1e1e1e"
+      },
+      {
+        "id": "btn",
+        "box": "free",
+        "width": 200,
+        "height": 80,
+        "x": 60,
+        "y": 120,
+        "fill": "#4ec9b0",
+        "radius": 8,
+        "onTap": [
+          {
+            "set": "count",
+            "to": "count + 1"
+          }
+        ],
+        "children": [
+          {
+            "id": "btnLabel",
+            "text": "Click me",
+            "x": 94,
+            "y": 40,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 50,
+            "color": "#1e1e1e"
+          }
+        ]
+      },
+      {
+        "id": "counter",
+        "text": "Count: {count}",
+        "x": 158,
+        "y": 238,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 22,
+        "color": "#ffffff"
+      }
+    ]
+  }
+}

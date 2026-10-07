@@ -1,0 +1,648 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "초성 퀴즈 5문제"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "qIndex": 0,
+    "score": 0,
+    "selected": -1,
+    "answered": false,
+    "questions": [
+      {
+        "chosung": "ㄱㄹ",
+        "hint": "목이 아주 긴 동물",
+        "options": [
+          "기린",
+          "구름",
+          "가루",
+          "고리"
+        ],
+        "answer": 0
+      },
+      {
+        "chosung": "ㅂㄴㄴ",
+        "hint": "노란색 과일",
+        "options": [
+          "바나나",
+          "비누눈",
+          "분노나",
+          "보너느"
+        ],
+        "answer": 0
+      },
+      {
+        "chosung": "ㅎㄱ",
+        "hint": "배움이 있는 장소",
+        "options": [
+          "휴가",
+          "학교",
+          "한강",
+          "호구"
+        ],
+        "answer": 1
+      },
+      {
+        "chosung": "ㅋㅍ",
+        "hint": "아침에 자주 마셔요",
+        "options": [
+          "카페",
+          "코피",
+          "커피",
+          "캠프"
+        ],
+        "answer": 2
+      },
+      {
+        "chosung": "ㅅㄱ",
+        "hint": "가을에 아삭한 과일",
+        "options": [
+          "사과",
+          "수건",
+          "시간",
+          "소금"
+        ],
+        "answer": 0
+      }
+    ]
+  },
+  "data": {
+    "url": "/api/content?kind=choseong"
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "OptionCard": {
+      "props": {
+        "label": "",
+        "accent": false
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 88,
+        "pad": 12,
+        "align": "center",
+        "justify": "center",
+        "fill": "#16181c",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "width": "fill",
+            "size": 18,
+            "weight": 700,
+            "color": "#ffffff",
+            "align": "center"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "quiz",
+  "phases": {
+    "quiz": {},
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "quizScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'quiz'",
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "초성 퀴즈",
+              "subtitle": "초성을 보고 정답을 고르세요"
+            }
+          },
+          {
+            "id": "topStats",
+            "box": "row",
+            "height": "hug",
+            "gap": 12,
+            "children": [
+              {
+                "id": "progressCard",
+                "use": "StatCard",
+                "props": {
+                  "label": "문제",
+                  "value": "{phase == 'result' ? '1 / 5' : (('' + (qIndex + 1) + ' / 5'))}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "scoreCard",
+                "use": "StatCard",
+                "props": {
+                  "label": "점수",
+                  "value": "{phase == 'result' ? '0점' : (('' + (score) + '점'))}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "questionCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip",
+                "use": "Chip",
+                "props": {
+                  "label": "초성 힌트"
+                }
+              },
+              {
+                "id": "chosungText",
+                "text": "{phase == 'result' ? 'ㄱㄹ' : (questions[qIndex].chosung)}",
+                "size": 58,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "hintText",
+                "text": "{phase == 'result' ? '목이 아주 긴 동물' : (questions[qIndex].hint)}",
+                "minHeight": 48,
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "feedbackText",
+                "text": "{phase == 'result' ? '정답이라고 생각하는 카드를 탭하세요' : (answered ? (selected === questions[qIndex].answer ? '정답이에요! +1점' : ('아쉬워요. 정답은 ' + (questions[qIndex].options[questions[qIndex].answer]) + '예요')) : '정답이라고 생각하는 카드를 탭하세요')}",
+                "size": 15,
+                "weight": 700,
+                "color": "{phase == 'result' ? '#ffffff' : (answered ? (selected === questions[qIndex].answer ? '#d9ff00' : '#FF5A5F') : '#ffffff')}",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "optionsWrap",
+            "box": "column",
+            "height": "hug",
+            "gap": 10,
+            "children": [
+              {
+                "id": "optionsRow1",
+                "box": "row",
+                "height": "hug",
+                "gap": 10,
+                "children": [
+                  {
+                    "id": "opt0",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "{phase == 'result' ? '기린' : (questions[qIndex].options[0])}",
+                      "accent": "{phase == 'result' ? false : (answered && selected === 0)}"
+                    },
+                    "width": "fill",
+                    "onTap": [
+                      {
+                        "if": "phase == 'quiz'",
+                        "then": [
+                          {
+                            "if": "!answered",
+                            "then": [
+                              {
+                                "set": "selected",
+                                "to": "0"
+                              },
+                              {
+                                "set": "score",
+                                "to": "score + (questions[qIndex].answer === 0 ? 1 : 0)"
+                              },
+                              {
+                                "set": "answered",
+                                "to": "true"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "opt1",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "{phase == 'result' ? '구름' : (questions[qIndex].options[1])}",
+                      "accent": "{phase == 'result' ? false : (answered && selected === 1)}"
+                    },
+                    "width": "fill",
+                    "onTap": [
+                      {
+                        "if": "phase == 'quiz'",
+                        "then": [
+                          {
+                            "if": "!answered",
+                            "then": [
+                              {
+                                "set": "selected",
+                                "to": "1"
+                              },
+                              {
+                                "set": "score",
+                                "to": "score + (questions[qIndex].answer === 1 ? 1 : 0)"
+                              },
+                              {
+                                "set": "answered",
+                                "to": "true"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "optionsRow2",
+                "box": "row",
+                "height": "hug",
+                "gap": 10,
+                "children": [
+                  {
+                    "id": "opt2",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "{phase == 'result' ? '가루' : (questions[qIndex].options[2])}",
+                      "accent": "{phase == 'result' ? false : (answered && selected === 2)}"
+                    },
+                    "width": "fill",
+                    "onTap": [
+                      {
+                        "if": "phase == 'quiz'",
+                        "then": [
+                          {
+                            "if": "!answered",
+                            "then": [
+                              {
+                                "set": "selected",
+                                "to": "2"
+                              },
+                              {
+                                "set": "score",
+                                "to": "score + (questions[qIndex].answer === 2 ? 1 : 0)"
+                              },
+                              {
+                                "set": "answered",
+                                "to": "true"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "opt3",
+                    "use": "OptionCard",
+                    "props": {
+                      "label": "{phase == 'result' ? '고리' : (questions[qIndex].options[3])}",
+                      "accent": "{phase == 'result' ? false : (answered && selected === 3)}"
+                    },
+                    "width": "fill",
+                    "onTap": [
+                      {
+                        "if": "phase == 'quiz'",
+                        "then": [
+                          {
+                            "if": "!answered",
+                            "then": [
+                              {
+                                "set": "selected",
+                                "to": "3"
+                              },
+                              {
+                                "set": "score",
+                                "to": "score + (questions[qIndex].answer === 3 ? 1 : 0)"
+                              },
+                              {
+                                "set": "answered",
+                                "to": "true"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "nextBtn",
+            "use": "Button",
+            "props": {
+              "label": "{phase == 'result' ? '다음 문제' : (qIndex >= 4 ? '결과 보기' : '다음 문제')}"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'quiz'",
+                "then": [
+                  {
+                    "if": "answered && qIndex >= 4",
+                    "then": [
+                      {
+                        "go": "result"
+                      }
+                    ],
+                    "else": [
+                      {
+                        "if": "answered",
+                        "then": [
+                          {
+                            "set": "qIndex",
+                            "to": "qIndex + 1"
+                          },
+                          {
+                            "set": "selected",
+                            "to": "-1"
+                          },
+                          {
+                            "set": "answered",
+                            "to": "false"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 16,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "resultNav",
+            "use": "NavBar",
+            "props": {
+              "title": "퀴즈 결과",
+              "subtitle": "5문제를 모두 풀었어요"
+            }
+          },
+          {
+            "id": "resultHero",
+            "box": "column",
+            "height": "fill",
+            "gap": 18,
+            "pad": 22,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultBadge",
+                "box": "free",
+                "width": 96,
+                "height": 96,
+                "fill": "#d9ff00",
+                "radius": "full"
+              },
+              {
+                "id": "resultEmoji",
+                "text": "🏆",
+                "size": 52,
+                "font": "display",
+                "color": "#0b0c0e",
+                "align": "center"
+              },
+              {
+                "id": "resultTitle",
+                "text": "{phase == 'result' ? (score >= 4 ? '초성 마스터!' : (score >= 2 ? '좋은 감각이에요!' : '다시 도전해볼까요?')) : '멋진 도전!'}",
+                "size": 30,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resultScore",
+                "text": "{phase == 'result' ? (('' + (score) + ' / 5 정답')) : '0 / 5 정답'}",
+                "size": 22,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "resultMessage",
+                "text": "{phase == 'result' ? (score >= 4 ? '거의 모든 초성을 맞혔어요.' : (score >= 2 ? '조금만 더 풀면 금방 늘어요.' : '힌트를 천천히 읽고 다시 해봐요.')) : '초성 감각이 살아있어요.'}",
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "restartBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 풀기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "qIndex",
+                    "to": "0"
+                  },
+                  {
+                    "set": "score",
+                    "to": "0"
+                  },
+                  {
+                    "set": "selected",
+                    "to": "-1"
+                  },
+                  {
+                    "set": "answered",
+                    "to": "false"
+                  },
+                  {
+                    "go": "quiz"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

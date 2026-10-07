@@ -1,0 +1,19 @@
+{
+  "name": "@snack/bite",
+  "version": "0.1.0",
+  "description": "Bite engine runtime — vars, phases, expressions, actions. Render-agnostic; runs in Node and browsers.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" }
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@jsep-plugin/arrow": "1.0.6",
+    "jsep": "1.4.0"
+  }
+}

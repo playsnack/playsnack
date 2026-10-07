@@ -1,0 +1,769 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "오늘의 경마"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "bet": -1,
+    "h0": 0,
+    "h1": 0,
+    "h2": 0,
+    "h3": 0,
+    "winner": -1
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    }
+  },
+  "start": "ready",
+  "phases": {
+    "ready": {},
+    "race": {
+      "tick": [
+        {
+          "set": "h0",
+          "to": "min(100, h0 + random() * 0.45)"
+        },
+        {
+          "set": "h1",
+          "to": "min(100, h1 + random() * 0.45)"
+        },
+        {
+          "set": "h2",
+          "to": "min(100, h2 + random() * 0.45)"
+        },
+        {
+          "set": "h3",
+          "to": "min(100, h3 + random() * 0.45)"
+        },
+        {
+          "if": "h0 >= 100 || h1 >= 100 || h2 >= 100 || h3 >= 100",
+          "then": [
+            {
+              "set": "winner",
+              "to": "(h0 >= h1 && h0 >= h2 && h0 >= h3) ? 0 : (h1 >= h2 && h1 >= h3) ? 1 : (h2 >= h3) ? 2 : 3"
+            },
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "betScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'ready'",
+        "children": [
+          {
+            "id": "navBet",
+            "use": "NavBar",
+            "props": {
+              "title": "오늘의 경마",
+              "subtitle": "Bet"
+            }
+          },
+          {
+            "id": "betHint",
+            "text": "어느 말이 1등 할까요? 한 마리에 걸어요!",
+            "size": 15,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "betRow",
+            "box": "row",
+            "height": "hug",
+            "gap": 10,
+            "children": [
+              {
+                "id": "bet0",
+                "box": "column",
+                "width": "fill",
+                "height": 84,
+                "gap": 4,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "onTap": [
+                  {
+                    "if": "phase == 'ready'",
+                    "then": [
+                      {
+                        "set": "bet",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h0",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h1",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h2",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h3",
+                        "to": "0"
+                      },
+                      {
+                        "go": "race"
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "bet0E",
+                    "text": "🐎",
+                    "size": 32,
+                    "align": "center"
+                  },
+                  {
+                    "id": "bet0L",
+                    "text": "1번",
+                    "size": 14,
+                    "weight": 700,
+                    "color": "#FF5A5F",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "bet1",
+                "box": "column",
+                "width": "fill",
+                "height": 84,
+                "gap": 4,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "onTap": [
+                  {
+                    "if": "phase == 'ready'",
+                    "then": [
+                      {
+                        "set": "bet",
+                        "to": "1"
+                      },
+                      {
+                        "set": "h0",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h1",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h2",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h3",
+                        "to": "0"
+                      },
+                      {
+                        "go": "race"
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "bet1E",
+                    "text": "🦄",
+                    "size": 32,
+                    "align": "center"
+                  },
+                  {
+                    "id": "bet1L",
+                    "text": "2번",
+                    "size": 14,
+                    "weight": 700,
+                    "color": "#4DA3FF",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "bet2",
+                "box": "column",
+                "width": "fill",
+                "height": 84,
+                "gap": 4,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "onTap": [
+                  {
+                    "if": "phase == 'ready'",
+                    "then": [
+                      {
+                        "set": "bet",
+                        "to": "2"
+                      },
+                      {
+                        "set": "h0",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h1",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h2",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h3",
+                        "to": "0"
+                      },
+                      {
+                        "go": "race"
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "bet2E",
+                    "text": "🐴",
+                    "size": 32,
+                    "align": "center"
+                  },
+                  {
+                    "id": "bet2L",
+                    "text": "3번",
+                    "size": 14,
+                    "weight": 700,
+                    "color": "#d9ff00",
+                    "align": "center"
+                  }
+                ]
+              },
+              {
+                "id": "bet3",
+                "box": "column",
+                "width": "fill",
+                "height": 84,
+                "gap": 4,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "onTap": [
+                  {
+                    "if": "phase == 'ready'",
+                    "then": [
+                      {
+                        "set": "bet",
+                        "to": "3"
+                      },
+                      {
+                        "set": "h0",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h1",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h2",
+                        "to": "0"
+                      },
+                      {
+                        "set": "h3",
+                        "to": "0"
+                      },
+                      {
+                        "go": "race"
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "bet3E",
+                    "text": "🫏",
+                    "size": 32,
+                    "align": "center"
+                  },
+                  {
+                    "id": "bet3L",
+                    "text": "4번",
+                    "size": 14,
+                    "weight": 700,
+                    "color": "#b46cff",
+                    "align": "center"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "raceScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'race'",
+        "children": [
+          {
+            "id": "navRace",
+            "use": "NavBar",
+            "props": {
+              "title": "오늘의 경마",
+              "subtitle": "Race"
+            }
+          },
+          {
+            "id": "raceTitle",
+            "text": "🏁 출발! 두구두구…",
+            "size": 22,
+            "font": "display",
+            "color": "#ffffff",
+            "align": "center"
+          },
+          {
+            "id": "lanesCard",
+            "box": "column",
+            "height": 280,
+            "gap": 6,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "lane0",
+                "box": "free",
+                "width": "fill",
+                "height": 56,
+                "children": [
+                  {
+                    "id": "laneNum0",
+                    "text": "1",
+                    "x": 4,
+                    "y": 16,
+                    "size": 18,
+                    "weight": 800,
+                    "color": "#FF5A5F"
+                  },
+                  {
+                    "id": "track0",
+                    "box": "free",
+                    "width": 290,
+                    "height": 6,
+                    "x": 34,
+                    "y": 26,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "finish0",
+                    "box": "free",
+                    "width": 3,
+                    "height": 28,
+                    "x": 322,
+                    "y": 14,
+                    "fill": "#d9ff00"
+                  },
+                  {
+                    "id": "horse0",
+                    "box": "row",
+                    "width": 36,
+                    "height": 36,
+                    "x": "{phase == 'race' ? (round(30 + min(100, h0) / 100 * 292)) : 30}",
+                    "y": 10,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#FF5A5F",
+                    "children": [
+                      {
+                        "id": "horse0g",
+                        "text": "🐎",
+                        "size": 22
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "lane1",
+                "box": "free",
+                "width": "fill",
+                "height": 56,
+                "children": [
+                  {
+                    "id": "laneNum1",
+                    "text": "2",
+                    "x": 4,
+                    "y": 16,
+                    "size": 18,
+                    "weight": 800,
+                    "color": "#4DA3FF"
+                  },
+                  {
+                    "id": "track1",
+                    "box": "free",
+                    "width": 290,
+                    "height": 6,
+                    "x": 34,
+                    "y": 26,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "finish1",
+                    "box": "free",
+                    "width": 3,
+                    "height": 28,
+                    "x": 322,
+                    "y": 14,
+                    "fill": "#d9ff00"
+                  },
+                  {
+                    "id": "horse1",
+                    "box": "row",
+                    "width": 36,
+                    "height": 36,
+                    "x": "{phase == 'race' ? (round(30 + min(100, h1) / 100 * 292)) : 30}",
+                    "y": 10,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#4DA3FF",
+                    "children": [
+                      {
+                        "id": "horse1g",
+                        "text": "🦄",
+                        "size": 22
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "lane2",
+                "box": "free",
+                "width": "fill",
+                "height": 56,
+                "children": [
+                  {
+                    "id": "laneNum2",
+                    "text": "3",
+                    "x": 4,
+                    "y": 16,
+                    "size": 18,
+                    "weight": 800,
+                    "color": "#d9ff00"
+                  },
+                  {
+                    "id": "track2",
+                    "box": "free",
+                    "width": 290,
+                    "height": 6,
+                    "x": 34,
+                    "y": 26,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "finish2",
+                    "box": "free",
+                    "width": 3,
+                    "height": 28,
+                    "x": 322,
+                    "y": 14,
+                    "fill": "#d9ff00"
+                  },
+                  {
+                    "id": "horse2",
+                    "box": "row",
+                    "width": 36,
+                    "height": 36,
+                    "x": "{phase == 'race' ? (round(30 + min(100, h2) / 100 * 292)) : 30}",
+                    "y": 10,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#d9ff00",
+                    "children": [
+                      {
+                        "id": "horse2g",
+                        "text": "🐴",
+                        "size": 22
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "lane3",
+                "box": "free",
+                "width": "fill",
+                "height": 56,
+                "children": [
+                  {
+                    "id": "laneNum3",
+                    "text": "4",
+                    "x": 4,
+                    "y": 16,
+                    "size": 18,
+                    "weight": 800,
+                    "color": "#b46cff"
+                  },
+                  {
+                    "id": "track3",
+                    "box": "free",
+                    "width": 290,
+                    "height": 6,
+                    "x": 34,
+                    "y": 26,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "finish3",
+                    "box": "free",
+                    "width": 3,
+                    "height": 28,
+                    "x": 322,
+                    "y": 14,
+                    "fill": "#d9ff00"
+                  },
+                  {
+                    "id": "horse3",
+                    "box": "row",
+                    "width": 36,
+                    "height": 36,
+                    "x": "{phase == 'race' ? (round(30 + min(100, h3) / 100 * 292)) : 30}",
+                    "y": 10,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#b46cff",
+                    "children": [
+                      {
+                        "id": "horse3g",
+                        "text": "🫏",
+                        "size": 22
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "myBetText",
+            "text": "{phase == 'race' ? (('내 말: ' + (bet + 1) + '번')) : ''}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af",
+            "align": "center"
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "navResult",
+            "use": "NavBar",
+            "props": {
+              "title": "오늘의 경마",
+              "subtitle": "Result"
+            }
+          },
+          {
+            "id": "resCard",
+            "box": "column",
+            "height": 300,
+            "gap": 12,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resEmoji",
+                "text": "{phase == 'result' ? (bet === winner ? '🎉' : '🐎') : '🏆'}",
+                "size": 60,
+                "align": "center"
+              },
+              {
+                "id": "resTitle",
+                "text": "{phase == 'result' ? (('🐎 ' + (winner + 1) + '번 말 우승!')) : ''}",
+                "width": 300,
+                "size": 28,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resSub",
+                "text": "{phase == 'result' ? (bet === winner ? '적중! 내 말이 1등이에요 🎯' : ('아쉽다… 내 말은 ' + (bet + 1) + '번이었어요')) : ''}",
+                "width": 300,
+                "size": 17,
+                "weight": 600,
+                "color": "#d7dce3",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "againBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "다시 걸기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "winner",
+                    "to": "-1"
+                  },
+                  {
+                    "go": "ready"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

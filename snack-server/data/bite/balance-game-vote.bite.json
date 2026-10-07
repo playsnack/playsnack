@@ -1,0 +1,668 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "밸런스게임",
+    "multi": true
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "sessionPhase": "lobby",
+    "sessionCountdown": 0,
+    "roster": [],
+    "votesByOption": {
+      "o0": 0,
+      "o1": 0
+    },
+    "roundContent": {
+      "a": "",
+      "b": ""
+    },
+    "roundNum": 0,
+    "roundTotal": 0,
+    "roundIdx": -1,
+    "myVote": "",
+    "myVoteRound": -2
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "GhostButton": {
+      "props": {
+        "label": "취소"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 600,
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff"
+          }
+        ]
+      }
+    },
+    "PrimaryButton": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 56,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 800,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    }
+  },
+  "start": "lobby",
+  "phases": {
+    "lobby": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "countdown": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "play": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "lobbyScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'lobby'",
+        "children": [
+          {
+            "id": "navL",
+            "use": "NavBar",
+            "props": {
+              "title": "밸런스게임",
+              "subtitle": "대기실"
+            }
+          },
+          {
+            "id": "lobbyCard",
+            "box": "column",
+            "width": 358,
+            "height": 250,
+            "grow": 1,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "lobbyEmoji",
+                "text": "⚖️",
+                "size": 48,
+                "align": "center"
+              },
+              {
+                "id": "lobbyCount",
+                "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
+                "width": 320,
+                "size": 26,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "lobbyNames",
+                "text": "{phase == 'lobby' ? (roster.length > 0 ? roster.join(' · ') : '입장 중…') : ''}",
+                "width": 320,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "lobbyHint",
+            "text": "둘 중 하나! 다 같이 고르고 갈라진 %로 우리 방을 알아봐요 · 5라운드",
+            "width": 340,
+            "size": 14,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "lobbySpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1
+          },
+          {
+            "id": "startBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "시작하기 🚀"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'lobby'",
+                "then": [
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "game": "balance",
+                      "rounds": 5,
+                      "roundMs": 8000
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "countdownScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'countdown'",
+        "children": [
+          {
+            "id": "navC",
+            "use": "NavBar",
+            "props": {
+              "title": "밸런스게임",
+              "subtitle": "곧 시작!"
+            }
+          },
+          {
+            "id": "cdCard",
+            "box": "column",
+            "width": "fill",
+            "height": 420,
+            "gap": 8,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "cdNum",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? ('' + (sessionCountdown)) : 'GO!') : '3'}",
+                "width": 320,
+                "size": 140,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "cdLabel",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? '준비…' : '고르자!') : '준비…'}",
+                "width": 320,
+                "size": 20,
+                "weight": 700,
+                "color": "#ffffff",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "navP",
+            "use": "NavBar",
+            "props": {
+              "title": "밸런스게임",
+              "subtitle": "밸런스!"
+            }
+          },
+          {
+            "id": "roundLabel",
+            "text": "{phase == 'play' ? (('' + (roundNum) + ' / ' + (roundTotal))) : '1 / 5'}",
+            "width": 340,
+            "size": 15,
+            "weight": 700,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "cardA",
+            "box": "column",
+            "width": "fill",
+            "gap": 8,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "stroke": {
+              "color": "{phase == 'play' ? ((myVote === 'o0' && myVoteRound === roundIdx) ? '#d9ff00' : '#16181c') : '#16181c'}",
+              "width": 3
+            },
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o0'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o0"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "cardAOpt",
+                "text": "{phase == 'play' ? (roundContent.a || '') : ''}",
+                "width": 320,
+                "size": 27,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "cardAPct",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)) === 0 ? '0%' : ('' + (round((votesByOption.o0||0)/((votesByOption.o0||0)+(votesByOption.o1||0))*100)) + '%')) : '0%'}",
+                "size": 32,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "vsLabel",
+            "text": "VS",
+            "width": 340,
+            "size": 18,
+            "weight": 800,
+            "color": "#4DA3FF",
+            "align": "center"
+          },
+          {
+            "id": "cardB",
+            "box": "column",
+            "width": "fill",
+            "gap": 8,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "stroke": {
+              "color": "{phase == 'play' ? ((myVote === 'o1' && myVoteRound === roundIdx) ? '#4DA3FF' : '#16181c') : '#16181c'}",
+              "width": 3
+            },
+            "onTap": [
+              {
+                "if": "phase == 'play'",
+                "then": [
+                  {
+                    "set": "myVote",
+                    "to": "'o1'"
+                  },
+                  {
+                    "set": "myVoteRound",
+                    "to": "roundIdx"
+                  },
+                  {
+                    "emit": "vote",
+                    "payload": {
+                      "option": "o1"
+                    }
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "cardBOpt",
+                "text": "{phase == 'play' ? (roundContent.b || '') : ''}",
+                "width": 320,
+                "size": 27,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "cardBPct",
+                "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)) === 0 ? '0%' : ('' + (round((votesByOption.o1||0)/((votesByOption.o0||0)+(votesByOption.o1||0))*100)) + '%')) : '0%'}",
+                "size": 32,
+                "font": "display",
+                "color": "#4DA3FF",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 12,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "navR",
+            "use": "NavBar",
+            "props": {
+              "title": "밸런스게임",
+              "subtitle": "끝!"
+            }
+          },
+          {
+            "id": "resCard",
+            "box": "column",
+            "width": 358,
+            "height": 260,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resEmoji",
+                "text": "🎭",
+                "size": 64,
+                "align": "center"
+              },
+              {
+                "id": "resTitle",
+                "text": "밸런스게임 끝!",
+                "width": 320,
+                "size": 26,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "resSub",
+                "text": "우리 방, 생각보다 많이 갈렸죠? 😏",
+                "width": 320,
+                "size": 16,
+                "weight": 600,
+                "color": "#d7dce3",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "resSpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1,
+            "grow": 1
+          },
+          {
+            "id": "againBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "다시 하기 🔁"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "game": "balance",
+                      "rounds": 5,
+                      "roundMs": 8000
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

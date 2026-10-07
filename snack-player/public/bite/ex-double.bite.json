@@ -1,0 +1,145 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "두 배로 커지는 숫자"
+  },
+  "frame": [
+    360,
+    640
+  ],
+  "vars": {
+    "number": 1
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 360,
+        "height": 640,
+        "x": 0,
+        "y": 0,
+        "fill": "#0F172A"
+      },
+      {
+        "id": "title",
+        "text": "탭할 때마다 2배",
+        "x": 180,
+        "y": 70,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 26,
+        "weight": 700,
+        "color": "#F8FAFC"
+      },
+      {
+        "id": "hint",
+        "text": "숫자 카드를 눌러보세요",
+        "x": 180,
+        "y": 108,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 16,
+        "weight": 400,
+        "color": "#CBD5E1"
+      },
+      {
+        "id": "numberCard",
+        "box": "free",
+        "width": 290,
+        "height": 240,
+        "x": 35,
+        "y": 170,
+        "fill": "#2563EB",
+        "radius": 28,
+        "onTap": [
+          {
+            "set": "number",
+            "to": "number * 2"
+          }
+        ],
+        "children": [
+          {
+            "id": "numberLabel",
+            "text": "{number}",
+            "x": 145,
+            "y": 105,
+            "origin": [
+              50,
+              50
+            ],
+            "size": "{max(34, 82 - max(0, str(number).length - 3) * 6)}",
+            "font": "display",
+            "color": "#FFFFFF"
+          },
+          {
+            "id": "multiplyLabel",
+            "text": "TAP ×2",
+            "x": 145,
+            "y": 172,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 20,
+            "weight": 700,
+            "color": "#BFDBFE"
+          }
+        ]
+      },
+      {
+        "id": "infoText",
+        "text": "현재 숫자: {number}",
+        "x": 180,
+        "y": 455,
+        "origin": [
+          50,
+          50
+        ],
+        "size": 18,
+        "weight": 600,
+        "color": "#E2E8F0"
+      },
+      {
+        "id": "resetBtn",
+        "box": "free",
+        "width": 170,
+        "height": 58,
+        "x": 95,
+        "y": 520,
+        "fill": "#334155",
+        "radius": 18,
+        "onTap": [
+          {
+            "set": "number",
+            "to": "1"
+          }
+        ],
+        "children": [
+          {
+            "id": "resetLabel",
+            "text": "처음으로",
+            "x": 85,
+            "y": 29,
+            "origin": [
+              50,
+              50
+            ],
+            "size": 20,
+            "weight": 700,
+            "color": "#F8FAFC"
+          }
+        ]
+      }
+    ]
+  }
+}

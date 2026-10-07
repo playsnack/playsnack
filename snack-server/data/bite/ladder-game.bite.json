@@ -1,0 +1,801 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "사다리 타기"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "selected": -1,
+    "result": "-",
+    "revealed": false
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "StatCard": {
+      "props": {
+        "label": "",
+        "value": "0"
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 6,
+        "pad": 20,
+        "fill": "#16181c",
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 14,
+            "weight": 600,
+            "color": "#9aa3af"
+          },
+          {
+            "id": "val",
+            "text": "{props.value}",
+            "size": 40,
+            "font": "display",
+            "color": "#ffffff",
+            "lines": 1
+          }
+        ]
+      }
+    }
+  },
+  "start": "idle",
+  "phases": {
+    "idle": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "page",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "children": [
+          {
+            "id": "nav",
+            "use": "NavBar",
+            "props": {
+              "title": "사다리 타기",
+              "subtitle": "시작 칸을 탭하면 결과가 공개돼요"
+            }
+          },
+          {
+            "id": "statusRow",
+            "box": "row",
+            "gap": 12,
+            "children": [
+              {
+                "id": "resultStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "결과",
+                  "value": "{result}"
+                },
+                "width": "fill"
+              },
+              {
+                "id": "pickedStat",
+                "use": "StatCard",
+                "props": {
+                  "label": "선택",
+                  "value": "{selected < 0 ? '-' : ('' + (selected + 1) + '번')}"
+                },
+                "width": "fill"
+              }
+            ]
+          },
+          {
+            "id": "ladderCard",
+            "box": "column",
+            "height": 500,
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "playArea",
+                "box": "free",
+                "height": 500,
+                "fill": "#16181c",
+                "children": [
+                  {
+                    "id": "hintText",
+                    "text": "{revealed ? '형광색 길을 따라 결과를 확인하세요' : '4개의 시작 칸 중 하나를 골라보세요'}",
+                    "width": 358,
+                    "x": 0,
+                    "y": 16,
+                    "size": 14,
+                    "weight": 600,
+                    "color": "#9aa3af",
+                    "align": "center"
+                  },
+                  {
+                    "id": "v0",
+                    "box": "free",
+                    "width": 4,
+                    "height": 334,
+                    "x": 51,
+                    "y": 78,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "v1",
+                    "box": "free",
+                    "width": 4,
+                    "height": 334,
+                    "x": 127,
+                    "y": 78,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "v2",
+                    "box": "free",
+                    "width": 4,
+                    "height": 334,
+                    "x": 203,
+                    "y": 78,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "v3",
+                    "box": "free",
+                    "width": 4,
+                    "height": 334,
+                    "x": 279,
+                    "y": 78,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "h01a",
+                    "box": "free",
+                    "width": 76,
+                    "height": 4,
+                    "x": 53,
+                    "y": 116,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "h23a",
+                    "box": "free",
+                    "width": 76,
+                    "height": 4,
+                    "x": 205,
+                    "y": 166,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "h12a",
+                    "box": "free",
+                    "width": 76,
+                    "height": 4,
+                    "x": 129,
+                    "y": 226,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "h01b",
+                    "box": "free",
+                    "width": 76,
+                    "height": 4,
+                    "x": 53,
+                    "y": 286,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "h23b",
+                    "box": "free",
+                    "width": 76,
+                    "height": 4,
+                    "x": 205,
+                    "y": 346,
+                    "fill": "#2a2d33"
+                  },
+                  {
+                    "id": "path0",
+                    "box": "free",
+                    "width": 358,
+                    "height": 500,
+                    "x": 0,
+                    "y": 0,
+                    "show": "(revealed && selected === 0)",
+                    "children": [
+                      {
+                        "id": "p0a",
+                        "box": "free",
+                        "width": 4,
+                        "height": 40,
+                        "x": 51,
+                        "y": 78,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p0b",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 53,
+                        "y": 116,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p0c",
+                        "box": "free",
+                        "width": 4,
+                        "height": 112,
+                        "x": 127,
+                        "y": 116,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p0d",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 129,
+                        "y": 226,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p0e",
+                        "box": "free",
+                        "width": 4,
+                        "height": 122,
+                        "x": 203,
+                        "y": 226,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p0f",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 205,
+                        "y": 346,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p0g",
+                        "box": "free",
+                        "width": 4,
+                        "height": 66,
+                        "x": 279,
+                        "y": 346,
+                        "fill": "#d9ff00"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "path1",
+                    "box": "free",
+                    "width": 358,
+                    "height": 500,
+                    "x": 0,
+                    "y": 0,
+                    "show": "(revealed && selected === 1)",
+                    "children": [
+                      {
+                        "id": "p1a",
+                        "box": "free",
+                        "width": 4,
+                        "height": 40,
+                        "x": 127,
+                        "y": 78,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p1b",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 53,
+                        "y": 116,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p1c",
+                        "box": "free",
+                        "width": 4,
+                        "height": 172,
+                        "x": 51,
+                        "y": 116,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p1d",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 53,
+                        "y": 286,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p1e",
+                        "box": "free",
+                        "width": 4,
+                        "height": 126,
+                        "x": 127,
+                        "y": 286,
+                        "fill": "#d9ff00"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "path2",
+                    "box": "free",
+                    "width": 358,
+                    "height": 500,
+                    "x": 0,
+                    "y": 0,
+                    "show": "(revealed && selected === 2)",
+                    "children": [
+                      {
+                        "id": "p2a",
+                        "box": "free",
+                        "width": 4,
+                        "height": 90,
+                        "x": 203,
+                        "y": 78,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p2b",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 205,
+                        "y": 166,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p2c",
+                        "box": "free",
+                        "width": 4,
+                        "height": 182,
+                        "x": 279,
+                        "y": 166,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p2d",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 205,
+                        "y": 346,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p2e",
+                        "box": "free",
+                        "width": 4,
+                        "height": 66,
+                        "x": 203,
+                        "y": 346,
+                        "fill": "#d9ff00"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "path3",
+                    "box": "free",
+                    "width": 358,
+                    "height": 500,
+                    "x": 0,
+                    "y": 0,
+                    "show": "(revealed && selected === 3)",
+                    "children": [
+                      {
+                        "id": "p3a",
+                        "box": "free",
+                        "width": 4,
+                        "height": 90,
+                        "x": 279,
+                        "y": 78,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p3b",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 205,
+                        "y": 166,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p3c",
+                        "box": "free",
+                        "width": 4,
+                        "height": 62,
+                        "x": 203,
+                        "y": 166,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p3d",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 129,
+                        "y": 226,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p3e",
+                        "box": "free",
+                        "width": 4,
+                        "height": 62,
+                        "x": 127,
+                        "y": 226,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p3f",
+                        "box": "free",
+                        "width": 76,
+                        "height": 4,
+                        "x": 53,
+                        "y": 286,
+                        "fill": "#d9ff00"
+                      },
+                      {
+                        "id": "p3g",
+                        "box": "free",
+                        "width": 4,
+                        "height": 126,
+                        "x": 51,
+                        "y": 286,
+                        "fill": "#d9ff00"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s0",
+                    "box": "free",
+                    "width": 38,
+                    "height": 38,
+                    "x": 34,
+                    "y": 52,
+                    "fill": "{selected === 0 ? '#d9ff00' : '#1e2127'}",
+                    "radius": "full",
+                    "stroke": {
+                      "color": "#d9ff00",
+                      "width": 2
+                    },
+                    "onTap": [
+                      {
+                        "set": "selected",
+                        "to": "0"
+                      },
+                      {
+                        "set": "result",
+                        "to": "'벌칙'"
+                      },
+                      {
+                        "set": "revealed",
+                        "to": "true"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s1",
+                    "box": "free",
+                    "width": 38,
+                    "height": 38,
+                    "x": 110,
+                    "y": 52,
+                    "fill": "{selected === 1 ? '#d9ff00' : '#1e2127'}",
+                    "radius": "full",
+                    "stroke": {
+                      "color": "#d9ff00",
+                      "width": 2
+                    },
+                    "onTap": [
+                      {
+                        "set": "selected",
+                        "to": "1"
+                      },
+                      {
+                        "set": "result",
+                        "to": "'꽝'"
+                      },
+                      {
+                        "set": "revealed",
+                        "to": "true"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s2",
+                    "box": "free",
+                    "width": 38,
+                    "height": 38,
+                    "x": 186,
+                    "y": 52,
+                    "fill": "{selected === 2 ? '#d9ff00' : '#1e2127'}",
+                    "radius": "full",
+                    "stroke": {
+                      "color": "#d9ff00",
+                      "width": 2
+                    },
+                    "onTap": [
+                      {
+                        "set": "selected",
+                        "to": "2"
+                      },
+                      {
+                        "set": "result",
+                        "to": "'당첨'"
+                      },
+                      {
+                        "set": "revealed",
+                        "to": "true"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s3",
+                    "box": "free",
+                    "width": 38,
+                    "height": 38,
+                    "x": 262,
+                    "y": 52,
+                    "fill": "{selected === 3 ? '#d9ff00' : '#1e2127'}",
+                    "radius": "full",
+                    "stroke": {
+                      "color": "#d9ff00",
+                      "width": 2
+                    },
+                    "onTap": [
+                      {
+                        "set": "selected",
+                        "to": "3"
+                      },
+                      {
+                        "set": "result",
+                        "to": "'꽝'"
+                      },
+                      {
+                        "set": "revealed",
+                        "to": "true"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s0t",
+                    "text": "1",
+                    "width": 38,
+                    "x": 34,
+                    "y": 62,
+                    "size": 16,
+                    "weight": 800,
+                    "color": "{selected === 0 ? '#0b0c0e' : '#ffffff'}",
+                    "align": "center"
+                  },
+                  {
+                    "id": "s1t",
+                    "text": "2",
+                    "width": 38,
+                    "x": 110,
+                    "y": 62,
+                    "size": 16,
+                    "weight": 800,
+                    "color": "{selected === 1 ? '#0b0c0e' : '#ffffff'}",
+                    "align": "center"
+                  },
+                  {
+                    "id": "s2t",
+                    "text": "3",
+                    "width": 38,
+                    "x": 186,
+                    "y": 62,
+                    "size": 16,
+                    "weight": 800,
+                    "color": "{selected === 2 ? '#0b0c0e' : '#ffffff'}",
+                    "align": "center"
+                  },
+                  {
+                    "id": "s3t",
+                    "text": "4",
+                    "width": 38,
+                    "x": 262,
+                    "y": 62,
+                    "size": 16,
+                    "weight": 800,
+                    "color": "{selected === 3 ? '#0b0c0e' : '#ffffff'}",
+                    "align": "center"
+                  },
+                  {
+                    "id": "r0",
+                    "box": "column",
+                    "width": 64,
+                    "height": 46,
+                    "x": 20,
+                    "y": 424,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#1e2127",
+                    "children": [
+                      {
+                        "id": "r0txt",
+                        "text": "꽝",
+                        "size": 18,
+                        "weight": 800,
+                        "color": "#9aa3af",
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "r1",
+                    "box": "column",
+                    "width": 64,
+                    "height": 46,
+                    "x": 96,
+                    "y": 424,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#1e2127",
+                    "children": [
+                      {
+                        "id": "r1txt",
+                        "text": "꽝",
+                        "size": 18,
+                        "weight": 800,
+                        "color": "#9aa3af",
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "r2",
+                    "box": "column",
+                    "width": 64,
+                    "height": 46,
+                    "x": 172,
+                    "y": 424,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#1e2127",
+                    "children": [
+                      {
+                        "id": "r2txt",
+                        "text": "당첨",
+                        "size": 18,
+                        "weight": 800,
+                        "color": "#d9ff00",
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "r3",
+                    "box": "column",
+                    "width": 78,
+                    "height": 46,
+                    "x": 248,
+                    "y": 424,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#1e2127",
+                    "children": [
+                      {
+                        "id": "r3txt",
+                        "text": "벌칙",
+                        "size": 18,
+                        "weight": 800,
+                        "color": "#FF5A5F",
+                        "align": "center"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "retryBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시하기"
+            },
+            "onTap": [
+              {
+                "set": "selected",
+                "to": "-1"
+              },
+              {
+                "set": "result",
+                "to": "'-'"
+              },
+              {
+                "set": "revealed",
+                "to": "false"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Snack Player</title>
+    <link rel="icon" href="data:," />
+    <link rel="preload" href="/fonts/galmuri11.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/pressstart2p.woff2" as="font" type="font/woff2" crossorigin />
+
+    <style>
+      /* Mini-Block Arcade display faces — self-hosted pixel fonts (no CDN). */
+      @font-face {
+        font-family: "Galmuri11";
+        src: url("/fonts/galmuri11.woff2") format("woff2");
+        font-weight: normal; font-style: normal; font-display: swap;
+      }
+      @font-face {
+        font-family: "Press Start 2P";
+        src: url("/fonts/pressstart2p.woff2") format("woff2");
+        font-weight: normal; font-style: normal; font-display: swap;
+      }
+      html, body, #root { margin: 0; height: 100%; background: #000; }
+      body { overscroll-behavior: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

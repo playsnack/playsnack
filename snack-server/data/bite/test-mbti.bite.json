@@ -1,0 +1,1512 @@
+{
+  "bite": 1,
+  "meta": {
+    "name": "4글자 성격 테스트"
+  },
+  "frame": [
+    390,
+    844
+  ],
+  "vars": {
+    "e": 0,
+    "n": 0,
+    "t": 0,
+    "j": 0
+  },
+  "components": {
+    "NavBar": {
+      "props": {
+        "title": "",
+        "subtitle": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "column",
+        "height": "hug",
+        "gap": 2,
+        "children": [
+          {
+            "id": "title",
+            "text": "{props.title}",
+            "size": 28,
+            "font": "display",
+            "color": "#ffffff"
+          },
+          {
+            "id": "sub",
+            "text": "{props.subtitle}",
+            "size": 15,
+            "weight": 500,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    },
+    "Button": {
+      "props": {
+        "label": "확인"
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 50,
+        "align": "center",
+        "justify": "center",
+        "fill": "#d9ff00",
+        "shadow": {
+          "x": 0,
+          "y": 4,
+          "blur": 16,
+          "color": "#d9ff0040"
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 17,
+            "weight": 700,
+            "color": "#0b0c0e"
+          }
+        ]
+      }
+    },
+    "OptionCard": {
+      "props": {
+        "label": "",
+        "accent": false
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "height": 88,
+        "pad": 12,
+        "align": "center",
+        "justify": "center",
+        "fill": "#16181c",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "width": "fill",
+            "size": 18,
+            "weight": 700,
+            "color": "#ffffff",
+            "align": "center"
+          }
+        ]
+      }
+    },
+    "Chip": {
+      "props": {
+        "label": ""
+      },
+      "view": {
+        "id": "root",
+        "box": "row",
+        "width": "hug",
+        "height": 30,
+        "pad": [
+          0,
+          12
+        ],
+        "align": "center",
+        "justify": "center",
+        "fill": "#1e2127",
+        "stroke": {
+          "color": "#2a2d33",
+          "width": 1
+        },
+        "children": [
+          {
+            "id": "lbl",
+            "text": "{props.label}",
+            "size": 13,
+            "weight": 600,
+            "color": "#9aa3af"
+          }
+        ]
+      }
+    }
+  },
+  "start": "q1",
+  "phases": {
+    "q1": {},
+    "q2": {},
+    "q3": {},
+    "q4": {},
+    "q5": {},
+    "q6": {},
+    "q7": {},
+    "q8": {},
+    "q9": {},
+    "q10": {},
+    "q11": {},
+    "q12": {},
+    "result": {}
+  },
+  "view": {
+    "box": "free",
+    "children": [
+      {
+        "id": "bg",
+        "box": "free",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "fill": "#0b0c0e"
+      },
+      {
+        "id": "q1Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q1'",
+        "children": [
+          {
+            "id": "nav1",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q1Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip1",
+                "use": "Chip",
+                "props": {
+                  "label": "1 / 12 · 에너지"
+                }
+              },
+              {
+                "id": "q1Title",
+                "text": "주말 오후, 더 끌리는 쪽은?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q1Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q1A",
+            "use": "OptionCard",
+            "props": {
+              "label": "친구들과 약속 잡고 밖으로 나가기",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q1'",
+                "then": [
+                  {
+                    "set": "e",
+                    "to": "e + 1"
+                  },
+                  {
+                    "go": "q2"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q1B",
+            "use": "OptionCard",
+            "props": {
+              "label": "집에서 조용히 충전하기",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q1'",
+                "then": [
+                  {
+                    "go": "q2"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q2Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q2'",
+        "children": [
+          {
+            "id": "nav2",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q2Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip2",
+                "use": "Chip",
+                "props": {
+                  "label": "2 / 12 · 에너지"
+                }
+              },
+              {
+                "id": "q2Title",
+                "text": "처음 보는 모임에 가면 나는?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q2Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q2A",
+            "use": "OptionCard",
+            "props": {
+              "label": "먼저 말 걸고 분위기를 띄운다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q2'",
+                "then": [
+                  {
+                    "set": "e",
+                    "to": "e + 1"
+                  },
+                  {
+                    "go": "q3"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q2B",
+            "use": "OptionCard",
+            "props": {
+              "label": "익숙해질 때까지 지켜본다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q2'",
+                "then": [
+                  {
+                    "go": "q3"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q3Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q3'",
+        "children": [
+          {
+            "id": "nav3",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q3Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip3",
+                "use": "Chip",
+                "props": {
+                  "label": "3 / 12 · 에너지"
+                }
+              },
+              {
+                "id": "q3Title",
+                "text": "에너지가 채워지는 순간은?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q3Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q3A",
+            "use": "OptionCard",
+            "props": {
+              "label": "사람들과 신나게 떠들 때",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q3'",
+                "then": [
+                  {
+                    "set": "e",
+                    "to": "e + 1"
+                  },
+                  {
+                    "go": "q4"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q3B",
+            "use": "OptionCard",
+            "props": {
+              "label": "혼자만의 시간을 가질 때",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q3'",
+                "then": [
+                  {
+                    "go": "q4"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q4Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q4'",
+        "children": [
+          {
+            "id": "nav4",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q4Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip4",
+                "use": "Chip",
+                "props": {
+                  "label": "4 / 12 · 인식"
+                }
+              },
+              {
+                "id": "q4Title",
+                "text": "새 물건을 보면 먼저?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q4Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q4A",
+            "use": "OptionCard",
+            "props": {
+              "label": "어떻게 응용할까 상상한다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q4'",
+                "then": [
+                  {
+                    "set": "n",
+                    "to": "n + 1"
+                  },
+                  {
+                    "go": "q5"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q4B",
+            "use": "OptionCard",
+            "props": {
+              "label": "사용법부터 꼼꼼히 본다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q4'",
+                "then": [
+                  {
+                    "go": "q5"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q5Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q5'",
+        "children": [
+          {
+            "id": "nav5",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q5Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip5",
+                "use": "Chip",
+                "props": {
+                  "label": "5 / 12 · 인식"
+                }
+              },
+              {
+                "id": "q5Title",
+                "text": "대화에서 더 끌리는 주제는?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q5Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q5A",
+            "use": "OptionCard",
+            "props": {
+              "label": "'만약에' 같은 가능성 이야기",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q5'",
+                "then": [
+                  {
+                    "set": "n",
+                    "to": "n + 1"
+                  },
+                  {
+                    "go": "q6"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q5B",
+            "use": "OptionCard",
+            "props": {
+              "label": "실제로 있었던 구체적인 일",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q5'",
+                "then": [
+                  {
+                    "go": "q6"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q6Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q6'",
+        "children": [
+          {
+            "id": "nav6",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q6Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip6",
+                "use": "Chip",
+                "props": {
+                  "label": "6 / 12 · 인식"
+                }
+              },
+              {
+                "id": "q6Title",
+                "text": "길을 외울 때 나는?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q6Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q6A",
+            "use": "OptionCard",
+            "props": {
+              "label": "전체 느낌과 방향으로 기억한다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q6'",
+                "then": [
+                  {
+                    "set": "n",
+                    "to": "n + 1"
+                  },
+                  {
+                    "go": "q7"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q6B",
+            "use": "OptionCard",
+            "props": {
+              "label": "건물·표지판을 하나하나 기억한다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q6'",
+                "then": [
+                  {
+                    "go": "q7"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q7Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q7'",
+        "children": [
+          {
+            "id": "nav7",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q7Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip7",
+                "use": "Chip",
+                "props": {
+                  "label": "7 / 12 · 판단"
+                }
+              },
+              {
+                "id": "q7Title",
+                "text": "친구가 고민을 털어놓으면?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q7Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q7A",
+            "use": "OptionCard",
+            "props": {
+              "label": "해결책부터 같이 찾는다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q7'",
+                "then": [
+                  {
+                    "set": "t",
+                    "to": "t + 1"
+                  },
+                  {
+                    "go": "q8"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q7B",
+            "use": "OptionCard",
+            "props": {
+              "label": "마음부터 공감해 준다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q7'",
+                "then": [
+                  {
+                    "go": "q8"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q8Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q8'",
+        "children": [
+          {
+            "id": "nav8",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q8Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip8",
+                "use": "Chip",
+                "props": {
+                  "label": "8 / 12 · 판단"
+                }
+              },
+              {
+                "id": "q8Title",
+                "text": "결정을 내릴 때 더 믿는 건?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q8Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q8A",
+            "use": "OptionCard",
+            "props": {
+              "label": "논리와 사실",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q8'",
+                "then": [
+                  {
+                    "set": "t",
+                    "to": "t + 1"
+                  },
+                  {
+                    "go": "q9"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q8B",
+            "use": "OptionCard",
+            "props": {
+              "label": "사람과 분위기",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q8'",
+                "then": [
+                  {
+                    "go": "q9"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q9Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q9'",
+        "children": [
+          {
+            "id": "nav9",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q9Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip9",
+                "use": "Chip",
+                "props": {
+                  "label": "9 / 12 · 판단"
+                }
+              },
+              {
+                "id": "q9Title",
+                "text": "피드백을 줄 때 나는?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q9Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q9A",
+            "use": "OptionCard",
+            "props": {
+              "label": "솔직하게 핵심을 말한다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q9'",
+                "then": [
+                  {
+                    "set": "t",
+                    "to": "t + 1"
+                  },
+                  {
+                    "go": "q10"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q9B",
+            "use": "OptionCard",
+            "props": {
+              "label": "상처 안 주게 돌려 말한다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q9'",
+                "then": [
+                  {
+                    "go": "q10"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q10Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q10'",
+        "children": [
+          {
+            "id": "nav10",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q10Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip10",
+                "use": "Chip",
+                "props": {
+                  "label": "10 / 12 · 생활"
+                }
+              },
+              {
+                "id": "q10Title",
+                "text": "여행을 갈 때 나는?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q10Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q10A",
+            "use": "OptionCard",
+            "props": {
+              "label": "일정을 미리 촘촘히 짠다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q10'",
+                "then": [
+                  {
+                    "set": "j",
+                    "to": "j + 1"
+                  },
+                  {
+                    "go": "q11"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q10B",
+            "use": "OptionCard",
+            "props": {
+              "label": "그때그때 끌리는 대로 움직인다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q10'",
+                "then": [
+                  {
+                    "go": "q11"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q11Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q11'",
+        "children": [
+          {
+            "id": "nav11",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q11Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip11",
+                "use": "Chip",
+                "props": {
+                  "label": "11 / 12 · 생활"
+                }
+              },
+              {
+                "id": "q11Title",
+                "text": "할 일이 생기면 나는?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q11Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q11A",
+            "use": "OptionCard",
+            "props": {
+              "label": "미리 끝내 두어야 마음이 편하다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q11'",
+                "then": [
+                  {
+                    "set": "j",
+                    "to": "j + 1"
+                  },
+                  {
+                    "go": "q12"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q11B",
+            "use": "OptionCard",
+            "props": {
+              "label": "마감 직전에 몰아서 한다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q11'",
+                "then": [
+                  {
+                    "go": "q12"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "q12Screen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'q12'",
+        "children": [
+          {
+            "id": "nav12",
+            "use": "NavBar",
+            "props": {
+              "title": "성격 테스트",
+              "subtitle": "12개의 선택으로 나를 발견해요"
+            }
+          },
+          {
+            "id": "q12Hero",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 18,
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "chip12",
+                "use": "Chip",
+                "props": {
+                  "label": "12 / 12 · 생활"
+                }
+              },
+              {
+                "id": "q12Title",
+                "text": "내 방이나 책상은?",
+                "width": 326,
+                "minHeight": 68,
+                "size": 25,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "q12Sub",
+                "text": "직감적으로 가까운 선택지를 탭하세요.",
+                "width": 326,
+                "size": 14,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "q12A",
+            "use": "OptionCard",
+            "props": {
+              "label": "정리된 상태가 좋다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q12'",
+                "then": [
+                  {
+                    "set": "j",
+                    "to": "j + 1"
+                  },
+                  {
+                    "go": "result"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "q12B",
+            "use": "OptionCard",
+            "props": {
+              "label": "어수선해도 내 나름의 질서가 있다",
+              "accent": false
+            },
+            "onTap": [
+              {
+                "if": "phase == 'q12'",
+                "then": [
+                  {
+                    "go": "result"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "navResult",
+            "use": "NavBar",
+            "props": {
+              "title": "결과",
+              "subtitle": "당신의 4글자 성격 유형"
+            }
+          },
+          {
+            "id": "resultCard",
+            "box": "column",
+            "height": "fill",
+            "gap": 14,
+            "pad": 20,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resultBadge",
+                "use": "Chip",
+                "props": {
+                  "label": "MY TYPE"
+                }
+              },
+              {
+                "id": "resultType",
+                "text": "{phase == 'result' ? (('' + (e >= 2 ? 'E' : 'I') + (n >= 2 ? 'N' : 'S') + (t >= 2 ? 'T' : 'F') + (j >= 2 ? 'J' : 'P'))) : 'ENFJ'}",
+                "size": 56,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "resultName",
+                "text": "{phase == 'result' ? ((e >= 2 ? (n >= 2 ? (t >= 2 ? (j >= 2 ? \"대담한 지휘관\" : \"뜨거운 토론가\") : (j >= 2 ? \"정의로운 사회운동가\" : \"재기발랄한 활동가\")) : (t >= 2 ? (j >= 2 ? \"엄격한 관리자\" : \"모험을 즐기는 사업가\") : (j >= 2 ? \"사교적인 외교관\" : \"자유로운 연예인\"))) : (n >= 2 ? (t >= 2 ? (j >= 2 ? \"용의주도한 전략가\" : \"호기심 많은 논리술사\") : (j >= 2 ? \"선의의 옹호자\" : \"열정적인 중재자\")) : (t >= 2 ? (j >= 2 ? \"청렴결백한 현실주의자\" : \"만능 재주꾼\") : (j >= 2 ? \"용감한 수호자\" : \"호기심 많은 예술가\"))))) : '빛나는 설계자'}",
+                "size": 22,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center"
+              },
+              {
+                "id": "resultDesc",
+                "text": "{phase == 'result' ? ((e >= 2 ? (n >= 2 ? (t >= 2 ? (j >= 2 ? \"목표를 정하면 사람과 일을 끌고 가는 타고난 리더예요.\" : \"재기발랄한 아이디어로 판을 흔드는 자유로운 혁신가예요.\") : (j >= 2 ? \"사람들의 가능성을 끌어올리는 타고난 응원단장이에요.\" : \"호기심과 열정으로 주변을 밝히는 자유로운 영혼이에요.\")) : (t >= 2 ? (j >= 2 ? \"원칙과 추진력으로 일을 굴러가게 만드는 실행가예요.\" : \"일단 부딪혀 보는 에너지 넘치는 행동파예요.\") : (j >= 2 ? \"사람들 사이를 챙기고 분위기를 데우는 살림꾼이에요.\" : \"어디서든 분위기를 띄우는 타고난 무대 체질이에요.\"))) : (n >= 2 ? (t >= 2 ? (j >= 2 ? \"큰 그림을 그리고 조용히 판을 짜는 마스터플래너예요.\" : \"끊임없이 '왜?'를 파고드는 아이디어 탐구가예요.\") : (j >= 2 ? \"조용하지만 단단한 신념으로 사람을 돕는 이상가예요.\" : \"마음속 가치를 소중히 지키는 따뜻한 몽상가예요.\")) : (t >= 2 ? (j >= 2 ? \"맡은 일은 끝까지 책임지는 믿음직한 기둥이에요.\" : \"말없이 손으로 문제를 해결하는 쿨한 장인이에요.\") : (j >= 2 ? \"곁에 있는 사람을 조용히 살뜰히 챙기는 따뜻한 보호자예요.\" : \"지금 이 순간의 감각을 즐기는 자유로운 감성파예요.\"))))) : '사람과 아이디어 사이를 빠르게 연결하고, 상황을 정리해 앞으로 나아가게 만드는 타입이에요.'}",
+                "width": 300,
+                "size": 16,
+                "weight": 500,
+                "color": "#9aa3af",
+                "align": "center"
+              },
+              {
+                "id": "scoreLine",
+                "text": "{phase == 'result' ? (('E' + (e) + '·I' + (3-e) + '  N' + (n) + '·S' + (3-n) + '  T' + (t) + '·F' + (3-t) + '  J' + (j) + '·P' + (3-j))) : '균형 점수'}",
+                "size": 13,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "restartBtn",
+            "use": "Button",
+            "props": {
+              "label": "다시 테스트하기"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "e",
+                    "to": "0"
+                  },
+                  {
+                    "set": "n",
+                    "to": "0"
+                  },
+                  {
+                    "set": "t",
+                    "to": "0"
+                  },
+                  {
+                    "set": "j",
+                    "to": "0"
+                  },
+                  {
+                    "go": "q1"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
