@@ -1,0 +1,11 @@
+{
+  "name": "@snack/content",
+  "version": "0.1.0",
+  "description": "Keyless content for snackapp templates — seed pools and the curated bank → the JSON each template's data.url expects. Pure; data is passed in.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.js" } },
+  "scripts": { "test": "node --test test/" }
+}

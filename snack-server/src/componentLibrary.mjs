@@ -185,6 +185,19 @@ COMPONENTS.PersonCard = {
   },
 };
 
+COMPONENTS.ThingCard = {
+  description: "Card for a thing (food, place, object) with a big emoji instead of a photo — no image fetching. Fill the card's box. props: name, emoji.",
+  props: { name: "", emoji: "" },
+  view: {
+    box: "column", pad: 16, gap: 12, align: "center", justify: "center", fill: T.surface, ...radius,
+    stroke: { color: T.border, width: T.border2 }, shadow: HARD_SHADOW,
+    children: [
+      { text: "{props.emoji}", size: 88, align: "center" },
+      { text: "{props.name}", font: "display", size: 30, color: T.text, align: "center", lines: 1 },
+    ],
+  },
+};
+
 // Names the prompt is allowed to reference.
 export const COMPONENT_IDS = Object.keys(COMPONENTS);
 

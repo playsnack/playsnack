@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { setNick, randomNick, uploadPhoto } from "./identity";
+import { SERVERLESS } from "./backend";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
 // First-visit onboarding: pick a nickname + (optional) selfie before entering.
@@ -36,10 +37,10 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
       <div style={{ width: "100%", maxWidth: 380 }}>
         <div style={brand}>SNACK · LIVE</div>
         <h1 style={{ fontFamily: TOKENS.font.display, fontSize: 22, fontWeight: 800, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 }}>닉네임을 정해주세요</h1>
-        <p style={{ color: C.inkMuted, margin: `0 0 ${S.s5}px`, fontSize: TOKENS.size.bodyMd }}>리더보드와 라이브 방에서 이 이름·사진으로 보여요.</p>
+        <p style={{ color: C.inkMuted, margin: `0 0 ${S.s5}px`, fontSize: TOKENS.size.bodyMd }}>{SERVERLESS ? "같이 하는 방에서 이 이름으로 보여요." : "리더보드와 라이브 방에서 이 이름·사진으로 보여요."}</p>
 
-        {/* selfie — block frame (square, 핀 꽂힌 폴라로이드 느낌) */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: S.s5 }}>
+        {/* selfie — block frame (square, 핀 꽂힌 폴라로이드 느낌). Needs the server to store it. */}
+        {!SERVERLESS && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: S.s5 }}>
           <button className="blk" onClick={() => fileRef.current?.click()} style={{ ...avatarBtn, backgroundImage: photo ? `url(${photo})` : "none" }} title="사진 추가">
             {!photo && <span style={{ fontSize: 30 }}>📷</span>}
           </button>
@@ -50,7 +51,7 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
           <span style={{ color: C.inkMuted, fontSize: TOKENS.size.caption, marginTop: S.s2 }}>
             {photo ? "사진 변경 · 탭" : "사진 추가 (선택) — 얼굴 게임에 쓰여요"}
           </span>
-        </div>
+        </div>}
 
         <div style={{ display: "flex", gap: S.s2 }}>
           <input

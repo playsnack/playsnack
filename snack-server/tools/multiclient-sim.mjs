@@ -5,10 +5,11 @@
 import { rmSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { listIds, loadDoc, TPL_DIR, varNames, findEmit } from "./_doc.mjs";
-import { SimClient, sleep, WS_URL } from "./_wsclient.mjs";
+import { SimClient, sleep, WS_URL, MESH } from "./_wsclient.mjs";
 import { runGate } from "./_gate.mjs";
 
-const SETTLE_MS = Number(process.env.SIM_SETTLE_MS || 250);
+// A public broker (SIM_MESH) adds ~150ms per hop, host → peer.
+const SETTLE_MS = Number(process.env.SIM_SETTLE_MS || (MESH ? 1200 : 250));
 const VOTES_DIR = join(TPL_DIR, "..", "votes");
 // Unique-per-run prefix so each run uses ISOLATED throwaway rooms — never the
 // canonical tpl-<id> rooms — so the sim neither pollutes real shared votes nor
@@ -36,6 +37,22 @@ function startPayload(doc) {
   return findEmit(doc, "start")?.payload ?? null;
 }
 
+// Every client shows the same view (and, if given, the expected value) within the
+// settle window. Polled, not sampled once: over a broker clients see a change
+// ~100ms apart, and round games keep changing (a single late sample can land
+// mid-transition and look like a desync).
+async function settle(clients, view, done = () => true) {
+  const deadline = Date.now() + SETTLE_MS + clients.length * 30;
+  let diff = 0;
+  do {
+    await sleep(MESH ? 100 : SETTLE_MS + clients.length * 30);
+    const ref = JSON.stringify(view(clients[0]));
+    diff = clients.filter((c) => JSON.stringify(view(c)) !== ref).length;
+    if (!diff && done(view(clients[0]))) return { converged: true, desyncEvents: 0 };
+  } while (Date.now() < deadline);
+  return { converged: diff === 0, desyncEvents: diff };
+}
+
 async function simOne(id, n) {
   const doc = loadDoc(id);
   const kind = kindOf(doc);
@@ -46,6 +63,7 @@ async function simOne(id, n) {
   const clients = Array.from({ length: n }, (_, i) => new SimClient(slug, `${slug}-c${i}`));
   await Promise.all(clients.map((c) => c.ready));
   await sleep(SETTLE_MS);
+  for (let w = 0; MESH && w < 6000 && !clients.every((c) => c.participants === n); w += 200) await sleep(200);
 
   // Synchronized session game: anyone starts → server-timed countdown → play →
   // result. The within-play contract varies by app, so sub-detect it and test
@@ -101,15 +119,9 @@ async function simOne(id, n) {
         view = (c) => c.shared.raceBoard || []; expected = n * ACT;
       }
     }
-    await sleep(SETTLE_MS + n * 30);
-    const ref = JSON.stringify(view(clients[0]));
-    let converged = true, desyncEvents = 0;
-    for (const c of clients) if (JSON.stringify(view(c)) !== ref) { converged = false; desyncEvents++; }
-    let tallyError = 0;
-    if (exact) {
-      const got = sub === "tap" ? (view(clients[0]) || []).reduce((s, e) => s + (e.score || 0), 0) : view(clients[0]);
-      tallyError = Math.abs(got - expected);
-    }
+    const total = (v) => (sub === "tap" ? (v || []).reduce((s, e) => s + (e.score || 0), 0) : v);
+    const { converged, desyncEvents } = await settle(clients, view, (v) => !exact || total(v) === expected);
+    const tallyError = exact ? Math.abs(total(view(clients[0])) - expected) : 0;
     const phaseSynced = clients.every((c) => c.shared.sessionPhase === clients[0].shared.sessionPhase);
     const participantsAccurate = clients.every((c) => c.participants === n);
     clients.forEach((c) => c.close());
@@ -133,13 +145,14 @@ async function simOne(id, n) {
     clients.forEach((c, i) => c.score(scores[i]));
     expected = Math.max(...scores);
   }
-  await sleep(SETTLE_MS + n * 30);
-
   // assert convergence across clients
-  let converged = true, desyncEvents = 0, tallyError = 0;
+  let tallyError = 0;
   const view = (c) => c.shared[kind === "vote" ? "votesByOption" : kind === "coop" ? "coopTotal" : "leaderboard"];
-  const ref = JSON.stringify(view(clients[0]));
-  for (const c of clients) if (JSON.stringify(view(c)) !== ref) { converged = false; desyncEvents++; }
+  const { converged, desyncEvents } = await settle(clients, view, (v) => {
+    if (kind === "vote") return ((v || {})[expected.key] ?? 0) === expected.count;
+    if (kind === "coop") return (v ?? 0) === expected;
+    return ((v || [])[0] ?? 0) === expected;
+  });
 
   if (kind === "vote") {
     const got = (view(clients[0]) || {})[expected.key] ?? 0;
@@ -188,7 +201,7 @@ async function main() {
   } catch { /* best-effort */ }
 
   runGate("multiclient-sim", results, (r) => r.ok,
-    ({ failed, total }) => `multiclient-sim @ ${WS_URL}: ${total - failed}/${total} synced${failed ? ` — ${failed} FAIL` : ""}`);
+    ({ failed, total }) => `multiclient-sim @ ${MESH ? "mqtt mesh" : WS_URL}: ${total - failed}/${total} synced${failed ? ` — ${failed} FAIL` : ""}`);
 }
 
 main();

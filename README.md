@@ -32,8 +32,10 @@ The full format is specified in [`docs/bite-format.md`](docs/bite-format.md).
 | [`packages/bite`](packages/bite) | Runtime: variables, phases, a sandboxed expression language, actions, host events. No rendering; runs in Node and browsers. |
 | [`packages/bite-layout`](packages/bite-layout) | Expands a document and lays it out with Yoga (flexbox). Text is measured from bundled font metrics, so a server computes exactly the layout a phone shows. Hit-testing and layout lint. |
 | [`packages/bite-pixi`](packages/bite-pixi) | Renderer on Pixi v8: drawing, taps, scrolling. |
-| [`snack-player`](snack-player) | React app: home, live player (`/p/:slug`), chat builder with in-place text editing. |
-| [`snack-server`](snack-server) | Express + WebSocket: templates, rooms (an app `emit`s → the server decides → `setVar` to everyone), fresh content, the AI builder. |
+| [`packages/snack-room`](packages/snack-room) | The room engine (lobby → countdown → play → result, votes, tallies) and the ways to run it: on a server, on a host player behind a thin relay, or with no server at all (players meet on a public MQTT broker and elect a host). |
+| [`packages/snack-content`](packages/snack-content) | Keyless content: curated banks and seed pools for quizzes and brackets. |
+| [`snack-player`](snack-player) | React app: home, live player (`#/p/<slug>`), chat builder with in-place text editing. |
+| [`snack-server`](snack-server) | Optional. Express + WebSocket: templates, rooms (an app `emit`s → the server decides → `setVar` to everyone), fresh content, the AI builder. |
 
 The AI builder asks an OpenAI model for a Bite document, grounds it on the
 closest proven template, then validates it, plays it headless (tapping every
@@ -42,11 +44,22 @@ it passes.
 
 ## Run
 
+**Serverless (default)** — a static site. Content ships with it, rooms run on one of
+the players (the others reach it through a public MQTT broker), and a shared app
+travels inside its link. The AI builder needs a server, so it is off here.
+
 ```bash
 pnpm install
+pnpm player:dev      # http://localhost:5290
+pnpm player:build    # → snack-player/dist, host it anywhere static
+```
+
+**With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
+
+```bash
 cp snack-server/.env.example snack-server/.env   # set OPENAI_API_KEY, PORT=4399
 pnpm server:dev      # http://localhost:4399
-pnpm player:dev      # http://localhost:5290  (or `pnpm player:build` and let the server serve it)
+VITE_SERVER_URL=http://localhost:4399 pnpm player:dev   # http://localhost:5290
 ```
 
 Try a sample without the server: `http://localhost:5290/?bite=showcase`.
@@ -58,6 +71,7 @@ pnpm bite:test                                   # engine unit tests
 pnpm bite:check                                  # browser: layout == Node layout, real taps, scrolling
 node snack-server/tools/gate-all.mjs             # templates: layout, content, consistency, oracle, multiplayer sync
 node snack-server/tools/gate-all.mjs --battery   # + AI generation reliability (needs an OpenAI key)
+SIM_MESH=1 node snack-server/tools/multiclient-sim.mjs   # multiplayer sync over the public broker, no server
 ```
 
 ## License
@@ -68,6 +82,6 @@ modify, redistribute or host. See [`LICENSE`](LICENSE).
 ## Third-party
 
 Code: [jsep](https://github.com/EricSmekens/jsep) (MIT), [yoga-layout](https://github.com/facebook/yoga) (MIT),
-[pixi.js](https://github.com/pixijs/pixijs) (MIT), React (MIT), Express (MIT), ws (MIT).
+[pixi.js](https://github.com/pixijs/pixijs) (MIT), React (MIT), Express (MIT), ws (MIT), [MQTT.js](https://github.com/mqttjs/MQTT.js) (MIT).
 Fonts (bundled in `snack-player/public/fonts`): [Pretendard](https://github.com/orioncactus/pretendard) and
 [Galmuri](https://github.com/quiple/galmuri), both SIL Open Font License 1.1 — license texts alongside the font files.

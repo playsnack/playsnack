@@ -11,9 +11,20 @@
     "./relay-client": {
       "types": "./src/relayClient.d.ts",
       "default": "./src/relayClient.js"
+    },
+    "./mesh-client": {
+      "types": "./src/meshClient.d.ts",
+      "default": "./src/meshClient.js"
+    },
+    "./mqtt-bus": {
+      "types": "./src/mqttBus.d.ts",
+      "default": "./src/mqttBus.js"
     }
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test --test-force-exit test/"
+  },
+  "dependencies": {
+    "mqtt": "5.16.0"
   }
 }

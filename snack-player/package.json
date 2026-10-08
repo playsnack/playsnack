@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "node ../snack-server/tools/gen-tokens.mjs && vite build",
+    "dev": "node scripts/sync-data.mjs && vite",
+    "build": "node ../snack-server/tools/gen-tokens.mjs && node scripts/sync-data.mjs && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sync-data": "node scripts/sync-data.mjs"
   },
   "dependencies": {
     "@snack/bite": "workspace:*",
     "@snack/bite-layout": "workspace:*",
     "@snack/bite-pixi": "workspace:*",
+    "@snack/content": "workspace:*",
     "@snack/room": "workspace:*",
     "pixi.js": "^8.0.0",
     "react": "^19.0.0",

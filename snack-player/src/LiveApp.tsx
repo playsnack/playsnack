@@ -2,25 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import type { BiteDoc } from "@snack/bite";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick } from "./identity";
-import { RelayTransport, ServerTransport, type RoomTransport } from "./roomTransport";
+import type { RoomTransport } from "./roomTransport";
+import { createRoom, loadRoomDoc } from "./backend";
 
 // Realtime layer. Cold-loads the app from snack-server, joins its room through a
 // RoomTransport, pipes Bite `emit` -> room action, and applies authoritative setVar broadcasts back
 // into the runtime so every client sees live shared state (the moat).
 // Dev (vite :5290): server is a sibling origin on :4399.
 // Prod (player served BY snack-server): same origin, one port → one share link.
-const SERVER = import.meta.env.DEV ? `${location.protocol}//${location.hostname}:4399` : location.origin;
-const WS_URL = (import.meta.env.DEV
-  ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:4399`
-  : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`) + "/ws";
-
-// Host mode (?host=1): a player's device runs the room, the server only relays.
-const RELAY_URL = WS_URL.replace(/\/ws$/, "/relay");
-const HOST_MODE = new URLSearchParams(location.search).has("host");
-
 type Runtime = { setVar: (id: string, v: unknown) => void };
 
-export function LiveApp({ slug }: { slug: string }) {
+export function LiveApp({ slug, params }: { slug: string; params: URLSearchParams }) {
   const [doc, setDoc] = useState<BiteDoc | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [participants, setParticipants] = useState(1);
@@ -57,11 +49,10 @@ export function LiveApp({ slug }: { slug: string }) {
 
   useEffect(() => {
     let closed = false;
-    fetch(`${SERVER}/api/apps/${slug}`)
-      .then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+    loadRoomDoc(slug, params)
       .then(({ doc, sharedState }) => {
         if (closed) return;
-        sharedRef.current = sharedState;
+        sharedRef.current = sharedState ?? null;
         setDoc(doc);
       })
       .catch((e) => setErr(String(e)));
@@ -70,8 +61,7 @@ export function LiveApp({ slug }: { slug: string }) {
 
   useEffect(() => {
     if (!doc) return;
-    const me = { slug, anonId: getAnonId(), nick: getNick() ?? "" };
-    const room: RoomTransport = HOST_MODE ? new RelayTransport(RELAY_URL, me, `${SERVER}/api/pack`, `${SERVER}/api/events`) : new ServerTransport(WS_URL, me);
+    const room: RoomTransport = createRoom({ slug, anonId: getAnonId(), nick: getNick() ?? "" }, params);
     roomRef.current = room;
     room.onMessage((m) => {
       if (m.t === "state") {

@@ -1,0 +1,18 @@
+[
+  { "name": "치킨", "emoji": "🍗" },
+  { "name": "피자", "emoji": "🍕" },
+  { "name": "떡볶이", "emoji": "🌶️" },
+  { "name": "라면", "emoji": "🍜" },
+  { "name": "김밥", "emoji": "🍙" },
+  { "name": "족발", "emoji": "🍖" },
+  { "name": "보쌈", "emoji": "🥬" },
+  { "name": "마라탕", "emoji": "🍲" },
+  { "name": "곱창", "emoji": "🍢" },
+  { "name": "햄버거", "emoji": "🍔" },
+  { "name": "삼겹살", "emoji": "🥓" },
+  { "name": "초밥", "emoji": "🍣" },
+  { "name": "감자튀김", "emoji": "🍟" },
+  { "name": "타코", "emoji": "🌮" },
+  { "name": "핫도그", "emoji": "🌭" },
+  { "name": "아이스크림", "emoji": "🍦" }
+]

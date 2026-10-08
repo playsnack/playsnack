@@ -1,23 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { BiteDoc } from "@snack/bite";
 import { BitePlayer } from "./BitePlayer.tsx";
+import { AI_UNAVAILABLE, SERVERLESS, buildWithAi, getTemplateDoc, listTemplates, rateTemplate as rateRemote, shareApp } from "./backend";
 
 // The "mobile studio" = chat. Describe an app/game -> server builds a Bite app
 // (gpt-5.5 + validate + repair) -> render it live. Refine by sending again.
-const SERVER = import.meta.env.DEV ? `${location.protocol}//${location.hostname}:4399` : location.origin;
-
-// POST + parse JSON, but never crash on an HTML response (tunnel timeout / 502 /
-// server restart return an error page → "Unexpected token '<'"). Surface a
-// friendly message instead.
-async function postJSON(path: string, body: unknown): Promise<any> {
-  const res = await fetch(`${SERVER}${path}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  try { return JSON.parse(text); }
-  catch { throw new Error(res.ok ? "서버 응답을 읽지 못했어요. 잠시 후 다시 시도해주세요." : `서버가 응답하지 않아요 (${res.status}). 잠시 후 다시 시도해주세요.`); }
-}
-
 // Deep-clone the doc and replace one text node's copy (found by id).
 // Direct in-app text edit: no AI round-trip, no server call — just a doc patch.
 // Braces are escaped so typed text can never become a template expression.
@@ -114,10 +101,8 @@ export function CreateApp() {
 
   useEffect(() => {
     if (phase !== "input") return;
-    const q = new URLSearchParams({ sort: tplSort, category: tplCat });
-    fetch(`${SERVER}/api/templates?${q}`)
-      .then((r) => r.json())
-      .then((j) => { setTemplates(j.templates || []); if (j.categories) setCats(j.categories); })
+    listTemplates({ sort: tplSort, category: tplCat })
+      .then((j) => { setTemplates((j.templates || []) as Tpl[]); if (j.categories) setCats(j.categories); })
       .catch(() => { /* gallery is optional */ });
   }, [phase, tplSort, tplCat]);
 
@@ -126,7 +111,7 @@ export function CreateApp() {
     resetEdit();
     setLoadingTpl(t.id);
     try {
-      const r = await fetch(`${SERVER}/api/templates/${t.id}`).then((x) => x.json());
+      const r = { doc: await getTemplateDoc(t.id) };
       if (r?.doc) {
         setPrompt(t.title);
         setVersions([{ label: `템플릿: ${t.title}`, doc: r.doc }]);
@@ -142,9 +127,7 @@ export function CreateApp() {
     setRated(next);
     try { localStorage.setItem("snack.rated", JSON.stringify(next)); } catch { /* ignore */ }
     try {
-      const v = await fetch(`${SERVER}/api/templates/${id}/rate`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stars }),
-      }).then((x) => x.json());
+      const v = await rateRemote(id, stars);
       if (v?.id) setTemplates((prev) => prev.map((t) => (t.id === id ? { ...t, avg: v.avg, ratingCount: v.ratingCount } : t)));
     } catch { /* ignore */ }
   };
@@ -161,12 +144,13 @@ export function CreateApp() {
     const target = multiplayer ? "single" : "multi";
     setRefining(true);
     try {
-      const r = await postJSON("/api/builder/chat", {
+      const r = await buildWithAi({
         current: doc, mode: target, rebuild: true, // structural conversion → full rebuild
         prompt: target === "multi" ? "여럿이 같은 링크로 함께 참여하는 형태로 바꿔줘" : "혼자 쓰는 형태로 바꿔줘",
       });
       if (r.valid && r.doc) {
-        setVersions((prev) => [...prev, { label: target === "multi" ? "👥 같이 참여로" : "👤 나만으로", doc: r.doc }]);
+        const next = r.doc;
+        setVersions((prev) => [...prev, { label: target === "multi" ? "👥 같이 참여로" : "👤 나만으로", doc: next }]);
         setCurrentIdx(versions.length);
         setMultiplayer(!!r.multiplayer);
         setShareUrl(null); setShowHistory(false);
@@ -180,9 +164,10 @@ export function CreateApp() {
     if (!p || !doc) return;
     setRefining(true);
     try {
-      const r = await postJSON("/api/builder/chat", { prompt: p, current: doc, mode: multiplayer ? "multi" : "single" });
+      const r = await buildWithAi({ prompt: p, current: doc, mode: multiplayer ? "multi" : "single" });
       if (r.valid && r.doc) {
-        setVersions((prev) => [...prev, { label: p, doc: r.doc }]);
+        const next = r.doc;
+        setVersions((prev) => [...prev, { label: p, doc: next }]);
         setCurrentIdx(versions.length); // append index (no concurrent build)
         setMultiplayer(!!r.multiplayer);
         setShareUrl(null); setShowHistory(false); setRefinePrompt(""); setRefineOpen(false);
@@ -195,8 +180,7 @@ export function CreateApp() {
     if (!doc) return;
     setSharing(true);
     try {
-      const { slug } = await postJSON("/api/apps", { doc });
-      const url = `${location.origin}/p/${slug}`;
+      const url = await shareApp(doc);
       setShareUrl(url);
       try { await navigator.clipboard.writeText(url); } catch { /* ignore */ }
     } catch { /* ignore */ } finally { setSharing(false); }
@@ -232,7 +216,7 @@ export function CreateApp() {
     resetEdit();
     setPhase("building"); setErr(null); setElapsed(0); setMsgIdx(0);
     try {
-      const r = await postJSON("/api/builder/chat", { prompt: p });
+      const r = await buildWithAi({ prompt: p });
       if (r.valid && r.doc) { setVersions([{ label: p, doc: r.doc }]); setCurrentIdx(0); setMultiplayer(!!r.multiplayer); setPhase("done"); }
       else { setErr(r.error || "생성 실패"); setPhase("error"); }
     } catch (e) { setErr(String(e)); setPhase("error"); }
@@ -312,8 +296,10 @@ export function CreateApp() {
           <div style={editMenu}>
             <button style={editItem} onMouseDown={(e) => e.preventDefault()}
               onClick={() => { setEditMenuOpen(false); setEditMode(true); setEditState(doc.start ?? sceneStates[0]); }}>✏️ 직접 편집</button>
-            <button style={editItem} onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { setEditMenuOpen(false); setRefineOpen(true); setShowHistory(true); }}>💬 AI로 수정</button>
+            {!SERVERLESS && (
+              <button style={editItem} onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setEditMenuOpen(false); setRefineOpen(true); setShowHistory(true); }}>💬 AI로 수정</button>
+            )}
             <button style={{ ...editItem, color: "#778", fontWeight: 600 }} onMouseDown={(e) => e.preventDefault()}
               onClick={() => setEditMenuOpen(false)}>닫기</button>
           </div>
@@ -399,7 +385,7 @@ export function CreateApp() {
       <div style={{ maxWidth: 440, margin: "0 auto", width: "100%" }}>
         <div style={{ fontSize: 13, color: "#D9FF00", fontWeight: 700, letterSpacing: 1 }}>SNACK STUDIO</div>
         <h1 style={{ fontSize: 30, fontWeight: 800, margin: "8px 0 4px", lineHeight: 1.2 }}>뭘 만들까요?</h1>
-        <p style={{ color: "#9aa", margin: "0 0 20px", fontSize: 14 }}>한 줄로 말하면 앱을 만들어 드려요.</p>
+        <p style={{ color: "#9aa", margin: "0 0 20px", fontSize: 14 }}>{SERVERLESS ? "템플릿을 골라 내 마음대로 바꾸고, 링크로 같이 해요." : "한 줄로 말하면 앱을 만들어 드려요."}</p>
 
         {phase === "building" ? (
           <div style={buildBox}>
@@ -411,19 +397,25 @@ export function CreateApp() {
           </div>
         ) : (
           <>
-            <textarea
-              value={prompt} onChange={(e) => setPrompt(e.target.value)}
-              placeholder="예: 친구들이랑 점심 메뉴 투표하는 화면"
-              style={textarea} rows={3}
-            />
-            <button style={cta} onClick={() => build(prompt)} disabled={!prompt.trim()}>✨ 만들기</button>
-            {phase === "error" && <div style={{ color: "#FF6B6B", marginTop: 12, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{err}</div>}
-            <div style={{ marginTop: 24, color: "#778", fontSize: 12, marginBottom: 8 }}>예시</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {EXAMPLES.map((ex) => (
-                <button key={ex} style={chip} onClick={() => { setPrompt(ex); build(ex); }}>{ex}</button>
-              ))}
-            </div>
+            {SERVERLESS ? (
+              <div style={{ ...buildBox, textAlign: "left", fontSize: 14, lineHeight: 1.6, color: "#cfd3da" }}>{AI_UNAVAILABLE}</div>
+            ) : (
+              <>
+                <textarea
+                  value={prompt} onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="예: 친구들이랑 점심 메뉴 투표하는 화면"
+                  style={textarea} rows={3}
+                />
+                <button style={cta} onClick={() => build(prompt)} disabled={!prompt.trim()}>✨ 만들기</button>
+                {phase === "error" && <div style={{ color: "#FF6B6B", marginTop: 12, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{err}</div>}
+                <div style={{ marginTop: 24, color: "#778", fontSize: 12, marginBottom: 8 }}>예시</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {EXAMPLES.map((ex) => (
+                    <button key={ex} style={chip} onClick={() => { setPrompt(ex); build(ex); }}>{ex}</button>
+                  ))}
+                </div>
+              </>
+            )}
 
             {templates.length > 0 && (
               <div style={{ marginTop: 34 }}>

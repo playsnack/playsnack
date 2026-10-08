@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { createBite, type BiteApp, type BiteDoc } from "@snack/bite";
 import { absBoxes, type Instance } from "@snack/bite-layout";
 import { mountBite, type BiteView } from "@snack/bite-pixi";
+import { loadAppData } from "./backend";
 
 export type TextSelection = { layerId: string; rect: DOMRect; text: string; editable: boolean } | null;
 export type EditableRect = { layerId: string; editable: boolean; rect: { left: number; top: number; width: number; height: number } };
@@ -59,8 +60,7 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
     app.on("emit", (e) => hostEventRef.current?.(e));
     app.start();
     if (doc.data?.url) {
-      fetch(doc.data.url)
-        .then((r) => (r.ok ? r.json() : null))
+      loadAppData(doc.data.url)
         .then((data) => {
           if (!data || disposed) return;
           app.setVars(data);
@@ -91,7 +91,7 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
     };
     const onEditMouseDown = (e: MouseEvent) => e.preventDefault();
 
-    mountBite({ el, doc: runDoc, app, debug: true, interactive: !editable, paused: editable }).then((v) => {
+    mountBite({ el, doc: runDoc, app, debug: true, interactive: !editable, paused: editable, fontBase: `${import.meta.env.BASE_URL}fonts` }).then((v) => {
       if (disposed) {
         v.destroy();
         return;

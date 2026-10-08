@@ -125,33 +125,16 @@
             ],
             "children": [
               {
-                "id": "topImg",
-                "image": "{phase == 'result' ? undefined : (current[matchIndex * 2] ? '/api/img?strict=1&q=' + current[matchIndex * 2].q : '')}",
-                "width": 358,
-                "height": 300,
+                "id": "optionACard",
+                "use": "ThingCard",
                 "x": 0,
                 "y": 0,
-                "focus": "top"
-              },
-              {
-                "id": "topShade",
-                "box": "free",
-                "width": 358,
-                "height": 76,
-                "x": 0,
-                "y": 224,
-                "opacity": 0.5,
-                "fill": "#000000"
-              },
-              {
-                "id": "topName",
-                "text": "{phase == 'result' ? '' : (current[matchIndex * 2] ? current[matchIndex * 2].name : '')}",
-                "width": 322,
-                "x": 18,
-                "y": 250,
-                "size": 24,
-                "font": "display",
-                "color": "#ffffff"
+                "width": "fill",
+                "height": "fill",
+                "props": {
+                  "name": "{current[matchIndex * 2] ? current[matchIndex * 2].name : ''}",
+                  "emoji": "{current[matchIndex * 2] && current[matchIndex * 2].emoji ? current[matchIndex * 2].emoji : '🍽️'}"
+                }
               }
             ]
           },
@@ -224,33 +207,16 @@
             ],
             "children": [
               {
-                "id": "botImg",
-                "image": "{phase == 'result' ? undefined : (current[matchIndex * 2 + 1] ? '/api/img?strict=1&q=' + current[matchIndex * 2 + 1].q : '')}",
-                "width": 358,
-                "height": 300,
+                "id": "optionBCard",
+                "use": "ThingCard",
                 "x": 0,
                 "y": 0,
-                "focus": "top"
-              },
-              {
-                "id": "botShade",
-                "box": "free",
-                "width": 358,
-                "height": 76,
-                "x": 0,
-                "y": 224,
-                "opacity": 0.5,
-                "fill": "#000000"
-              },
-              {
-                "id": "botName",
-                "text": "{phase == 'result' ? '' : (current[matchIndex * 2 + 1] ? current[matchIndex * 2 + 1].name : '')}",
-                "width": 322,
-                "x": 18,
-                "y": 250,
-                "size": 24,
-                "font": "display",
-                "color": "#ffffff"
+                "width": "fill",
+                "height": "fill",
+                "props": {
+                  "name": "{current[matchIndex * 2 + 1] ? current[matchIndex * 2 + 1].name : ''}",
+                  "emoji": "{current[matchIndex * 2 + 1] && current[matchIndex * 2 + 1].emoji ? current[matchIndex * 2 + 1].emoji : '🍽️'}"
+                }
               }
             ]
           }
@@ -283,11 +249,10 @@
             "color": "#d9ff00"
           },
           {
-            "id": "winnerImg",
-            "image": "{phase == 'result' ? (champion ? '/api/img?strict=1&q=' + champion.q : '') : undefined}",
-            "width": 260,
-            "height": 260,
-            "focus": "top"
+            "id": "winnerEmoji",
+            "text": "{champion && champion.emoji ? champion.emoji : '🍽️'}",
+            "size": 140,
+            "align": "center"
           },
           {
             "id": "winnerName",
@@ -355,5 +320,46 @@
         ]
       }
     ]
+  },
+  "components": {
+    "ThingCard": {
+      "props": {
+        "name": "",
+        "emoji": ""
+      },
+      "view": {
+        "box": "column",
+        "pad": 16,
+        "gap": 12,
+        "align": "center",
+        "justify": "center",
+        "fill": "#16181C",
+        "stroke": {
+          "color": "#3A3F47",
+          "width": 2
+        },
+        "shadow": {
+          "x": 0,
+          "y": 6,
+          "blur": 0,
+          "color": "#000000"
+        },
+        "children": [
+          {
+            "text": "{props.emoji}",
+            "size": 88,
+            "align": "center"
+          },
+          {
+            "text": "{props.name}",
+            "font": "display",
+            "size": 30,
+            "color": "#FFFFFF",
+            "align": "center",
+            "lines": 1
+          }
+        ]
+      }
+    }
   }
 }

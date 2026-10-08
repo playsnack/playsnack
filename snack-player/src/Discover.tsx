@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getNick } from "./identity";
+import { SERVERLESS, hrefTo, listTemplates, loadLive } from "./backend";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
 // Home = LIVE ARCADE DASHBOARD. The whole board is dynamic: cards reorder (FLIP)
@@ -8,7 +9,6 @@ import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 // Static metadata from /api/templates; live pulse polled from /api/live.
 // Skin = "Mini-Block Arcade": chunky blocks (radius 4 + 2px border + blur:0 hard
 // shadow), lime is the single hero color, mono display labels. Tokens from SSOT.
-const SERVER = import.meta.env.DEV ? `${location.protocol}//${location.hostname}:4399` : location.origin;
 
 type Tpl = { id: string; title: string; emoji: string; category: string; accent: string; avg: number; ratingCount: number; mode: string; usesPhoto?: boolean };
 type LiveSnack = { id: string; slug: string; playing: number; recent: number; trendRank: number };
@@ -25,10 +25,12 @@ export function Discover() {
   const liveSig = useRef<string>("");
 
   useEffect(() => {
-    fetch(`${SERVER}/api/templates`).then((r) => r.json()).then((j) => {
+    listTemplates().then((j) => {
       const m: Record<string, Tpl> = {};
-      for (const t of j.templates || []) m[t.id] = t;
+      for (const t of j.templates || []) m[t.id] = t as Tpl;
       setTpls(m);
+      // No live pulse without a server: show every snack in catalog order.
+      if (SERVERLESS) setLive({ globalOnline: 0, top: null, leaderboard: [], snacks: (j.templates || []).map((t, i) => ({ id: t.id, slug: `tpl-${t.id}`, playing: 0, recent: 0, trendRank: i + 1 })) });
     }).catch(() => {});
   }, []);
 
@@ -37,8 +39,10 @@ export function Discover() {
     // Only re-render when the live data ACTUALLY changed — an unconditional
     // setState every 3s re-rendered the whole grid and (via the FLIP effect
     // below) force-reflowed every card, stuttering any in-progress scroll.
-    const poll = () => fetch(`${SERVER}/api/live`).then((r) => r.json()).then((j) => {
-      if (!alive) return;
+    if (SERVERLESS) return;
+    const poll = () => loadLive().then((res) => {
+      const j = res as unknown as Live | null;
+      if (!alive || !j) return;
       const sig = `${j.globalOnline}|` + (j.snacks || []).map((s: LiveSnack) => `${s.id}:${s.trendRank}:${s.playing}`).join(",")
         + "|" + (j.leaderboard || []).map((u: Player) => `${u.nick}:${u.points}`).join(",");
       if (sig !== liveSig.current) { liveSig.current = sig; setLive(j); }
@@ -82,11 +86,13 @@ export function Discover() {
         {/* Global pulse header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={brand}>SNACK · LIVE</div>
-          <div style={pulseChip}>
-            <span style={dot} /> 지금 <b style={{ color: C.ink, margin: "0 3px" }}>{online}</b>명 접속 중
-          </div>
+          {!SERVERLESS && (
+            <div style={pulseChip}>
+              <span style={dot} /> 지금 <b style={{ color: C.ink, margin: "0 3px" }}>{online}</b>명 접속 중
+            </div>
+          )}
         </div>
-        <h1 style={h1}>지금 뜨는 스낵 🔥</h1>
+        <h1 style={h1}>{SERVERLESS ? "골라서 바로 한 판 🔥" : "지금 뜨는 스낵 🔥"}</h1>
         <p style={{ color: C.inkMuted, margin: `0 0 ${S.s4}px`, fontSize: TOKENS.size.bodyMd }}>
           {topMeta ? <>이번 시간 1위 <b style={{ color: C.ink }}>{topMeta.emoji} {topMeta.title}</b> · 매시간 갈려요</> : "탭하면 바로 같이 플레이"}
         </p>
@@ -110,18 +116,18 @@ export function Discover() {
         )}
 
         {/* Live ranked card grid (FLIP-reordered) */}
-        <h2 style={lbTitle}>🔥 지금 뜨는 게임</h2>
+        <h2 style={lbTitle}>{SERVERLESS ? "🎮 스낵 게임" : "🔥 지금 뜨는 게임"}</h2>
         <div style={grid}>
           {snacks.map((s) => {
             const m = s.meta!;
             const live1 = s.playing > 0;
             return (
               <button key={s.id} className="blk" ref={(el) => { if (el) cardRefs.current.set(s.id, el); else cardRefs.current.delete(s.id); }}
-                style={{ ...card, ...(s.trendRank === 1 ? cardHot : {}) }}
-                onClick={() => { location.href = `/p/tpl-${s.id}`; }}>
+                style={{ ...card, ...(!SERVERLESS && s.trendRank === 1 ? cardHot : {}) }}
+                onClick={() => { location.href = hrefTo(`/p/tpl-${s.id}`); }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 34 }}>{m.emoji}</span>
-                  <span style={{ ...rankBadge, ...(s.trendRank === 1 ? rankBadgeHot : {}) }}>#{s.trendRank}</span>
+                  {!SERVERLESS && <span style={{ ...rankBadge, ...(s.trendRank === 1 ? rankBadgeHot : {}) }}>#{s.trendRank}</span>}
                 </div>
                 <div style={cardTitle}>{m.title}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: S.s2, marginTop: S.s2, flexWrap: "wrap" }}>
@@ -137,7 +143,7 @@ export function Discover() {
           })}
         </div>
 
-        <button className="blk" style={makeCta} onClick={() => { location.href = "/create"; }}>➕ 나도 하나 만들어 공유</button>
+        <button className="blk" style={makeCta} onClick={() => { location.href = hrefTo("/create"); }}>➕ 나도 하나 만들어 공유</button>
       </div>
     </div>
   );
