@@ -54,6 +54,8 @@ pnpm player:dev      # http://localhost:5290
 pnpm player:build    # → snack-player/dist, host it anywhere static
 ```
 
+Deployed on Vercel from this repo (`vercel.json`): every push to `main` rebuilds the site.
+
 **With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
 
 ```bash
