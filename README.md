@@ -87,3 +87,4 @@ Code: [jsep](https://github.com/EricSmekens/jsep) (MIT), [yoga-layout](https://g
 [pixi.js](https://github.com/pixijs/pixijs) (MIT), React (MIT), Express (MIT), ws (MIT), [MQTT.js](https://github.com/mqttjs/MQTT.js) (MIT).
 Fonts (bundled in `snack-player/public/fonts`): [Pretendard](https://github.com/orioncactus/pretendard) and
 [Galmuri](https://github.com/quiple/galmuri), both SIL Open Font License 1.1 — license texts alongside the font files.
+write test
