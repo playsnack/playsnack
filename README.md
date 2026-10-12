@@ -58,6 +58,8 @@ Deployed on Vercel from this repo (`vercel.json`): a push to `main` rebuilds the
 when the commit's author is the repo owner; other merges go live with the owner's next
 one (see [Contributing](#contributing)).
 
+Deploy hook test: 2026-10-12.
+
 **With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
 
 ```bash

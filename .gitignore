@@ -29,3 +29,4 @@ snack-server/data/*
 !snack-server/data/multi-content/
 .vite/
 coverage/
+.claude/worktrees/
