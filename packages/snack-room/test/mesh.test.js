@@ -330,3 +330,30 @@ test("a host from an older build (no acks): actions are sent once, never resent"
   clearInterval(beat);
   a.conn.close();
 });
+
+test("a peer whose heartbeat was lost is never counted anonymously (taps keep its name)", async () => {
+  // B's heartbeats are lost until it has sent something else (its "sync" / an action):
+  // the host first hears of B through that message, without B's anonId/nick.
+  let bId = null;
+  let bSpoke = false;
+  const h = hub(5, (m) => {
+    if (m.t === "here" && m.anonId === "a2") {
+      bId = m.from;
+      return !bSpoke;
+    }
+    if (m.from && m.from === bId) bSpoke = true;
+    return false;
+  });
+  const a = player(h, "r", 1);
+  await sleep(300);
+  const b = player(h, "r", 2);
+  assert.ok(await until(() => a.shared.participants === 2 && b.gotState, 3000), "B joined");
+  a.act("start", { duration: 1500 });
+  assert.ok(await until(() => b.shared.sessionPhase === "play", 5000));
+  for (let k = 0; k < 4; k++) b.act("tap");
+  assert.ok(await until(() => a.shared.sessionPhase === "result", 4000));
+  await sleep(200);
+  assert.deepEqual(a.shared.raceBoard, [{ nick: "닉2", score: 4 }]);
+  assert.deepEqual(b.shared.roster, ["닉1", "닉2"]);
+  [a, b].forEach((p) => p.conn.close());
+});
