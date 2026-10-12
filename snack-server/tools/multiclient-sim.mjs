@@ -6,7 +6,7 @@ import { rmSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { listIds, loadDoc, TPL_DIR, varNames, findEmit } from "./_doc.mjs";
 import { SimClient, sleep, WS_URL, MESH, prepareMesh, stopMesh } from "./_wsclient.mjs";
-import { runGate } from "./_gate.mjs";
+import { emit } from "./_gate.mjs";
 
 // A broker (SIM_MESH; lossy by default) adds up to ~300ms per hop, host → peer, and a
 // lost message is repaired by an action resend (~0.7s) or a resync beat (≤1s) — so a
@@ -43,6 +43,15 @@ function startPayload(doc) {
 // settle window. Polled, not sampled once: over a broker clients see a change
 // ~100ms apart, and round games keep changing (a single late sample can land
 // mid-transition and look like a desync).
+// Poll `fn` until true (or `ms` passes); resolves to its final value.
+async function until(fn, ms, step = 100) {
+  for (let w = 0; w < ms; w += step) {
+    if (fn()) return true;
+    await sleep(step);
+  }
+  return Boolean(fn());
+}
+
 async function settle(clients, view, done = () => true) {
   const deadline = Date.now() + SETTLE_MS + clients.length * 30;
   let diff = 0;
@@ -77,38 +86,51 @@ async function simOne(id, n) {
     const sp = startPayload(doc) || {};
     const sub = sv.includes("nunchiNum") ? "nunchi" : sv.includes("reactionGo") ? "reaction" : sp.mode === "guess" ? "guess" : sv.includes("roundAnswer") ? "quiz" : sv.includes("coopTotal") ? "tally" : sv.includes("votesByOption") ? "vote" : "tap";
     const ACT = 4;
-    let view, expected, exact = true;
+    // Every client must be SHOWN each phase, in order: a start that never happened (or a
+    // session that never finished) cannot pass on convergence alone.
+    const everyClient = (fn) => clients.every(fn);
+    const everyPhase = (ph) => everyClient((c) => c.phases.includes(ph));
+    const first = (c) => c.shared;
+    const reachedPlay = until(() => everyPhase("play"), 8000); // polling from before the start
+    let view, expected, exact = true, expectResult = true, check = null;
     if (sub === "guess") {
-      // 눈치 배틀: all predict o0 → o0 is the majority → roundAnswer reveals 0, scores awarded.
-      clients[0].start({ ...sp, roundMs: 3000, revealMs: 1500, rounds: 2 });
-      let w = 0; while (clients[0].shared.sessionPhase !== "play" && w < 7000) { await sleep(120); w += 120; }
+      // 눈치 배틀, one round: everyone predicts o0 → o0 IS the majority → the reveal says 0
+      // and every player scores +100. Then the result screen.
+      clients[0].start({ ...sp, roundMs: 3000, revealMs: 1500, rounds: 1 });
+      await reachedPlay;
       clients.forEach((c) => c.vote("o0"));
-      let rr = 0; while ((clients[0].shared.roundAnswer ?? -1) < 0 && rr < 6000) { await sleep(150); rr += 150; } // wait reveal
+      await until(() => (first(clients[0]).roundAnswer ?? -1) >= 0, 6000); // the reveal
       view = (c) => ({ ans: c.shared.roundAnswer, board: c.shared.raceBoard, votes: c.shared.votesByOption }); exact = false;
+      check = (v) => v.ans === 0 && (v.board || []).length === n && (v.board || []).every((e) => e.score === 100) ? null : `guess: ans=${v.ans} board=${JSON.stringify(v.board)}`;
     } else if (sub === "nunchi") {
-      clients[0].start(startPayload(doc) || { mode: "nunchi" });
-      let w = 0; while (clients[0].shared.sessionPhase !== "play" && w < 7000) { await sleep(120); w += 120; }
-      clients.forEach((c) => c.tap()); // simultaneous → collision → elimination
-      await sleep(700); // 350ms window + resolve + end
-      view = (c) => ({ phase: c.shared.sessionPhase, elim: c.shared.eliminatedCount }); exact = false; // broadcast vars converge; iAmOut (per-client) checked below
+      clients[0].start(sp.mode ? sp : { mode: "nunchi" });
+      await reachedPlay;
+      clients.forEach((c) => c.tap()); // simultaneous → collision → elimination (a tap resent after a loss claims solo)
+      // Every tap is counted exactly once: as a solo claim (nunchiNum − 1 of them) or an elimination.
+      const accounted = (s) => (s.nunchiNum ?? 1) - 1 + (s.eliminatedCount ?? 0);
+      await until(() => accounted(first(clients[0])) === n, 5000);
+      expectResult = n - (first(clients[0]).eliminatedCount ?? 0) <= 1; // ≤1 survivor ends the game
+      view = (c) => ({ phase: c.shared.sessionPhase, elim: c.shared.eliminatedCount, num: c.shared.nunchiNum }); exact = false; // iAmOut (per-client) checked below
+      check = (v) => (v.num ?? 1) - 1 + (v.elim ?? 0) === n ? null : `nunchi: ${n} taps, ${(v.num ?? 1) - 1} claimed + ${v.elim ?? 0} out`;
     } else if (sub === "reaction") {
-      clients[0].start(startPayload(doc) || { mode: "reaction" });
-      let w = 0; while (clients[0].shared.sessionPhase !== "play" && w < 7000) { await sleep(120); w += 120; }
-      let g = 0; while (!clients[0].shared.reactionGo && g < 7000) { await sleep(80); g += 80; } // wait for green flip
+      clients[0].start(sp.mode ? sp : { mode: "reaction" });
+      await reachedPlay;
+      await until(() => first(clients[0]).reactionGo === true, 7000); // green
       await sleep(90); // react
       clients.forEach((c) => c.tap());
-      view = (c) => c.shared.raceBoard || []; exact = false; // reaction-ms varies → convergence only
+      view = (c) => c.shared.raceBoard || []; exact = false; // reaction ms vary → convergence + everyone on the board, after green
+      check = (v) => v.length === n && v.every((e) => e.score > 0) ? null : `reaction: board=${JSON.stringify(v)}`;
     } else if (sub === "quiz") {
-      // replay the app's real start (game/quiz params) so the server runs quiz mode; shorten timings
-      const p = { ...(startPayload(doc) || {}), answerMs: 3000, revealMs: 1500, rounds: 2 };
-      clients[0].start(p);
-      let w = 0; while (clients[0].shared.sessionPhase !== "play" && w < 6000) { await sleep(150); w += 150; }
-      clients.forEach((c) => c.answer(0)); // all pick option 0 (correct or not — we test sync, not score)
-      let r = 0; while ((clients[0].shared.roundAnswer ?? -1) < 0 && r < 5000) { await sleep(150); r += 150; } // wait for reveal
-      view = (c) => ({ ans: c.shared.roundAnswer, board: c.shared.raceBoard }); exact = false; // correctness hidden → convergence only
+      // the app's real start (game/quiz params), one short round → reveal → result
+      clients[0].start({ ...sp, answerMs: 3000, revealMs: 1500, rounds: 1 });
+      await reachedPlay;
+      clients.forEach((c) => c.answer(0)); // all pick option 0: the reveal says whether that scored
+      await until(() => (first(clients[0]).roundAnswer ?? -1) >= 0, 6000);
+      view = (c) => ({ ans: c.shared.roundAnswer, board: c.shared.raceBoard }); exact = false;
+      check = (v) => v.ans >= 0 && (v.board || []).length === (v.ans === 0 ? n : 0) && (v.board || []).every((e) => e.score >= 100) ? null : `quiz: ans=${v.ans} board=${JSON.stringify(v.board)}`;
     } else {
       clients[0].start(3000); // single play window
-      let waited = 0; while (clients[0].shared.sessionPhase !== "play" && waited < 5000) { await sleep(150); waited += 150; }
+      await reachedPlay;
       if (sub === "tally") {
         for (let k = 0; k < ACT; k++) { clients.forEach((c) => c.tally(1)); await sleep(40); }
         view = (c) => c.shared.coopTotal ?? 0; expected = n * ACT;
@@ -122,24 +144,32 @@ async function simOne(id, n) {
       }
     }
     const total = (v) => (sub === "tap" ? (v || []).reduce((s, e) => s + (e.score || 0), 0) : v);
-    const { converged, desyncEvents } = await settle(clients, view, (v) => !exact || total(v) === expected);
+    const { converged, desyncEvents } = await settle(clients, view, (v) => (exact ? total(v) === expected : !check?.(v)));
     const tallyError = exact ? Math.abs(total(view(clients[0])) - expected) : 0;
-    // Phases change on a timer; over a broker clients see a change up to ~300ms apart,
-    // so "synced" = all on the same phase within the settle window (polled).
-    const samePhase = () => clients.every((c) => c.shared.sessionPhase === clients[0].shared.sessionPhase);
+    const failure = check ? check(view(clients[0])) : null;
+    // The session must run to its end: every client shown play, then result (polled —
+    // a timed phase reaches clients up to ~300 ms apart over a broker).
+    const playSeen = await reachedPlay;
+    const resultSeen = expectResult ? await until(() => everyClient((c) => c.sawInOrder("play", "result")), 12000) : null;
+    const samePhase = () => everyClient((c) => c.shared.sessionPhase === clients[0].shared.sessionPhase);
     for (let w = 0; MESH && !samePhase() && w < SETTLE_MS; w += 100) await sleep(100);
     const phaseSynced = samePhase();
-    const participantsAccurate = clients.every((c) => c.participants === n);
+    const participantsAccurate = everyClient((c) => c.participants === n);
     // MP-07: exactly the eliminated players see iAmOut — still true after the resync beats.
     let outAccurate = true;
     if (sub === "nunchi") {
       await sleep(MESH ? 3500 : 300);
       outAccurate = clients.filter((c) => c.shared.iAmOut === true).length === (clients[0].shared.eliminatedCount ?? 0);
     }
+    const phases = clients.map((c) => c.phases.join(">"));
     clients.forEach((c) => c.close());
     await sleep(60);
-    const ok = converged && desyncEvents === 0 && tallyError === 0 && participantsAccurate && phaseSynced && outAccurate;
-    return { id, kind: `session:${sub}`, clients: n, ok, converged, desyncEvents, tallyError, participantsAccurate, phaseSynced, ...(sub === "nunchi" ? { outAccurate } : {}) };
+    const ok = converged && desyncEvents === 0 && tallyError === 0 && !failure && playSeen && resultSeen !== false && participantsAccurate && phaseSynced && outAccurate;
+    return {
+      id, kind: `session:${sub}`, clients: n, ok, converged, desyncEvents, tallyError, participantsAccurate, phaseSynced,
+      reachedPlay: playSeen, reachedResult: resultSeen, phases: [...new Set(phases)],
+      ...(failure ? { failure } : {}), ...(sub === "nunchi" ? { outAccurate } : {}),
+    };
   }
 
   let expected;
@@ -215,10 +245,30 @@ async function main() {
     }
   } catch { /* best-effort */ }
 
-  const where = MESH ? `mqtt mesh @ local broker${broker?.lossy ? " (lossy)" : ""}` : WS_URL;
+  // Lossy evidence from the local broker (mesh mode): loss was requested AND happened.
+  // With an external SIM_BROKER nothing is known about it → nulls.
+  const stats = MESH
+    ? broker
+      ? { lossy: broker.lossy, dropped: broker.stats.dropped, delivered: broker.stats.delivered, publishes: broker.stats.publishes, bytes: broker.stats.bytes, seconds: Math.round((Date.now() - broker.stats.startedAt) / 1000) }
+      : { lossy: null, dropped: null, delivered: null }
+    : null;
+  const lossOk = !stats?.lossy || stats.dropped > 0;
+  const where = MESH ? `mqtt mesh @ local broker${stats?.lossy ? ` (lossy: ${stats.dropped} dropped / ${stats.delivered} delivered)` : ""}` : WS_URL;
   await stopMesh();
-  runGate("multiclient-sim", results, (r) => r.ok,
-    ({ failed, total }) => `multiclient-sim @ ${where}: ${total - failed}/${total} synced${failed ? ` — ${failed} FAIL` : ""}`);
+  const passed = results.filter((r) => r.ok).length;
+  const failed = results.length - passed;
+  const ok = failed === 0 && lossOk;
+  emit({
+    gate: "multiclient-sim",
+    ok,
+    total: results.length,
+    passed,
+    failed,
+    ...(stats ?? {}),
+    results,
+    summary: `multiclient-sim @ ${where}: ${passed}/${results.length} synced${failed ? ` — ${failed} FAIL` : ""}${lossOk ? "" : " — lossy mode requested but nothing was dropped"}`,
+  });
+  process.exitCode = ok ? 0 : 1;
 }
 
 main();
