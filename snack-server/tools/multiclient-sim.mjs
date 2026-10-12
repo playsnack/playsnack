@@ -106,12 +106,15 @@ async function simOne(id, n) {
       clients[0].start(sp.mode ? sp : { mode: "nunchi" });
       await reachedPlay;
       clients.forEach((c) => c.tap()); // simultaneous → collision → elimination (a tap resent after a loss claims solo)
-      // Every tap is counted exactly once: as a solo claim (nunchiNum − 1 of them) or an elimination.
-      const accounted = (s) => (s.nunchiNum ?? 1) - 1 + (s.eliminatedCount ?? 0);
-      await until(() => accounted(first(clients[0])) === n, 5000);
-      expectResult = n - (first(clients[0]).eliminatedCount ?? 0) <= 1; // ≤1 survivor ends the game
+      // Every tap is counted exactly once — a solo claim (nunchiNum − 1 of them) or an
+      // elimination — unless ≤1 survivor already ended the game (a tap resent after a loss
+      // can land on the result screen; the engine rightly ignores it).
+      const ended = (v) => v.phase === "result" && n - (v.elim ?? 0) <= 1;
+      const counted = (v) => (v.num ?? 1) - 1 + (v.elim ?? 0) === n || ended(v);
       view = (c) => ({ phase: c.shared.sessionPhase, elim: c.shared.eliminatedCount, num: c.shared.nunchiNum }); exact = false; // iAmOut (per-client) checked below
-      check = (v) => (v.num ?? 1) - 1 + (v.elim ?? 0) === n ? null : `nunchi: ${n} taps, ${(v.num ?? 1) - 1} claimed + ${v.elim ?? 0} out`;
+      await until(() => counted(view(clients[0])), 5000);
+      expectResult = n - (view(clients[0]).elim ?? 0) <= 1; // ≤1 survivor ends the game
+      check = (v) => (counted(v) ? null : `nunchi: ${n} taps, ${(v.num ?? 1) - 1} claimed + ${v.elim ?? 0} out, phase ${v.phase}`);
     } else if (sub === "reaction") {
       clients[0].start(sp.mode ? sp : { mode: "reaction" });
       await reachedPlay;
