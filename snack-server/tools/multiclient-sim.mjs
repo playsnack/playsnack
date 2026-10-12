@@ -8,8 +8,10 @@ import { listIds, loadDoc, TPL_DIR, varNames, findEmit } from "./_doc.mjs";
 import { SimClient, sleep, WS_URL, MESH, prepareMesh, stopMesh } from "./_wsclient.mjs";
 import { runGate } from "./_gate.mjs";
 
-// A broker (SIM_MESH; lossy by default) adds up to ~300ms per hop, host → peer.
-const SETTLE_MS = Number(process.env.SIM_SETTLE_MS || (MESH ? 1200 : 250));
+// A broker (SIM_MESH; lossy by default) adds up to ~300ms per hop, host → peer, and a
+// lost message is repaired by an action resend (~0.7s) or a resync beat (≤1s) — so a
+// mesh change may take ~2.5s to reach everyone.
+const SETTLE_MS = Number(process.env.SIM_SETTLE_MS || (MESH ? 3000 : 250));
 const VOTES_DIR = join(TPL_DIR, "..", "votes");
 // Unique-per-run prefix so each run uses ISOLATED throwaway rooms — never the
 // canonical tpl-<id> rooms — so the sim neither pollutes real shared votes nor
@@ -122,7 +124,11 @@ async function simOne(id, n) {
     const total = (v) => (sub === "tap" ? (v || []).reduce((s, e) => s + (e.score || 0), 0) : v);
     const { converged, desyncEvents } = await settle(clients, view, (v) => !exact || total(v) === expected);
     const tallyError = exact ? Math.abs(total(view(clients[0])) - expected) : 0;
-    const phaseSynced = clients.every((c) => c.shared.sessionPhase === clients[0].shared.sessionPhase);
+    // Phases change on a timer; over a broker clients see a change up to ~300ms apart,
+    // so "synced" = all on the same phase within the settle window (polled).
+    const samePhase = () => clients.every((c) => c.shared.sessionPhase === clients[0].shared.sessionPhase);
+    for (let w = 0; MESH && !samePhase() && w < SETTLE_MS; w += 100) await sleep(100);
+    const phaseSynced = samePhase();
     const participantsAccurate = clients.every((c) => c.participants === n);
     // MP-07: exactly the eliminated players see iAmOut — still true after the resync beats.
     let outAccurate = true;
@@ -193,7 +199,9 @@ async function main() {
       let merged = null;
       for (const c of counts) {
         const r = await simOne(id, c);
-        merged = merged ? { ...r, sweep: [...(merged.sweep || [merged.clients]), c], ok: merged.ok && r.ok } : { ...r, sweep: [c] };
+        // keep every failing sweep's details (the merged row shows only the last one)
+        const failedSweeps = [...(merged?.failedSweeps ?? []), ...(r.ok ? [] : [r])];
+        merged = merged ? { ...r, sweep: [...(merged.sweep || [merged.clients]), c], ok: merged.ok && r.ok, failedSweeps } : { ...r, sweep: [c], failedSweeps };
       }
       results.push(merged);
     } catch (e) {
