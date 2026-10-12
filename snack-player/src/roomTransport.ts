@@ -7,6 +7,14 @@
 
 export type RoomMessage = { t: string; d: Record<string, unknown> };
 
+/**
+ * Connection status, delivered through onMessage as `{ t: "conn", d: ConnStatus }`
+ * whenever it changes ("connecting" first, then "connected" or "failed").
+ * The screen shows connecting / failed (with retry and "혼자 하기") from this.
+ */
+export type ConnState = "connecting" | "connected" | "failed";
+export type ConnStatus = { state: ConnState; reason?: string };
+
 export interface RoomTransport {
   /** Open the connection and join the room. */
   connect(): void;
@@ -14,6 +22,8 @@ export interface RoomTransport {
   sendAction(name: string, payload?: unknown): void;
   sendReaction(emoji: string): void;
   onMessage(fn: (m: RoomMessage) => void): void;
+  /** After "failed": try again (emits "connecting" → "connected" | "failed"). */
+  retry?(): void;
 }
 
 export type Identity = { slug: string; anonId: string; nick: string };
