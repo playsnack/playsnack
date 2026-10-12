@@ -7,6 +7,7 @@ import { LiveApp } from "./LiveApp.tsx";
 import { Discover } from "./Discover.tsx";
 import { NicknameGate } from "./NicknameGate.tsx";
 import { getNick, setNick as saveNick, randomNick } from "./identity";
+import { redirectFor } from "./catalog";
 import { LoadingScreen, MessageScreen } from "./Screens";
 
 // Making apps needs the AI builder (a server). The static (serverless) build
@@ -30,6 +31,22 @@ export function App() {
     if (route.name === "create" && !CreateApp) location.replace(hrefTo("/"));
   }, [route.name]);
   const isLive = route.name === "live";
+  // A merged template's old link moves to the app it became — decided here,
+  // before the player mounts, so the old app never loads or joins a room.
+  // (index.json is preloaded with the page, see index.html.)
+  const [checkedSlug, setCheckedSlug] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isLive) return;
+    const slug = route.slug!;
+    let on = true;
+    redirectFor(slug).then((to) => {
+      if (!on) return;
+      if (!to) return setCheckedSlug(slug);
+      const q = route.params.toString();
+      location.replace(hrefTo(`/p/${to}${q ? `?${q}` : ""}`));
+    });
+    return () => { on = false; };
+  }, [isLive, route.slug]);
   // First-visit nickname onboarding (per-browser). Gate only the HOME / Create
   // entry — a direct share link auto-assigns a guest nick so play is never
   // blocked (frictionless virality; each browser still gets a name, editable
@@ -44,7 +61,10 @@ export function App() {
 
   if (route.name === "bite") return <BiteFilePlayer />;
   if (route.name === "create" && CreateApp) return <Suspense fallback={<LoadingScreen />}><CreateApp /></Suspense>;
-  if (route.name === "live") return <LiveApp key={location.hash} slug={route.slug!} params={route.params} />;
+  if (route.name === "live") {
+    if (checkedSlug !== route.slug) return <LoadingScreen />;
+    return <LiveApp key={location.hash} slug={route.slug!} params={route.params} />;
+  }
   return <Discover />;
 }
 

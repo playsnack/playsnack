@@ -9,7 +9,7 @@ import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick } from "./identity";
 import type { ConnState, RoomTransport } from "./roomTransport";
 import { createRoom, hrefTo, loadRoomDoc } from "./backend";
-import { needsRoom, redirectFor, soloAlternative, type CatalogEntry } from "./catalog";
+import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
 import { C, R } from "./tokens.gen";
 
@@ -71,16 +71,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     for (const [k, v] of Object.entries(shared)) rt.setVar(k, v);
   };
 
-  // Load the app. A merged template's old link moves to the app it became.
+  // Load the app (a merged template's old link was already redirected by App).
   useEffect(() => {
     let closed = false;
     setErr(null);
-    redirectFor(slug).then((to) => {
-      if (closed || !to) return;
-      closed = true;
-      const q = params.toString();
-      location.replace(hrefTo(`/p/${to}${q ? `?${q}` : ""}`));
-    });
     loadRoomDoc(slug, params)
       .then(({ doc, sharedState }) => {
         if (closed) return;
@@ -213,7 +207,7 @@ const fxOverlay: React.CSSProperties = {
 };
 // Tucked into the very corner so it covers as little bottom content as possible.
 const reactionDock: React.CSSProperties = {
-  position: "fixed", right: 10, bottom: "calc(env(safe-area-inset-bottom, 0px) + 10px)",
+  position: "fixed", right: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)",
   display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 13,
 };
 const reactionPop: React.CSSProperties = {
