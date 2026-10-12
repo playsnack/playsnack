@@ -54,7 +54,8 @@ pnpm player:dev      # http://localhost:5290
 pnpm player:build    # → snack-player/dist, host it anywhere static
 ```
 
-Deployed on Vercel from this repo (`vercel.json`): every push to `main` rebuilds the site.
+Deployed on Vercel from this repo (`vercel.json`): a push to `main` rebuilds the site
+when the commit's author is the repo owner (see [Contributing](#contributing)).
 
 **With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
 
@@ -75,6 +76,28 @@ node snack-server/tools/gate-all.mjs             # templates: layout, content, c
 node snack-server/tools/gate-all.mjs --battery   # + AI generation reliability (needs an OpenAI key)
 SIM_MESH=1 node snack-server/tools/multiclient-sim.mjs   # multiplayer sync over the public broker, no server
 ```
+
+## Contributing
+
+`main` is what the live site serves, so changes reach it only through a pull request
+that the owner merges.
+
+1. Branch off the latest `main` — never commit or push to `main` directly.
+   ```bash
+   git switch main && git pull
+   git switch -c <your-name>/<short-topic>      # e.g. moonjong/quiz-timer
+   ```
+2. Commit, push the branch, and open a pull request into `main`. Describe what changed
+   and how you checked it (which gates you ran, what you tried on a phone).
+3. Keep pushing to the same branch while it's reviewed; pull in `main` if it moves on.
+4. The owner (@seukwoo) reviews and merges with **Create a merge commit**.
+
+Why the merge method matters: the site runs on Vercel's free plan, which deploys a commit
+only when its author is the account owner. A merge commit is authored by whoever merges,
+so the merge goes live. *Squash and merge* and *Rebase and merge* keep the contributor as
+author, and Vercel blocks the deploy. A commit pushed straight to `main` by anyone else is
+blocked the same way — it won't show up on the site, but it ships unreviewed with the
+owner's next push, so don't.
 
 ## License
 
