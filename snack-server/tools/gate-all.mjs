@@ -18,15 +18,34 @@ async function serverUp() {
   catch { return false; }
 }
 
-function run(name, cmd, args) {
+// The last JSON object a gate printed to stdout (the runGate envelope), or null.
+function lastJson(stdout) {
+  const s = stdout.trimEnd();
+  const i = s.lastIndexOf("\n{");
+  try { return JSON.parse(i === -1 ? s : s.slice(i + 1)); } catch { return null; }
+}
+
+// opts.env: extra environment (set explicitly — never rely on what the shell inherited).
+// opts.lossy: the step was asked for a lossy broker; the gate must PROVE drops happened
+//   via `{lossy, dropped, delivered}` (top level, or on a result item). Missing → warn only.
+function run(name, cmd, args, opts = {}) {
   process.stdout.write(`\n▶ ${name}: ${cmd} ${args.join(" ")}\n`);
-  const r = spawnSync(cmd, args, { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+  const r = spawnSync(cmd, args, { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { ...process.env, ...(opts.env || {}) } });
   const out = (r.stdout || "") + (r.stderr || "");
   // surface the gate's summary line
-  let summary = "";
-  try { const j = JSON.parse(out.trim().split("\n").filter((l) => l.startsWith("{")).pop()); summary = j.summary || ""; }
-  catch { summary = out.trim().split("\n").slice(-2).join(" "); }
-  const ok = r.status === 0;
+  const j = lastJson(r.stdout || "");
+  let summary = j?.summary || "";
+  if (!summary) {
+    const t = /ℹ pass (\d+)[\s\S]*ℹ fail (\d+)/.exec(out); // node --test
+    summary = t ? `${t[1]} pass, ${t[2]} fail` : out.trim().split("\n").slice(-2).join(" ");
+  }
+  let ok = r.status === 0;
+  if (opts.lossy) {
+    const info = j && (j.lossy !== undefined ? j : (j.results || []).find((x) => x && x.lossy !== undefined));
+    if (!info) console.log(`  ⚠  ${name} did not report {lossy, dropped, delivered} — drops not verified`);
+    else if (info.lossy !== true || !(info.dropped > 0)) { ok = false; summary += ` — lossy NOT proven (lossy=${info.lossy}, dropped=${info.dropped}, delivered=${info.delivered})`; }
+    else summary += ` [lossy: ${info.dropped} dropped / ${info.delivered} delivered]`;
+  }
   console.log(`  ${ok ? "✅ PASS" : "❌ FAIL"}  ${summary}`);
   return { name, ok, status: r.status, summary };
 }
@@ -66,12 +85,19 @@ results.push(run("consistency", "node", ["snack-server/tools/check-consistency.m
 results.push(run("verify-layout", "node", ["snack-server/tools/verify-layout.mjs"]));
 // Engine unit tests (offline, always): runtime + layout engine.
 results.push(run("engine-tests", "pnpm", ["-s", "bite:test"]));
+// /api/ev telemetry function (offline, always): schema, limits, privacy, client.
+results.push(run("api-tests", "node", ["--test", "api/_test/"]));
+// "되는 척" 문구 검사 (offline, always): Q0 merge criterion = 0 hits (master-plan §4).
+results.push(run("honesty", "node", ["snack-server/tools/check-honesty.mjs"]));
 
 // Serverless (the deployed mode) — always: the sync sim and two real browsers, both on a
 // LOCAL broker in lossy mode (~5% drop, 50–300 ms jitter → reordering).
 results.push(noPublicBroker());
-results.push(run("serverless-sim", "env", ["SIM_MESH=1", "node", "snack-server/tools/multiclient-sim.mjs"]));
-results.push(run("serverless-oracle", "node", ["snack-server/tools/serverless-oracle.mjs"]));
+// Lossy is set EXPLICITLY here (an inherited SIM_LOSSY=0 / ORACLE_DROP=0 must not
+// silently switch it off), and each step must prove drops happened (opts.lossy).
+const lossyEnv = { SIM_LOSSY: "1", ORACLE_DROP: "", ORACLE_MAX_DELAY: "" };
+results.push(run("serverless-sim", "node", ["snack-server/tools/multiclient-sim.mjs"], { env: { ...lossyEnv, SIM_MESH: "1" }, lossy: true }));
+results.push(run("serverless-oracle", "node", ["snack-server/tools/serverless-oracle.mjs"], { env: lossyEnv, lossy: true }));
 
 if (up) {
   console.log(`\nℹ  server mode at ${BASE}: the player is rebuilt below — if the oracle answers "Cannot GET", (re)start snack-server AFTER this build (it only serves a dist that existed when it started).`);

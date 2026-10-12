@@ -6,7 +6,10 @@
 //   3. each browser taps the tap area 4× (real touch taps on laid-out nodes)
 //   4. both reach result with the SAME board: every player exactly 4
 //   ✗ any page opening a WebSocket to a non-local host fails the gate.
+//   ✗ lossy mode is only PROVEN by the broker's own counters: lossy requested but
+//     dropped === 0 fails the gate (reported as the "lossy broker" item).
 // Usage: node snack-server/tools/serverless-oracle.mjs [--runs N] [--skip-build] [--no-lossy]
+// Ports: ORACLE_PREVIEW_PORT (4176) / ORACLE_BROKER_PORT (4177) — override to run beside another oracle.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +24,7 @@ const argv = process.argv.slice(2);
 const RUNS = Number(argv[argv.indexOf("--runs") + 1]) || 1;
 const SKIP_BUILD = argv.includes("--skip-build");
 const LOSSY = !argv.includes("--no-lossy");
-const PREVIEW_PORT = 4176;
+const PREVIEW_PORT = Number(process.env.ORACLE_PREVIEW_PORT || 4176);
 const BROKER_PORT = Number(process.env.ORACLE_BROKER_PORT || 4177); // baked into the build
 const OUT = join(tmpdir(), "snack-serverless-oracle-dist");
 const BASE = `http://127.0.0.1:${PREVIEW_PORT}`;
@@ -117,7 +120,7 @@ async function runOnce(run) {
       await ctx.addInitScript((nick) => localStorage.setItem("snack_nick", nick), `오라클${run}${"AB"[i]}`);
       const page = await ctx.newPage();
       page.on("websocket", (ws) => {
-        if (!isLocalBroker(ws.url()) && !/^wss?:\/\/127\.0\.0\.1:4176\b/.test(ws.url())) foreign.push(ws.url());
+        if (!isLocalBroker(ws.url()) && !new RegExp(`^wss?://127\\.0\\.0\\.1:${PREVIEW_PORT}\\b`).test(ws.url())) foreign.push(ws.url());
       });
       page.on("console", (m) => logs[i].push(`${m.type()}: ${m.text()}`));
       page.on("pageerror", (e) => logs[i].push(`pageerror: ${e.message}`));
@@ -167,5 +170,10 @@ try {
   await broker.close();
 }
 if (!results.length) console.error(previewLog);
-runGate("serverless-oracle", results, (r) => r.ok, ({ passed, total }) => `serverless-oracle (tap-battle, 2 browsers, local broker${LOSSY ? " lossy" : ""}): ${passed}/${total} pass`);
+// Lossy mode must have actually bitten: the broker counts every PUBLISH it dropped.
+const { dropped, delivered } = broker.stats;
+const lossyItem = { id: "lossy broker", ok: !LOSSY || dropped > 0, lossy: LOSSY, dropped, delivered, ...(LOSSY && !dropped ? { error: `lossy requested but the broker dropped 0 of ${delivered} messages` } : {}) };
+console.error(`${lossyItem.ok ? "✅" : "❌"} ${lossyItem.id}: ${LOSSY ? `${dropped} dropped / ${delivered} delivered` : "off"}`);
+results.push(lossyItem);
+runGate("serverless-oracle", results, (r) => r.ok, ({ passed, total }) => `serverless-oracle (tap-battle, 2 browsers, local broker${LOSSY ? ` lossy: ${dropped} dropped / ${delivered} delivered` : ""}): ${passed}/${total} pass`);
 process.exit(process.exitCode ?? 0);
