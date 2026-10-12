@@ -1,0 +1,47 @@
+{
+  "bite": 1,
+  "meta": { "name": "every room action, sent the right way", "multi": true },
+  "frame": [390, 844],
+  "vars": {
+    "score": 0,
+    "choice": 0,
+    "options": ["A", "B"],
+    "votesByOption": { "o0": 0, "o1": 0 },
+    "leaderboard": [],
+    "coopTotal": 0,
+    "sessionPhase": "lobby"
+  },
+  "start": "lobby",
+  "phases": {
+    "lobby": {
+      "tick": [{ "if": "sessionPhase == 'play'", "then": [{ "go": "play" }] }]
+    },
+    "play": {
+      "tick": [{ "if": "sessionPhase == 'result'", "then": [{ "emit": "score", "payload": { "score": "{score}" } }, { "go": "lobby" }] }]
+    }
+  },
+  "view": {
+    "box": "column",
+    "gap": 8,
+    "children": [
+      { "id": "startQuiz", "text": "quiz", "weight": 800, "onTap": [{ "emit": "start", "payload": { "game": "trivia", "quiz": true, "rounds": 6, "answerMs": 9000, "revealMs": 3000 } }] },
+      { "id": "startNunchi", "text": "nunchi", "onTap": [{ "emit": "start", "payload": { "mode": "nunchi" } }] },
+      { "id": "startBare", "text": "race", "onTap": [{ "emit": "start", "payload": 15000 }] },
+      { "id": "startCup", "text": "cup", "onTap": [{ "emit": "start", "payload": { "game": "worldcup", "bracket": true, "matchupMs": "8000" } }] },
+      { "id": "voteA", "text": "A", "onTap": [{ "emit": "vote", "payload": { "option": "o0" } }] },
+      { "id": "voteB", "text": "B", "onTap": [{ "emit": "vote", "payload": { "option": "o1" } }] },
+      {
+        "box": "row",
+        "each": "options",
+        "children": [
+          { "text": "{item}", "onTap": [{ "emit": "vote", "payload": { "option": "o{index}" } }, { "emit": "answer", "payload": { "option": "{index}" } }] }
+        ]
+      },
+      { "id": "answerChoice", "text": "{choice}", "opacity": 0.5, "onTap": [{ "emit": "answer", "payload": { "option": "{choice}" } }] },
+      { "id": "answerNum", "text": "2", "onTap": [{ "emit": "answer", "payload": { "option": "2" } }] },
+      { "id": "push", "text": "{coopTotal}", "onTap": [{ "emit": "tally", "payload": { "delta": 1 } }, { "emit": "tally" }] },
+      { "id": "tap", "text": "{votesByOption.o0} {leaderboard.length}", "onTap": [{ "set": "score", "to": "score + 1" }, { "emit": "tap" }] },
+      { "id": "back", "box": "free", "width": 40, "height": 40, "origin": [0.5, 1], "rotate": 45, "onTap": [{ "emit": "lobby" }] }
+    ]
+  }
+}

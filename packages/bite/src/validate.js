@@ -30,8 +30,19 @@ const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isTemplate = (v) => typeof v === "string" && v.includes("{");
+// Literal ranges the renderer relies on (outside them the node vanishes or flies off).
+const RANGES = { opacity: [0, 1], weight: [100, 900] };
+const typeOfJson = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v);
+const isNumericString = (s) => s.trim() !== "" && Number.isFinite(Number(s));
 
-export function validate(doc) {
+/**
+ * @param {unknown} doc
+ * @param {{ hostActions?: Record<string, { payload: "none" | "object", number?: boolean,
+ *   fields?: Record<string, { type: string | string[], required?: boolean, enum?: string[], text?: boolean }> }> }} [opts]
+ *   hostActions — the room's payload contract (`@snack/room/actions` HOST_ACTIONS).
+ *   With it, every `emit` is checked against what the room actually reads.
+ */
+export function validate(doc, { hostActions } = {}) {
   const errors = [];
   const warnings = [];
   const err = (path, message) => errors.push({ path, message });
@@ -133,8 +144,87 @@ export function validate(doc) {
       } else {
         if (typeof a.emit !== "string" || !a.emit) err(`${p}.emit`, "event name must be a string");
         if ("payload" in a) checkJson(a.payload, `${p}.payload`, scope);
+        checkEmit(a, p);
       }
     });
+  };
+
+  // ── emit payloads vs. the host-action contract ──
+  // A payload string is a template: "score" sends the TEXT "score", "{score}"
+  // sends the variable's value. Sending a variable's name is always a bug,
+  // except in a free-text field (start.game), where it only warns.
+  const checkVarNameLiterals = (value, path, field) => {
+    if (typeof value === "string") {
+      if (template(value).kind === "literal" && Object.hasOwn(vars, value)) {
+        const msg = `sends the literal text "${value}", not the variable's value — did you mean "{${value}}"?`;
+        if (field?.text) warning(path, msg);
+        else err(path, msg);
+      }
+    } else if (Array.isArray(value)) value.forEach((v, i) => checkVarNameLiterals(v, `${path}[${i}]`));
+    else if (isObj(value)) for (const [k, v] of Object.entries(value)) checkVarNameLiterals(v, `${path}.${k}`);
+  };
+  // The JSON type a payload value will have when sent, or null when unknown.
+  const sentType = (v) => {
+    if (typeof v !== "string") return { type: typeOfJson(v) };
+    const t = template(v);
+    if (t.kind === "literal") return { type: "string", literal: t.value };
+    if (t.kind === "parts") return { type: "string", text: true };
+    const src = t.expr.src?.trim();
+    if (src === "index") return { type: "number", from: src };
+    if (src && NAME_RE.test(src) && Object.hasOwn(vars, src) && vars[src] !== null) return { type: typeOfJson(vars[src]), from: src };
+    return null; // an expression — its type is unknown statically
+  };
+  const checkField = (v, field, path, key) => {
+    const types = [].concat(field.type);
+    const want = types.join(" | ");
+    const st = sentType(v);
+    if (!st) return;
+    if (st.literal !== undefined) {
+      if (Object.hasOwn(vars, st.literal)) return; // reported by checkVarNameLiterals
+      if (types.includes("string")) {
+        if (field.enum && !field.enum.includes(st.literal)) err(path, `unknown ${key} "${st.literal}" (${field.enum.join(" | ")})`);
+      } else if (!(types.includes("number") && isNumericString(st.literal))) {
+        err(path, `'${key}' must be a ${want}, got the text ${JSON.stringify(st.literal)}`);
+      }
+      return;
+    }
+    if (st.text) {
+      if (!types.includes("string")) warning(path, `a text template always sends a string; '${key}' needs a ${want} — use a single {expression}`);
+      return;
+    }
+    if (types.includes(st.type)) return;
+    if (st.from) err(path, `'{${st.from}}' starts as a ${st.type} but '${key}' must be a ${want}`);
+    else err(path, `'${key}' must be a ${want}, got ${JSON.stringify(v)}`);
+  };
+  const checkEmit = (a, p) => {
+    const payload = a.payload;
+    const contract = hostActions && typeof a.emit === "string" && Object.hasOwn(hostActions, a.emit) ? hostActions[a.emit] : null;
+    const fields = contract?.fields ?? {};
+    // Always on: a variable's name sent as text.
+    if (isObj(payload)) for (const [k, v] of Object.entries(payload)) checkVarNameLiterals(v, `${p}.payload.${k}`, fields[k]);
+    else if (payload !== undefined) checkVarNameLiterals(payload, `${p}.payload`);
+    if (!hostActions || typeof a.emit !== "string" || !a.emit) return;
+    if (!contract) return warning(`${p}.emit`, `'${a.emit}' is not a room action — the room ignores it (${Object.keys(hostActions).join(", ")})`);
+    if (contract.payload === "none") {
+      if (payload !== undefined) warning(`${p}.payload`, `'${a.emit}' takes no payload — it is ignored`);
+      return;
+    }
+    const required = Object.entries(fields).filter(([, f]) => f.required).map(([k]) => k);
+    if (payload === undefined) {
+      if (required.length) err(p, `'${a.emit}' needs a payload { ${required.join(", ")} }`);
+      return;
+    }
+    if (!isObj(payload)) {
+      const st = sentType(payload);
+      if (st === null) return; // an expression: can't tell statically
+      if (st.type === "object" || (contract.number && st.type === "number")) return;
+      return err(`${p}.payload`, `'${a.emit}' payload must be an object { ${Object.keys(fields).join(", ")} }${contract.number ? " or a number" : ""}`);
+    }
+    for (const k of required) if (!(k in payload)) err(`${p}.payload`, `'${a.emit}' needs '${k}'`);
+    for (const [k, v] of Object.entries(payload)) {
+      if (!Object.hasOwn(fields, k)) warning(`${p}.payload.${k}`, `'${a.emit}' does not read '${k}' (${Object.keys(fields).join(", ")})`);
+      else checkField(v, fields[k], `${p}.payload.${k}`, k);
+    }
   };
 
   for (const [name, ph] of Object.entries(phases)) {
@@ -180,7 +270,13 @@ export function validate(doc) {
     }
     for (const key of NUMERIC) checkValue(node, key, `${path}.${key}`, scope, (v) => typeof v === "number");
     if (("x" in node || "y" in node) && parentBox !== "free") err(path, "x / y only apply inside a 'free' box");
+    for (const [key, [lo, hi]] of Object.entries(RANGES)) {
+      if (typeof node[key] === "number" && (node[key] < lo || node[key] > hi)) err(`${path}.${key}`, `${key} must be ${lo}–${hi}, got ${node[key]}`);
+    }
     checkValue(node, "origin", `${path}.origin`, scope, (v) => Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === "number"), "[0-1, 0-1]");
+    if (Array.isArray(node.origin) && node.origin.length === 2 && node.origin.every((n) => typeof n === "number") && node.origin.some((n) => n < 0 || n > 1)) {
+      err(`${path}.origin`, `origin is a fraction of the node's size per axis (0–1), got ${JSON.stringify(node.origin)} — [0.5, 0.5] is the center`);
+    }
     checkValue(node, "radius", `${path}.radius`, scope, (v) => typeof v === "number" || v === "full");
     if ("stroke" in node) {
       const s = node.stroke;

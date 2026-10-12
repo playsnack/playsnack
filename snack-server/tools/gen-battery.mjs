@@ -10,6 +10,7 @@
 // This tool now flags HTTP 429 responses as `rateLimited` (excluded from the failure
 // signal) so a capped run is obvious rather than silently scored as 0%.
 import { validate } from "@snack/bite";
+import { HOST_ACTIONS } from "@snack/room/actions";
 import { lintDoc } from "../src/builder.mjs";
 import { runGate } from "./_gate.mjs";
 
@@ -51,7 +52,7 @@ async function build(prompt) {
 // Same checks the builder runs: spec validation, a headless play-through
 // (every tappable node once, runtime warnings), and the layout lint per phase.
 async function verifyLayout(doc) {
-  const v = validate(doc);
+  const v = validate(doc, { hostActions: HOST_ACTIONS });
   if (!v.ok) return { valid: false, runnable: false, fits: false, errors: v.errors.slice(0, 5) };
   const lint = await lintDoc(doc);
   return { valid: true, runnable: !/runtime/.test(lint ?? ""), fits: !lint, lint: lint ?? undefined };

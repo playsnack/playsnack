@@ -4,6 +4,7 @@
 // the caller to surface.
 import OpenAI from "openai";
 import { createBite, validate } from "@snack/bite";
+import { HOST_ACTIONS } from "@snack/room/actions";
 import { initLayout, computeScene, checkLayout } from "@snack/bite-layout";
 import { SYSTEM_PROMPT } from "./prompt.mjs";
 import { injectLibrary } from "./componentLibrary.mjs";
@@ -128,7 +129,7 @@ async function planAndGround(prompt, mode) {
 // frame is the one thing we fix silently (it has exactly one right value).
 function validateDoc(doc) {
   if (doc && typeof doc === "object" && !doc.frame) doc.frame = [390, 844];
-  const v = validate(doc);
+  const v = validate(doc, { hostActions: HOST_ACTIONS });
   if (!v.ok) return { valid: false, errors: v.errors.map((e) => `${e.path}: ${e.message}`) };
   return { valid: true, errors: [] };
 }

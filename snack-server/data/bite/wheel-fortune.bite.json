@@ -254,9 +254,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
+                        "rotate": 22.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -268,10 +269,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 45,
+                        "rotate": 67.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -283,10 +284,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 90,
+                        "rotate": 112.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -298,10 +299,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 135,
+                        "rotate": 157.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -313,10 +314,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 180,
+                        "rotate": 202.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -328,10 +329,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 225,
+                        "rotate": 247.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -343,10 +344,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 270,
+                        "rotate": 292.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -358,10 +359,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 315,
+                        "rotate": 337.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -644,8 +645,8 @@
                     "width": 300,
                     "height": 300,
                     "origin": [
-                      50,
-                      50
+                      0.5,
+                      0.5
                     ],
                     "rotate": "{phase == 'spinning' ? (finalAngle * (1 - pow(1 - min(1, (now - spinStartedAt) / duration), 3))) : undefined}",
                     "children": [
@@ -695,9 +696,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
+                        "rotate": 22.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -709,10 +711,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 45,
+                        "rotate": 67.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -724,10 +726,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 90,
+                        "rotate": 112.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -739,10 +741,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 135,
+                        "rotate": 157.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -754,10 +756,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 180,
+                        "rotate": 202.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -769,10 +771,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 225,
+                        "rotate": 247.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -784,10 +786,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 270,
+                        "rotate": 292.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },
@@ -799,10 +801,10 @@
                         "x": 149,
                         "y": 18,
                         "opacity": 0.12,
-                        "rotate": 315,
+                        "rotate": 337.5,
                         "origin": [
-                          50,
-                          100
+                          0.5,
+                          1
                         ],
                         "fill": "#ffffff"
                       },

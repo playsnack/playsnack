@@ -261,8 +261,10 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
     const s = inst.style;
     const { x, y, w, h } = inst.box;
     const [ox, oy] = Array.isArray(s.origin) ? s.origin : [0.5, 0.5];
-    const px = num(ox, 0.5) * w;
-    const py = num(oy, 0.5) * h;
+    // origin is a 0..1 fraction; an out-of-range value (e.g. [50, 50] meant as %)
+    // would put the pivot far off the node and fling it off-screen when rotated.
+    const px = Math.max(0, Math.min(1, num(ox, 0.5))) * w;
+    const py = Math.max(0, Math.min(1, num(oy, 0.5))) * h;
     e.root.pivot.set(px, py);
     e.root.position.set(x + px, y + py);
     e.root.rotation = (num(s.rotate, 0) * Math.PI) / 180;
