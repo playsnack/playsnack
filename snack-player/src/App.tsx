@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { currentRoute, hrefTo } from "./backend";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { validate, type BiteDoc } from "@snack/bite";
+import { HOST_ACTIONS } from "@snack/room/actions";
 import { LiveApp } from "./LiveApp.tsx";
 import { Discover } from "./Discover.tsx";
 import { NicknameGate } from "./NicknameGate.tsx";
@@ -62,9 +63,7 @@ function BiteFilePlayer() {
         return r.json();
       })
       .then((d) => {
-        // TODO(Q0 integration): validate(d, { hostActions: HOST_ACTIONS }) with
-        // HOST_ACTIONS from "@snack/room/actions" once lane B is merged.
-        const v = validate(d);
+        const v = validate(d, { hostActions: HOST_ACTIONS });
         for (const w of v.warnings) console.warn(`[bite] ${w.path}: ${w.message}`);
         if (!v.ok) throw new Error(v.errors.map((e) => `${e.path}: ${e.message}`).join("\n"));
         setDoc(d);
