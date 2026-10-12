@@ -1,9 +1,9 @@
 // Bite renderer: draws a laid-out instance tree with Pixi and turns pointer
 // input into runtime taps. Layout and hit-testing come from @snack/bite-layout,
 // so what you see, what you tap and what headless gates check all agree.
-import { Application, BlurFilter, Container, FillGradient, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { Application, BlurFilter, CanvasTextMetrics, Container, FillGradient, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { computeScene, hitTest, initLayout, scrollTargetAt } from "@snack/bite-layout";
-import { fontFamily, loadFonts } from "./fonts.js";
+import { ensureGlyphs, fontFamily, loadFonts } from "./fonts.js";
 
 const TAP_SLOP = 10; // px of finger travel before a press becomes a drag
 const PRESS_SCALE = 0.96;
@@ -228,6 +228,29 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
       t.x = s.align === "center" ? (w - line.width) / 2 : s.align === "right" ? w - line.width : 0;
       t.y = i * lineHeight;
     });
+    // A glyph outside the font subset (rare syllable in a nickname) draws in a
+    // system font until the full face arrives; then every text is redrawn.
+    const full = ensureGlyphs(s.font, weight, lines.map((l) => l.text).join(""));
+    if (full && !fullFaces.has(full)) {
+      fullFaces.add(full);
+      full.then(redrawText);
+    }
+  }
+
+  const fullFaces = new Set();
+  function redrawText() {
+    if (destroyed) return;
+    // Pixi caches canvas text measurements by text+style, so a string measured in
+    // the fallback font would keep its old texture size: drop the cache and the
+    // Text objects (their textures are reference-counted) and draw afresh.
+    CanvasTextMetrics._measurementCache?.clear?.();
+    CanvasTextMetrics.clearMetrics();
+    for (const e of entries.values()) {
+      if (e.kind !== "text") continue;
+      while (e.lines.length) e.lines.pop().destroy();
+      e.sig = "";
+    }
+    draw();
   }
 
   function drawImage(e, inst) {

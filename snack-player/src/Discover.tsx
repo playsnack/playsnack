@@ -84,7 +84,7 @@ const shell: React.CSSProperties = {
   position: "fixed", inset: 0, background: C.bg, color: C.ink, overflowY: "auto",
   // CRT scanlines — subtle arcade-cabinet texture over the black ground.
   backgroundImage: "repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0px, rgba(0,0,0,0.22) 1px, transparent 1px, transparent 3px)",
-  padding: `calc(env(safe-area-inset-top,0) + ${S.s5}px) 16px 40px`, font: `16px ${TOKENS.font.body}`,
+  padding: `calc(var(--snack-safe-top) + ${S.s5}px) 16px 40px`, font: `16px ${TOKENS.font.body}`,
 };
 const brand: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: 11, color: C.accent, letterSpacing: 1 };
 const h1: React.CSSProperties = { fontFamily: TOKENS.font.display, fontSize: 22, fontWeight: 800, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 };

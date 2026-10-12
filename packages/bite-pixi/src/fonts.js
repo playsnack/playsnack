@@ -10,7 +10,8 @@
 // 700), so drawn text is never wider than the metrics layout measured it with
 // (Latin advances grow with weight; Hangul advances are equal across weights).
 // The untouched originals (*-full.woff2) sit behind each subset as a second
-// family and are fetched only when a character outside the subset is drawn.
+// family and are fetched only when a character outside the subset is drawn
+// (ensureGlyphs; the renderer redraws that text once the face is in).
 import { faceFor } from "@snack/bite-layout";
 
 export const FAMILY = {
@@ -51,6 +52,47 @@ export function fileFor(font, weight) {
 }
 
 const loaded = new Map();
+const parsedRanges = new Map(); // file key → [[lo, hi], …]
+const fullLoads = new Map(); // file key → Promise (the full face, once asked for)
+
+function rangesOf(key) {
+  if (!parsedRanges.has(key)) {
+    const list = (FULL_RANGES[key] ?? "").split(",").map((r) => {
+      const [lo, hi = lo] = r.trim().slice(2).split("-");
+      return [parseInt(lo, 16), parseInt(hi, 16)];
+    });
+    parsedRanges.set(key, list);
+  }
+  return parsedRanges.get(key);
+}
+
+/** True when `text` has a character the subset lacks (so the full face draws it). */
+export function needsFullFace(key, text) {
+  const ranges = rangesOf(key);
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    for (const [lo, hi] of ranges) if (cp >= lo && cp <= hi) return true;
+  }
+  return false;
+}
+
+/**
+ * Fetch the full face when `text` has glyphs the shipped subset lacks (a rare
+ * syllable in a nickname: 뷁, 똠…). Text drawn before it arrives falls back to a
+ * system font; the returned promise (one per file, shared) resolves once the
+ * face is in, so the caller can redraw. null when the subset already covers it.
+ */
+export function ensureGlyphs(font, weight, text) {
+  const key = fileFor(font, weight);
+  if (!loaded.has(key) || !needsFullFace(key, text)) return null;
+  if (!fullLoads.has(key)) {
+    const f = FILES[key];
+    const spec = `${f.weight.split(" ")[0]} 16px "${FULL[f.font]}"`;
+    // load(spec, text) fetches only faces whose unicode-range meets `text`.
+    fullLoads.set(key, document.fonts.load(spec, text).catch((e) => console.warn(`[bite] full font ${key} failed`, e)));
+  }
+  return fullLoads.get(key);
+}
 
 function filesUsed(doc) {
   const used = new Set();

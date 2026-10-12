@@ -19,7 +19,7 @@
         var base = location.pathname.replace(/\/p\/.*$/, "/").replace(/[^/]*$/, "") + "fonts/";
         var files = play
           ? ["snackbody-500.woff2", "snackbody-700.woff2", "galmuri11.woff2"]
-          : ["galmuri11.woff2?ui", "pressstart2p.woff2"];
+          : ["galmuri11-bold.woff2?ui", "pressstart2p.woff2"];
         var preload = function (href, as, type) {
           var l = document.createElement("link");
           l.rel = "preload";
@@ -34,25 +34,40 @@
         });
         // Static build: an official app's document, fetched alongside the code.
         var tpl = location.hash.match(/^#\/p\/tpl-([a-z0-9-]+)/);
-        if (tpl) preload(base.replace(/fonts\/$/, "") + "data/bite/" + tpl[1] + ".bite.json", "fetch");
+        if (tpl) {
+          var data = base.replace(/fonts\/$/, "") + "data/bite/";
+          preload(data + tpl[1] + ".bite.json", "fetch");
+          preload(data + "index.json", "fetch"); // tells whether the link was merged into another app
+        }
       })();
     </script>
 
     <style>
       /* Mini-Block Arcade display faces — self-hosted pixel fonts (no CDN).
-         galmuri11.woff2 is a subset covering the shell's text (checked by
-         scripts/subset_fonts.py --check). "?ui" keeps this face from claiming
-         the canvas's preload of the same file (Chrome then fetches it twice). */
+         galmuri11*.woff2 are subsets covering the shell's text (checked by
+         scripts/subset_fonts.py --check). Headings are weight 800, so they get
+         the real bold cut (not a browser-smeared regular); the weight split
+         matches the canvas (packages/bite-pixi/src/fonts.js). "?ui" keeps these
+         faces from claiming the canvas's preload of the same file (Chrome then
+         fetches it twice). */
       @font-face {
         font-family: "Galmuri11";
         src: url("/fonts/galmuri11.woff2?ui") format("woff2");
-        font-weight: normal; font-style: normal; font-display: swap;
+        font-weight: 1 549; font-style: normal; font-display: swap;
+      }
+      @font-face {
+        font-family: "Galmuri11";
+        src: url("/fonts/galmuri11-bold.woff2?ui") format("woff2");
+        font-weight: 550 1000; font-style: normal; font-display: swap;
       }
       @font-face {
         font-family: "Press Start 2P";
         src: url("/fonts/pressstart2p.woff2") format("woff2");
         font-weight: normal; font-style: normal; font-display: swap;
       }
+      /* The notch / home-indicator insets, one definition for the shell and the
+         canvas (viewport-fit=cover above). */
+      :root { --snack-safe-top: env(safe-area-inset-top, 0px); --snack-safe-bottom: env(safe-area-inset-bottom, 0px); }
       html, body, #root { margin: 0; height: 100%; background: #000; }
       body { overscroll-behavior: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     </style>

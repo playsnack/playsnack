@@ -112,5 +112,7 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
     };
   }, [doc, editable, editPhase]);
 
-  return <div ref={ref} style={{ position: "fixed", inset: 0, background: "#0b0c0e" }} />;
+  // Below the notch (safe-area inset, see index.html) — the shell pills use the
+  // same inset, so they never cover the app's top row on a notch phone.
+  return <div ref={ref} style={{ position: "fixed", top: "var(--snack-safe-top)", left: 0, right: 0, bottom: 0, background: "#0b0c0e" }} />;
 }

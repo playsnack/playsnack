@@ -22,9 +22,10 @@ export const secondaryBtn: React.CSSProperties = {
   background: C.surface2, color: C.ink, boxShadow: blockShadow, cursor: "pointer",
   font: `700 ${TOKENS.size.bodyMd}px ${TOKENS.font.body}`,
 };
-/** Small dark block that floats over the play canvas (home button, people count). */
+/** Small dark block that floats over the play canvas (home button, people count).
+    44px tall: the smallest comfortable touch target. */
 export const pill: React.CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 6, minHeight: 36, padding: "0 12px",
+  display: "inline-flex", alignItems: "center", gap: 6, minHeight: 44, padding: "0 14px",
   background: C.surface, color: C.ink, border: `${TOKENS.border.block}px solid ${C.borderBlock}`, borderRadius: R.block,
   boxShadow: "0 4px 0 #000000", font: `700 ${TOKENS.size.bodySm}px ${TOKENS.font.body}`, whiteSpace: "nowrap",
 };
