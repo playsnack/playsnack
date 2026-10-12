@@ -190,7 +190,7 @@
                 "id": "heroChip",
                 "use": "Chip",
                 "props": {
-                  "label": "LIVE CO-OP"
+                  "label": "다 같이"
                 }
               },
               {
@@ -335,7 +335,7 @@
           },
           {
             "id": "bottomHint",
-            "text": "서버가 모두의 탭을 합산해 실시간으로 반영합니다.",
+            "text": "같은 방에 있는 사람들의 탭이 하나로 합쳐져요",
             "size": 12,
             "weight": 600,
             "color": "#9aa3af",

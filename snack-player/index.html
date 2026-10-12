@@ -8,14 +8,44 @@
     />
     <title>Snack Player</title>
     <link rel="icon" href="data:," />
-    <link rel="preload" href="/fonts/galmuri11.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/pressstart2p.woff2" as="font" type="font/woff2" crossorigin />
+    <script>
+      // Preload only the fonts this screen draws first, in parallel with the app
+      // code. Play links (#/p/… or /p/…) draw the app canvas: body 500 + 700 and
+      // the pixel face (every official app uses these three; see
+      // packages/bite-pixi/src/fonts.js). Home draws pixel headings.
+      // Subsets: scripts/subset_fonts.py.
+      (function () {
+        var play = /^#\/p\//.test(location.hash) || /\/p\//.test(location.pathname);
+        var base = location.pathname.replace(/\/p\/.*$/, "/").replace(/[^/]*$/, "") + "fonts/";
+        var files = play
+          ? ["snackbody-500.woff2", "snackbody-700.woff2", "galmuri11.woff2"]
+          : ["galmuri11.woff2?ui", "pressstart2p.woff2"];
+        var preload = function (href, as, type) {
+          var l = document.createElement("link");
+          l.rel = "preload";
+          l.as = as;
+          if (type) l.type = type;
+          l.crossOrigin = "anonymous";
+          l.href = href;
+          document.head.appendChild(l);
+        };
+        files.forEach(function (f) {
+          preload(base + f, "font", "font/woff2");
+        });
+        // Static build: an official app's document, fetched alongside the code.
+        var tpl = location.hash.match(/^#\/p\/tpl-([a-z0-9-]+)/);
+        if (tpl) preload(base.replace(/fonts\/$/, "") + "data/bite/" + tpl[1] + ".bite.json", "fetch");
+      })();
+    </script>
 
     <style>
-      /* Mini-Block Arcade display faces — self-hosted pixel fonts (no CDN). */
+      /* Mini-Block Arcade display faces — self-hosted pixel fonts (no CDN).
+         galmuri11.woff2 is a subset covering the shell's text (checked by
+         scripts/subset_fonts.py --check). "?ui" keeps this face from claiming
+         the canvas's preload of the same file (Chrome then fetches it twice). */
       @font-face {
         font-family: "Galmuri11";
-        src: url("/fonts/galmuri11.woff2") format("woff2");
+        src: url("/fonts/galmuri11.woff2?ui") format("woff2");
         font-weight: normal; font-style: normal; font-display: swap;
       }
       @font-face {

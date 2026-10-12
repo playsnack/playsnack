@@ -5,11 +5,13 @@
 import { rmSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { listIds, loadDoc, TPL_DIR, varNames, findEmit } from "./_doc.mjs";
-import { SimClient, sleep, WS_URL, MESH } from "./_wsclient.mjs";
+import { SimClient, sleep, WS_URL, MESH, prepareMesh, stopMesh } from "./_wsclient.mjs";
 import { runGate } from "./_gate.mjs";
 
-// A public broker (SIM_MESH) adds ~150ms per hop, host → peer.
-const SETTLE_MS = Number(process.env.SIM_SETTLE_MS || (MESH ? 1200 : 250));
+// A broker (SIM_MESH; lossy by default) adds up to ~300ms per hop, host → peer, and a
+// lost message is repaired by an action resend (~0.7s) or a resync beat (≤1s) — so a
+// mesh change may take ~2.5s to reach everyone.
+const SETTLE_MS = Number(process.env.SIM_SETTLE_MS || (MESH ? 3000 : 250));
 const VOTES_DIR = join(TPL_DIR, "..", "votes");
 // Unique-per-run prefix so each run uses ISOLATED throwaway rooms — never the
 // canonical tpl-<id> rooms — so the sim neither pollutes real shared votes nor
@@ -88,7 +90,7 @@ async function simOne(id, n) {
       let w = 0; while (clients[0].shared.sessionPhase !== "play" && w < 7000) { await sleep(120); w += 120; }
       clients.forEach((c) => c.tap()); // simultaneous → collision → elimination
       await sleep(700); // 350ms window + resolve + end
-      view = (c) => ({ phase: c.shared.sessionPhase, elim: c.shared.eliminatedCount }); exact = false; // broadcast vars converge (iAmOut is per-client, not checked)
+      view = (c) => ({ phase: c.shared.sessionPhase, elim: c.shared.eliminatedCount }); exact = false; // broadcast vars converge; iAmOut (per-client) checked below
     } else if (sub === "reaction") {
       clients[0].start(startPayload(doc) || { mode: "reaction" });
       let w = 0; while (clients[0].shared.sessionPhase !== "play" && w < 7000) { await sleep(120); w += 120; }
@@ -122,12 +124,22 @@ async function simOne(id, n) {
     const total = (v) => (sub === "tap" ? (v || []).reduce((s, e) => s + (e.score || 0), 0) : v);
     const { converged, desyncEvents } = await settle(clients, view, (v) => !exact || total(v) === expected);
     const tallyError = exact ? Math.abs(total(view(clients[0])) - expected) : 0;
-    const phaseSynced = clients.every((c) => c.shared.sessionPhase === clients[0].shared.sessionPhase);
+    // Phases change on a timer; over a broker clients see a change up to ~300ms apart,
+    // so "synced" = all on the same phase within the settle window (polled).
+    const samePhase = () => clients.every((c) => c.shared.sessionPhase === clients[0].shared.sessionPhase);
+    for (let w = 0; MESH && !samePhase() && w < SETTLE_MS; w += 100) await sleep(100);
+    const phaseSynced = samePhase();
     const participantsAccurate = clients.every((c) => c.participants === n);
+    // MP-07: exactly the eliminated players see iAmOut — still true after the resync beats.
+    let outAccurate = true;
+    if (sub === "nunchi") {
+      await sleep(MESH ? 3500 : 300);
+      outAccurate = clients.filter((c) => c.shared.iAmOut === true).length === (clients[0].shared.eliminatedCount ?? 0);
+    }
     clients.forEach((c) => c.close());
     await sleep(60);
-    const ok = converged && desyncEvents === 0 && tallyError === 0 && participantsAccurate && phaseSynced;
-    return { id, kind: `session:${sub}`, clients: n, ok, converged, desyncEvents, tallyError, participantsAccurate, phaseSynced };
+    const ok = converged && desyncEvents === 0 && tallyError === 0 && participantsAccurate && phaseSynced && outAccurate;
+    return { id, kind: `session:${sub}`, clients: n, ok, converged, desyncEvents, tallyError, participantsAccurate, phaseSynced, ...(sub === "nunchi" ? { outAccurate } : {}) };
   }
 
   let expected;
@@ -172,6 +184,7 @@ async function simOne(id, n) {
 }
 
 async function main() {
+  const broker = await prepareMesh();
   const argv = process.argv.slice(2);
   const ci = argv.indexOf("--clients");
   const n = ci >= 0 ? Number(argv[ci + 1]) : 0;
@@ -186,7 +199,9 @@ async function main() {
       let merged = null;
       for (const c of counts) {
         const r = await simOne(id, c);
-        merged = merged ? { ...r, sweep: [...(merged.sweep || [merged.clients]), c], ok: merged.ok && r.ok } : { ...r, sweep: [c] };
+        // keep every failing sweep's details (the merged row shows only the last one)
+        const failedSweeps = [...(merged?.failedSweeps ?? []), ...(r.ok ? [] : [r])];
+        merged = merged ? { ...r, sweep: [...(merged.sweep || [merged.clients]), c], ok: merged.ok && r.ok, failedSweeps } : { ...r, sweep: [c], failedSweeps };
       }
       results.push(merged);
     } catch (e) {
@@ -200,8 +215,10 @@ async function main() {
     }
   } catch { /* best-effort */ }
 
+  const where = MESH ? `mqtt mesh @ local broker${broker?.lossy ? " (lossy)" : ""}` : WS_URL;
+  await stopMesh();
   runGate("multiclient-sim", results, (r) => r.ok,
-    ({ failed, total }) => `multiclient-sim @ ${MESH ? "mqtt mesh" : WS_URL}: ${total - failed}/${total} synced${failed ? ` — ${failed} FAIL` : ""}`);
+    ({ failed, total }) => `multiclient-sim @ ${where}: ${total - failed}/${total} synced${failed ? ` — ${failed} FAIL` : ""}`);
 }
 
 main();

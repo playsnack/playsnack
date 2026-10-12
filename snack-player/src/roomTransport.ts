@@ -7,6 +7,14 @@
 
 export type RoomMessage = { t: string; d: Record<string, unknown> };
 
+/**
+ * Connection status, delivered through onMessage as `{ t: "conn", d: ConnStatus }`
+ * whenever it changes ("connecting" first, then "connected" or "failed").
+ * The screen shows connecting / failed (with retry and "혼자 하기") from this.
+ */
+export type ConnState = "connecting" | "connected" | "failed";
+export type ConnStatus = { state: ConnState; reason?: string };
+
 export interface RoomTransport {
   /** Open the connection and join the room. */
   connect(): void;
@@ -14,18 +22,97 @@ export interface RoomTransport {
   sendAction(name: string, payload?: unknown): void;
   sendReaction(emoji: string): void;
   onMessage(fn: (m: RoomMessage) => void): void;
+  /** After "failed": try again (emits "connecting" → "connected" | "failed"). */
+  retry?(): void;
 }
 
 export type Identity = { slug: string; anonId: string; nick: string };
 
-/** The room runs on snack-server; one WebSocket per player. */
-export class ServerTransport implements RoomTransport {
-  private ws: WebSocket | null = null;
-  private listeners = new Set<(m: RoomMessage) => void>();
+/** No room state this long after connecting → "failed" (the screen offers retry). */
+export const CONNECT_TIMEOUT_MS = 15000;
 
-  constructor(private url: string, private me: Identity) {}
+/**
+ * Shared plumbing: listeners and the connection status every transport reports
+ * ("connecting" → "connected" once the room state arrives | "failed").
+ */
+abstract class BaseTransport implements RoomTransport {
+  private listeners = new Set<(m: RoomMessage) => void>();
+  private state: ConnState | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped on every connect/close, so callbacks of an abandoned attempt are ignored. */
+  protected gen = 0;
+
+  abstract connect(): void;
+  abstract close(): void;
+  abstract sendAction(name: string, payload?: unknown): void;
+  abstract sendReaction(emoji: string): void;
+
+  /** The current connection state (null before connect()). */
+  get connState(): ConnState | null {
+    return this.state;
+  }
+
+  onMessage(fn: (m: RoomMessage) => void) {
+    this.listeners.add(fn);
+  }
+
+  /** Start over after "failed" (or a stalled "connecting"). */
+  retry() {
+    this.close();
+    this.connect();
+  }
+
+  protected emit(m: RoomMessage) {
+    for (const fn of this.listeners) fn(m);
+  }
+
+  /** Room messages pass through here: the first "state" means we are in. */
+  protected receive(m: RoomMessage) {
+    if (m.t === "state") this.setConn("connected");
+    this.emit(m);
+  }
+
+  protected setConn(state: ConnState, reason?: string) {
+    if (this.state === state) return;
+    this.state = state;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    if (state === "connecting") {
+      const gen = this.gen;
+      this.timer = setTimeout(() => {
+        if (gen === this.gen && this.state === "connecting") this.fail("timeout");
+      }, CONNECT_TIMEOUT_MS);
+    }
+    this.emit({ t: "conn", d: reason ? { state, reason } : { state } });
+  }
+
+  /** Give up on this attempt: report "failed" and stop its connection. */
+  protected fail(reason: string) {
+    this.setConn("failed", reason);
+    this.stop();
+  }
+
+  /** Tear down the live connection without reporting anything. */
+  protected abstract stop(): void;
+
+  protected stopTimer() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.state = null;
+  }
+}
+
+/** The room runs on snack-server; one WebSocket per player. */
+export class ServerTransport extends BaseTransport {
+  private ws: WebSocket | null = null;
+
+  constructor(private url: string, private me: Identity) {
+    super();
+  }
 
   connect() {
+    const gen = ++this.gen;
+    this.setConn("connecting");
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.onopen = () => ws.send(JSON.stringify({ t: "hello", d: this.me }));
@@ -36,13 +123,26 @@ export class ServerTransport implements RoomTransport {
       } catch {
         return;
       }
-      for (const fn of this.listeners) fn(m);
+      if (gen === this.gen) this.receive(m);
+    };
+    ws.onclose = () => {
+      if (gen === this.gen) this.fail(this.connState === "connected" ? "disconnected" : "unreachable");
     };
   }
 
-  close() {
-    this.ws?.close();
+  protected stop() {
+    const ws = this.ws;
     this.ws = null;
+    if (ws) {
+      ws.onclose = ws.onmessage = ws.onopen = null;
+      ws.close();
+    }
+  }
+
+  close() {
+    this.gen++;
+    this.stopTimer();
+    this.stop();
   }
 
   sendAction(name: string, payload?: unknown) {
@@ -53,56 +153,49 @@ export class ServerTransport implements RoomTransport {
     this.send({ t: "react", d: { emoji } });
   }
 
-  onMessage(fn: (m: RoomMessage) => void) {
-    this.listeners.add(fn);
-  }
-
   private send(m: { t: string; d: unknown }) {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
   }
 }
 
-/**
- * Host mode: the room runs on a player's device. The first player in the room
- * hosts (runs the room engine); the server only relays messages.
- */
-export class RelayTransport implements RoomTransport {
-  private conn: { sendAction(n: string, p: unknown, id: string): void; sendReaction(e: string): void; handoff(): void; close(): void } | null = null;
+type EngineConn = { sendAction(n: string, p: unknown, id: string): void; sendReaction(e: string): void; handoff(): void; close(): void };
+type PackFn = (game: string, opts: { theme?: string }) => Promise<unknown[] | null>;
+
+/** Room engine running on a player's device (host mode / serverless). */
+abstract class EngineTransport extends BaseTransport {
+  protected conn: EngineConn | null = null;
   // Mobile browsers throttle timers in hidden tabs — a hosting device that goes
   // to the background hands the room to another player first.
   private onHidden = () => {
     if (document.visibilityState === "hidden") this.conn?.handoff();
   };
-  private listeners = new Set<(m: RoomMessage) => void>();
-  private closed = false;
 
-  constructor(private url: string, private me: Identity, private packUrl: string, private eventsUrl?: string) {}
+  /** Load the engine lazily and connect it (resolves to null if abandoned meanwhile). */
+  protected abstract open(gen: number): Promise<EngineConn | null>;
 
   connect() {
-    // Loaded lazily so server-run rooms never pay for the host engine.
-    void import("@snack/room/relay-client").then(({ connectRelay }) => {
-      if (this.closed) return; // left before the engine finished loading
-      this.conn = connectRelay({
-        url: this.url,
-        WebSocket,
-        me: this.me,
-        eventsUrl: this.eventsUrl,
-        onMessage: (m: RoomMessage) => this.listeners.forEach((fn) => fn(m)),
-        getPack: async (game: string, opts: { theme?: string }) => {
-          const q = new URLSearchParams({ game: game ?? "", theme: opts?.theme ?? "" });
-          const r = await fetch(`${this.packUrl}?${q}`).catch(() => null);
-          return r?.ok ? ((await r.json()).pack ?? null) : null;
-        },
-      });
-      document.addEventListener("visibilitychange", this.onHidden);
-    });
+    const gen = ++this.gen;
+    this.setConn("connecting");
+    this.open(gen).then(
+      (conn) => {
+        if (gen !== this.gen) return conn?.close(); // left (or retried) before the engine finished loading
+        this.conn = conn;
+        document.addEventListener("visibilitychange", this.onHidden);
+      },
+      () => gen === this.gen && this.fail("load"),
+    );
   }
 
-  close() {
-    this.closed = true;
+  protected stop() {
     document.removeEventListener("visibilitychange", this.onHidden);
     this.conn?.close();
     this.conn = null;
+  }
+
+  close() {
+    this.gen++;
+    this.stopTimer();
+    this.stop();
   }
 
   sendAction(name: string, payload?: unknown) {
@@ -112,8 +205,61 @@ export class RelayTransport implements RoomTransport {
   sendReaction(emoji: string) {
     this.conn?.sendReaction(emoji);
   }
+}
 
-  onMessage(fn: (m: RoomMessage) => void) {
-    this.listeners.add(fn);
+/**
+ * Host mode: the room runs on a player's device. The first player in the room
+ * hosts (runs the room engine); the server only relays messages.
+ */
+export class RelayTransport extends EngineTransport {
+  constructor(private url: string, private me: Identity, private packUrl: string, private eventsUrl?: string) {
+    super();
+  }
+
+  protected async open(gen: number) {
+    const { connectRelay } = await import("@snack/room/relay-client");
+    if (gen !== this.gen) return null;
+    return connectRelay({
+      url: this.url,
+      WebSocket,
+      me: this.me,
+      eventsUrl: this.eventsUrl,
+      onMessage: (m: RoomMessage) => {
+        if (gen !== this.gen) return;
+        if (m.t === "disconnected") this.fail(this.connState === "connected" ? "disconnected" : "unreachable");
+        else this.receive(m);
+      },
+      getPack: async (game: string, opts: { theme?: string }) => {
+        const q = new URLSearchParams({ game: game ?? "", theme: opts?.theme ?? "" });
+        const r = await fetch(`${this.packUrl}?${q}`).catch(() => null);
+        return r?.ok ? ((await r.json()).pack ?? null) : null;
+      },
+    });
+  }
+}
+
+/**
+ * Serverless room: players meet on an MQTT broker (one per deployment — see
+ * backend.ts BROKER_URL); one of them hosts the room engine.
+ */
+export class MeshTransport extends EngineTransport {
+  constructor(private me: Identity, private brokerUrl: string | undefined, private getPack: PackFn) {
+    super();
+  }
+
+  protected async open(gen: number) {
+    const [{ connectMesh }, { mqttBus }] = await Promise.all([import("@snack/room/mesh-client"), import("@snack/room/mqtt-bus")]);
+    if (gen !== this.gen) return null;
+    return connectMesh({
+      createBus: mqttBus({ room: this.me.slug, url: this.brokerUrl || undefined }),
+      me: this.me,
+      getPack: this.getPack,
+      onMessage: (m) => gen === this.gen && this.receive(m as RoomMessage),
+      onStatus: (s) => {
+        if (gen !== this.gen) return;
+        if (s.state === "failed") this.fail(s.reason ?? "broker");
+        else if (s.state === "connected") this.setConn("connected");
+      },
+    });
   }
 }

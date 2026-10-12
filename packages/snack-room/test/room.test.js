@@ -262,3 +262,72 @@ test("snapshot carries a tap race through a hand-over to the result", async () =
   assert.equal(b.v("sessionPhase"), "result");
   assert.deepEqual(b.v("leaderboard"), [2, 2]);
 });
+
+// ── variable stores (MP-05 · MP-07) ──
+const stateTo = (h, peer) => h.out.filter((m) => m.type === "state" && m.to === peer).at(-1)?.d.sharedState;
+
+test("MP-05: a late joiner gets the current round (content, counter) at once", async () => {
+  const pack = [{ a: "짜장", b: "짬뽕" }, { a: "여름", b: "겨울" }];
+  const h = harness({ pack, random: () => 0.99, defaults: { o0: 0, o1: 0 } });
+  [1, 2].forEach(h.join);
+  h.act(1, "start", { game: "balance", rounds: 2, roundMs: 5000 });
+  await h.advance(3000);
+  h.act(1, "vote", { option: "o0" });
+  h.join(3); // arrives mid-round
+  const s = stateTo(h, "p3");
+  assert.equal(s.sessionPhase, "play");
+  assert.deepEqual(s.roundContent, pack[0]);
+  assert.equal(s.roundNum, 1);
+  assert.equal(s.roundTotal, 2);
+  assert.deepEqual(s.votesByOption, { o0: 1, o1: 0 });
+  assert.deepEqual(s.roster, ["닉1", "닉2", "닉3"]);
+});
+
+test("MP-05: 눈치 배틀 votes stay hidden from a late joiner too", async () => {
+  const h = harness({ pack: [{ a: "x", b: "y" }], defaults: {} });
+  [1, 2].forEach(h.join);
+  h.act(1, "start", { game: "majority", mode: "guess", rounds: 1, roundMs: 5000 });
+  await h.advance(3000);
+  h.act(1, "vote", { option: "o1" });
+  h.join(3);
+  assert.notEqual(stateTo(h, "p3").votesByOption?.o1, 1);
+});
+
+test("MP-07: an eliminated player stays out after a reload (same anonId, new peer)", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "start", { mode: "nunchi" });
+  await h.advance(3000);
+  h.act(2, "tap");
+  h.act(3, "tap");
+  await h.advance(400);
+  assert.ok(h.out.some((m) => m.to === "p2" && m.d?.id === "iAmOut" && m.d.value === true));
+  // p2 reloads: leaves, comes back as a new peer with the same anonId
+  h.room.leave("p2");
+  h.room.join("p2b", { anonId: "a2", nick: "닉2" });
+  assert.equal(stateTo(h, "p2b").iAmOut, true);
+  assert.equal(h.room.stateFor("p1").sharedState.iAmOut, false); // others are still in
+  // the next game resets everyone
+  h.act(1, "lobby");
+  h.act(1, "start", { mode: "nunchi" });
+  await h.advance(0);
+  assert.equal(h.room.stateFor("p2b").sharedState.iAmOut, false);
+});
+
+test("per-player values survive snapshot → restore (host hand-over)", async () => {
+  const a = harness();
+  [1, 2, 3, 4].forEach(a.join);
+  a.act(1, "start", { mode: "nunchi" });
+  await a.advance(3000);
+  a.act(2, "tap");
+  a.act(3, "tap");
+  await a.advance(400);
+  const snap = JSON.parse(JSON.stringify(a.room.snapshot()));
+  const b = harness();
+  b.room.restore(snap, 0);
+  [1, 2, 3, 4].forEach(b.join);
+  assert.equal(stateTo(b, "p2").iAmOut, true);
+  assert.equal(stateTo(b, "p1").iAmOut, false);
+  assert.equal(stateTo(b, "p1").sessionPhase, "play");
+  assert.equal(stateTo(b, "p1").eliminatedCount, 2);
+});

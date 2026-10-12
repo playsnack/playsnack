@@ -35,9 +35,9 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
     <div style={shell}>
       <style>{CSS}</style>
       <div style={{ width: "100%", maxWidth: 380 }}>
-        <div style={brand}>SNACK · LIVE</div>
+        <div style={brand}>SNACK</div>
         <h1 style={{ fontFamily: TOKENS.font.display, fontSize: 22, fontWeight: 800, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 }}>닉네임을 정해주세요</h1>
-        <p style={{ color: C.inkMuted, margin: `0 0 ${S.s5}px`, fontSize: TOKENS.size.bodyMd }}>{SERVERLESS ? "같이 하는 방에서 이 이름으로 보여요." : "리더보드와 라이브 방에서 이 이름·사진으로 보여요."}</p>
+        <p style={{ color: C.inkMuted, margin: `0 0 ${S.s5}px`, fontSize: TOKENS.size.bodyMd }}>{SERVERLESS ? "같이 하는 방에서 이 이름으로 보여요." : "같이 하는 방에서 이 이름·사진으로 보여요."}</p>
 
         {/* selfie — block frame (square, 핀 꽂힌 폴라로이드 느낌). Needs the server to store it. */}
         {!SERVERLESS && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: S.s5 }}>
@@ -109,7 +109,7 @@ const shell: React.CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center",
   padding: "0 22px", font: `16px ${TOKENS.font.body}`,
 };
-const brand: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: 11, color: C.accent, letterSpacing: 1, textShadow: "0 0 10px rgba(217,255,0,0.5)" };
+const brand: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: 11, color: C.accent, letterSpacing: 1 };
 const avatarBtn: React.CSSProperties = {
   width: 96, height: 96, borderRadius: R.block, border: `${TOKENS.border.block}px solid ${C.borderBlock}`, boxShadow: blockShadow,
   background: C.surface, backgroundSize: "cover", backgroundPosition: "center",
@@ -117,7 +117,8 @@ const avatarBtn: React.CSSProperties = {
 };
 const input: React.CSSProperties = {
   flex: 1, minWidth: 0, background: C.surface2, border: `${TOKENS.border.block}px solid ${C.borderBlock}`, borderRadius: R.block,
-  padding: "15px 16px", color: C.ink, fontFamily: TOKENS.font.display, fontSize: TOKENS.size.bodyLg, fontWeight: 700, outline: "none",
+  // Body font: the pixel face is only for headings ≥22px (design system rule).
+  padding: "15px 16px", color: C.ink, fontFamily: TOKENS.font.body, fontSize: TOKENS.size.bodyLg, fontWeight: 700, outline: "none",
 };
 const diceBtn: React.CSSProperties = {
   background: C.surface, border: `${TOKENS.border.block}px solid ${C.borderBlock}`, borderRadius: R.block, boxShadow: blockShadow, width: 54,

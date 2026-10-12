@@ -1,12 +1,12 @@
 // The one place the player talks to "the backend". Two modes:
 //  - serverless (default): everything is static files + the browser — templates
-//    and content from ./data, rooms on a public MQTT broker with a player as host,
+//    and content from ./data, rooms on an MQTT broker (BROKER_URL) with a player as host,
 //    shared apps carried inside the link itself. Deployable to any static host.
 //  - server (VITE_SERVER_URL set): the snack-server API as before. "same-origin" =
 //    the server serves this build itself (what the oracle gate plays).
 import type { BiteDoc } from "@snack/bite";
 import { contentFor, parseContentUrl, type ContentData } from "@snack/content";
-import { RelayTransport, ServerTransport, type Identity, type RoomMessage, type RoomTransport } from "./roomTransport";
+import { MeshTransport, RelayTransport, ServerTransport, type Identity, type RoomTransport } from "./roomTransport";
 
 const SERVER_ENV = (import.meta.env.VITE_SERVER_URL as string | undefined) || "";
 export const SERVERLESS = !SERVER_ENV;
@@ -140,48 +140,14 @@ export async function getPack(game: string, opts: { theme?: string } = {}): Prom
 }
 
 // ── rooms ──
+// Serverless rooms meet on ONE broker per deployment: the room package default
+// (hivemq), or VITE_BROKER_URL set at build time (the gate points it at a local broker).
+// Never per client — players on different brokers would never meet.
+export const BROKER_URL = (import.meta.env.VITE_BROKER_URL as string | undefined) || undefined;
 export function createRoom(me: Identity, params: URLSearchParams): RoomTransport {
-  if (SERVERLESS) return new MeshTransport(me);
+  if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts));
   const ws = (SERVER_URL || location.origin).replace(/^http/, "ws");
   return params.has("host") ? new RelayTransport(`${ws}/relay`, me, `${SERVER_URL}/api/pack`, `${SERVER_URL}/api/events`) : new ServerTransport(`${ws}/ws`, me);
-}
-
-/** Serverless room: players meet on a public MQTT broker; one of them hosts. */
-class MeshTransport implements RoomTransport {
-  private conn: { sendAction(n: string, p: unknown, id: string): void; sendReaction(e: string): void; handoff(): void; close(): void } | null = null;
-  private listeners = new Set<(m: RoomMessage) => void>();
-  private closed = false;
-  private onHidden = () => {
-    if (document.visibilityState === "hidden") this.conn?.handoff();
-  };
-  constructor(private me: Identity) {}
-  connect() {
-    void Promise.all([import("@snack/room/mesh-client"), import("@snack/room/mqtt-bus")]).then(([{ connectMesh }, { mqttBus }]) => {
-      if (this.closed) return;
-      this.conn = connectMesh({
-        createBus: mqttBus({ room: this.me.slug }),
-        me: this.me,
-        getPack: (game, opts) => getPack(game, opts),
-        onMessage: (m) => this.listeners.forEach((fn) => fn(m as RoomMessage)),
-      });
-      document.addEventListener("visibilitychange", this.onHidden);
-    });
-  }
-  close() {
-    this.closed = true;
-    document.removeEventListener("visibilitychange", this.onHidden);
-    this.conn?.close();
-    this.conn = null;
-  }
-  sendAction(name: string, payload?: unknown) {
-    this.conn?.sendAction(name, payload, crypto.randomUUID());
-  }
-  sendReaction(emoji: string) {
-    this.conn?.sendReaction(emoji);
-  }
-  onMessage(fn: (m: RoomMessage) => void) {
-    this.listeners.add(fn);
-  }
 }
 
 // ── server-only features ──

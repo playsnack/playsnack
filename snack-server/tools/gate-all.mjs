@@ -3,27 +3,68 @@
 //   node snack-server/tools/gate-all.mjs            (content offline; oracle/sim if server up)
 //   node snack-server/tools/gate-all.mjs --battery  (also run gen-battery; needs OpenAI)
 // "되는 척" 금지: this is the single command that proves release quality (헌법 I).
+// Serverless steps (local lossy broker, never a public one) always run; server-mode
+// steps run only when a snack-server answers at SNACK_BASE.
 import { spawnSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import { isLocalBroker } from "../../packages/snack-room/tools/localBroker.js";
 
 const BASE = process.env.SNACK_BASE || `http://localhost:${process.env.PORT || 4399}`;
 const wantBattery = process.argv.includes("--battery");
+process.env.SNACK_BASE = BASE; // child gates (e2e-audit) read SNACK_BASE, not PORT
 
 async function serverUp() {
   try { const r = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(2000) }); return r.ok; }
   catch { return false; }
 }
 
-function run(name, cmd, args) {
+// The last JSON object a gate printed to stdout (the runGate envelope), or null.
+function lastJson(stdout) {
+  const s = stdout.trimEnd();
+  const i = s.lastIndexOf("\n{");
+  try { return JSON.parse(i === -1 ? s : s.slice(i + 1)); } catch { return null; }
+}
+
+// opts.env: extra environment (set explicitly — never rely on what the shell inherited).
+// opts.lossy: the step was asked for a lossy broker; the gate must PROVE drops happened
+//   via `{lossy, dropped, delivered}` (top level, or on a result item). Missing → warn only.
+function run(name, cmd, args, opts = {}) {
   process.stdout.write(`\n▶ ${name}: ${cmd} ${args.join(" ")}\n`);
-  const r = spawnSync(cmd, args, { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+  const r = spawnSync(cmd, args, { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { ...process.env, ...(opts.env || {}) } });
   const out = (r.stdout || "") + (r.stderr || "");
   // surface the gate's summary line
-  let summary = "";
-  try { const j = JSON.parse(out.trim().split("\n").filter((l) => l.startsWith("{")).pop()); summary = j.summary || ""; }
-  catch { summary = out.trim().split("\n").slice(-2).join(" "); }
-  const ok = r.status === 0;
+  const j = lastJson(r.stdout || "");
+  let summary = j?.summary || "";
+  if (!summary) {
+    const t = /ℹ pass (\d+)[\s\S]*ℹ fail (\d+)/.exec(out); // node --test
+    summary = t ? `${t[1]} pass, ${t[2]} fail` : out.trim().split("\n").slice(-2).join(" ");
+  }
+  let ok = r.status === 0;
+  if (opts.lossy) {
+    const info = j && (j.lossy !== undefined ? j : (j.results || []).find((x) => x && x.lossy !== undefined));
+    if (!info) console.log(`  ⚠  ${name} did not report {lossy, dropped, delivered} — drops not verified`);
+    else if (info.lossy !== true || !(info.dropped > 0)) { ok = false; summary += ` — lossy NOT proven (lossy=${info.lossy}, dropped=${info.dropped}, delivered=${info.delivered})`; }
+    else summary += ` [lossy: ${info.dropped} dropped / ${info.delivered} delivered]`;
+  }
   console.log(`  ${ok ? "✅ PASS" : "❌ FAIL"}  ${summary}`);
   return { name, ok, status: r.status, summary };
+}
+
+// No gate may talk to a public broker: broker overrides in the environment must be
+// local, and no gate tool may name a public broker host.
+function noPublicBroker() {
+  process.stdout.write(`\n▶ no-public-broker\n`);
+  const bad = [];
+  for (const k of ["SIM_BROKER", "VITE_BROKER_URL"]) if (process.env[k] && !isLocalBroker(process.env[k])) bad.push(`${k}=${process.env[k]}`);
+  const dir = new URL(".", import.meta.url);
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith(".mjs") || f === "gate-all.mjs") continue;
+    if (/broker\.(hivemq|emqx)|mosquitto\.org/.test(readFileSync(new URL(f, dir), "utf8"))) bad.push(`tools/${f} names a public broker`);
+  }
+  const ok = bad.length === 0;
+  const summary = ok ? "sims + oracle use a local broker only" : bad.join("; ");
+  console.log(`  ${ok ? "✅ PASS" : "❌ FAIL"}  ${summary}`);
+  return { name: "no-public-broker", ok, summary };
 }
 
 const up = await serverUp();
@@ -44,8 +85,22 @@ results.push(run("consistency", "node", ["snack-server/tools/check-consistency.m
 results.push(run("verify-layout", "node", ["snack-server/tools/verify-layout.mjs"]));
 // Engine unit tests (offline, always): runtime + layout engine.
 results.push(run("engine-tests", "pnpm", ["-s", "bite:test"]));
+// /api/ev telemetry function (offline, always): schema, limits, privacy, client.
+results.push(run("api-tests", "node", ["--test", "api/_test/"]));
+// "되는 척" 문구 검사 (offline, always): Q0 merge criterion = 0 hits (master-plan §4).
+results.push(run("honesty", "node", ["snack-server/tools/check-honesty.mjs"]));
+
+// Serverless (the deployed mode) — always: the sync sim and two real browsers, both on a
+// LOCAL broker in lossy mode (~5% drop, 50–300 ms jitter → reordering).
+results.push(noPublicBroker());
+// Lossy is set EXPLICITLY here (an inherited SIM_LOSSY=0 / ORACLE_DROP=0 must not
+// silently switch it off), and each step must prove drops happened (opts.lossy).
+const lossyEnv = { SIM_LOSSY: "1", ORACLE_DROP: "", ORACLE_MAX_DELAY: "" };
+results.push(run("serverless-sim", "node", ["snack-server/tools/multiclient-sim.mjs"], { env: { ...lossyEnv, SIM_MESH: "1" }, lossy: true }));
+results.push(run("serverless-oracle", "node", ["snack-server/tools/serverless-oracle.mjs"], { env: lossyEnv, lossy: true }));
 
 if (up) {
+  console.log(`\nℹ  server mode at ${BASE}: the player is rebuilt below — if the oracle answers "Cannot GET", (re)start snack-server AFTER this build (it only serves a dist that existed when it started).`);
   // The oracle plays the PROD build the server serves — rebuild it first so a
   // stale bundle (older engine than the templates) can never fake a result.
   // Server mode, same origin: the player the server serves talks to that server.
@@ -62,7 +117,9 @@ if (up) {
   if (wantBattery) results.push(run("gen-battery", "node", ["snack-server/tools/gen-battery.mjs"]));
   else console.log("\n⏭  gen-battery skipped (pass --battery + OpenAI key to run)");
 } else {
-  console.log(`\n⏭  oracle + multiclient-sim skipped (server not up at ${BASE}; run \`pnpm server:dev\` + \`pnpm player:build\`)`);
+  console.log(`\n⏭  server-mode steps skipped (no snack-server at ${BASE}): oracle, multiclient-sim (+host), host-handover.`);
+  console.log(`   To run them: VITE_SERVER_URL=same-origin pnpm player:build, THEN start snack-server (PORT=… pnpm server:dev) and re-run with SNACK_BASE/PORT.`);
+  console.log(`   Order matters: a server started before the build serves no player (oracle → 0/44 "Cannot GET").`);
 }
 
 const failed = results.filter((r) => !r.ok);

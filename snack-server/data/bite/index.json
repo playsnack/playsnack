@@ -117,7 +117,8 @@
     "avg": 0,
     "useCount": 0,
     "order": 14,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true
   },
   {
     "id": "game-simon",
@@ -237,7 +238,8 @@
     "avg": 0,
     "useCount": 0,
     "order": 22,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true
   },
   {
     "id": "race-tap",
@@ -252,7 +254,9 @@
     "avg": 0,
     "useCount": 1,
     "order": 24,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true,
+    "mergedInto": "tap-battle"
   },
   {
     "id": "race-trivia",
@@ -267,7 +271,9 @@
     "avg": 0,
     "useCount": 0,
     "order": 25,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true,
+    "mergedInto": "speed-trivia-score"
   },
   {
     "id": "race-reaction",
@@ -282,7 +288,9 @@
     "avg": 0,
     "useCount": 0,
     "order": 26,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true,
+    "mergedInto": "reaction-duel-score"
   },
   {
     "id": "coop-click",
@@ -342,7 +350,8 @@
     "avg": 0,
     "useCount": 0,
     "order": 32,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true
   },
   {
     "id": "worldcup-anime",
@@ -387,7 +396,8 @@
     "avg": 0,
     "useCount": 1,
     "order": 35,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true
   },
   {
     "id": "horse-race",
@@ -417,7 +427,8 @@
     "avg": 0,
     "useCount": 0,
     "order": 37,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true
   },
   {
     "id": "tap-battle",
@@ -613,7 +624,8 @@
     "avg": 0,
     "useCount": 0,
     "order": 50,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true
   },
   {
     "id": "worldcup-singer-f",
@@ -628,7 +640,8 @@
     "avg": 0,
     "useCount": 0,
     "order": 51,
-    "createdAt": 0
+    "createdAt": 0,
+    "hidden": true
   },
   {
     "id": "majority-guess",

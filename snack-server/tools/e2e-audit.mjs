@@ -9,6 +9,7 @@
 // Emits PASS / FAIL(reason) per template. No coordinate guessing, no "looks ok".
 //   Usage: node snack-server/tools/e2e-audit.mjs [id ...]
 import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
 
 const BASE = process.env.SNACK_BASE || "http://localhost:4399";
 const argv = process.argv.slice(2);
@@ -114,7 +115,9 @@ async function audit(page, id, doc) {
   return { id, verdict: issues.length ? "FAIL" : "PASS", reason: issues.join(" | ") };
 }
 
-const ids = argv.length ? argv : (await (await fetch(`${BASE}/api/templates`)).json()).templates.map((t) => t.id);
+// Templates merged into another (index.json `mergedInto`) only redirect old links.
+const merged = new Set(JSON.parse(readFileSync(new URL("../data/bite/index.json", import.meta.url), "utf8")).filter((t) => t.mergedInto).map((t) => t.id));
+const ids = argv.length ? argv : (await (await fetch(`${BASE}/api/templates`)).json()).templates.map((t) => t.id).filter((id) => !merged.has(id));
 const b = await chromium.launch();
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
 const results = [];
