@@ -97,8 +97,10 @@ const titleStyle: React.CSSProperties = {
   fontFamily: TOKENS.font.display, fontSize: 22, fontWeight: 800, lineHeight: 1.4, margin: `${S.s4}px 0 ${S.s2}px`, wordBreak: "keep-all",
 };
 const bodyStyle: React.CSSProperties = { color: C.inkMuted, fontSize: TOKENS.size.bodyMd, lineHeight: 1.5, margin: 0, wordBreak: "keep-all" };
-const homePos: React.CSSProperties = { position: "fixed", top: "calc(env(safe-area-inset-top, 0px) + 10px)", left: 12, zIndex: 40 };
-const chipPos: React.CSSProperties = { position: "fixed", top: "calc(env(safe-area-inset-top, 0px) + 10px)", right: 12, zIndex: 20, pointerEvents: "none" };
+// Offset by the notch inset like the canvas (BitePlayer), so the pills sit over
+// the same part of the app on every phone.
+const homePos: React.CSSProperties = { position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", left: 12, zIndex: 40 };
+const chipPos: React.CSSProperties = { position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", right: 12, zIndex: 20, pointerEvents: "none" };
 const dim: React.CSSProperties = {
   position: "fixed", inset: 0, zIndex: 30, background: "rgba(0,0,0,0.6)",
   display: "flex", alignItems: "flex-end", justifyContent: "center",
@@ -106,5 +108,5 @@ const dim: React.CSSProperties = {
 const sheet: React.CSSProperties = {
   width: "100%", maxWidth: 520, background: C.surface, color: C.ink, textAlign: "center",
   borderTop: `${TOKENS.border.heavy}px solid ${C.accent}`, borderRadius: R.block, boxShadow: blockShadow,
-  padding: `${S.s5}px 16px calc(env(safe-area-inset-bottom, 0px) + ${S.s5}px)`, font: `16px ${TOKENS.font.body}`,
+  padding: `${S.s5}px 16px calc(var(--snack-safe-bottom) + ${S.s5}px)`, font: `16px ${TOKENS.font.body}`,
 };
