@@ -12,7 +12,7 @@
 | `api/_lib/ratelimit.js` | 저장 없는 속도 제한 |
 | `api/_lib/apps.js` | 공식 앱 ID 목록(`snack-server/data/bite/index.json`) |
 | `api/_lib/day.js` | KST 날짜 |
-| `api/_test/*.test.js` | `node --test api/_test/` (19개) |
+| `api/_test/*.test.js` | `node --test api/_test/` (20개 · gate-all의 `api-tests` 단계) |
 | `snack-player/src/telemetry.ts` | 브라우저 클라이언트 |
 
 `_`로 시작하는 파일은 함수가 되지 않는다 — Vercel 문서 "Adding utility files to the /api directory": *"Vercel ignores … Files that start with an underscore"* (https://vercel.com/docs/functions/configuring-functions/advanced-configuration). 문서 문구는 "파일"이며 `_lib/` 같은 **디렉터리**에도 적용되는지는 문서에 명시가 없다(→ §8 미검증). 같은 문서는 공용 코드를 `api/` 밖에 두라고 권장한다; 소유 범위 때문에 `api/_lib`에 두었다. `vercel.json`은 건드리지 않았다(`framework: null`이면 루트 `api/`를 자동 인식 — 문서 "Vercel will deploy any file in the /api directory as a function").
@@ -38,7 +38,8 @@
 - 응답: `200 {ok, accepted, dropped}` · `413` 본문 >4096바이트(스트림도 4096에서 끊음) · `400` JSON 오류/`v≠1`/이벤트 >20개 · `429` 속도 제한(`rate_limited`/`daily_cap`) · `503` KV 실패 · `405` 기타 메서드.
 
 ### GET `/api/ev?day=YYYY-MM-DD`
-기본값 = 오늘(KST). 읽기 전용, 인스턴스 메모리 30초 캐시 + `cache-control: public, max-age=30, s-maxage=30`.
+기본값 = 오늘(KST). 읽기 전용, 인스턴스 메모리 **날짜별** 30초 캐시 + `cache-control: public, max-age=30, s-maxage=30`.
+받는 날짜는 보존 기간 안만: **오늘−90일 … 오늘+1일**(KST, +1은 시계가 앞선 클라이언트용). 그 밖(`1999-01-01`, `2999-01-01`…)은 `400 day_out_of_range`, 날짜 형식/달력 오류는 `400 bad_day` — 날짜를 바꿔 가며 캐시를 비켜 Upstash 명령을 무한히 쓰게 하는 길을 막는다(캐시 키 ≤ 92개).
 ```json
 { "ok": true, "v": 1, "day": "2026-10-12", "store": "kv", "appsKnown": 44, "total": 8,
   "counters": { "open": { "n": 2, "route": { "app": 1 }, "app": { "quiz-ox": 1 } },
@@ -56,13 +57,14 @@
 
 ## 4. 개인정보 보장 (마스터 플랜 §6)
 - 서버는 IP · UA · 쿠키 · 닉네임 · 기기/세션 ID를 **저장 · 기록 · 전송하지 않는다.** 저장되는 건 위 화이트리스트 카운터와 정화된 오류 문구뿐.
-- 오류 문구 정화(`sanitizeErr`): 따옴표 문자열 → `<str>`, URL → `<url>`, 이메일 → `<email>`, `key=value`의 값 → `=<v>`, `/`가 든 토큰(경로 · UA 제품 토큰) → `<path>`, 비ASCII(한글 닉네임 등) → `?`, 8자 이상 hex → `#`, 숫자 → `#`, 100자 제한.
+- 오류 문구 정화(`sanitizeErr`): 따옴표 문자열 → `<str>`, URL → `<url>`, 이메일 → `<email>`, `key=value`의 값 → `=<v>`, `/`가 든 토큰(경로 · UA 제품 토큰) → `<path>`, 비ASCII(한글 닉네임 등) → `?`, 8자 이상 hex → `#`, 글자+숫자 섞인 토큰(`user42`, `scott123`) → `?`, 숫자 → `#`, 100자 제한.
+- **닉네임의 정확한 보장:** 닉네임은 어떤 카운터 · 키 · 필드에도 들어가지 않는다(이벤트의 `nickname` 같은 필드는 읽지 않음). 유일한 자유 문자열인 오류 `msg`는 위 정화를 거치므로 한글이 하나라도 든 닉네임(기본 랜덤 닉 포함) · 따옴표로 감싼 닉 · 글자+숫자 닉은 항상 지워진다. 한계: **영문자만으로 된 닉네임**(예 `scott`)이 따옴표 없이 오류 문구에 섞이면 일반 단어와 구별할 수 없어 정화된 문구 안에 남을 수 있다 — 그 문구는 횟수만 세는 상위 20개 샘플이고, 클라이언트(`telemetry.ts`)는 `window.error` · `unhandledrejection`의 메시지만 보내며 닉네임을 문구에 넣는 코드는 없다(앱 코드가 닉을 넣어 `throw`하면 이 한계에 걸린다).
 - 클라이언트: 쿠키 · localStorage · ID 없음, fetch 대체 경로는 `credentials: 'omit'`. DNT · GPC가 켜져 있으면 강제 활성화(`enabled: true`)도 무시하고 꺼짐.
 - 테스트(`api/_test/privacy.test.js`): 가짜 IP · UA · 닉네임 · 쿠키 · 기기 ID를 헤더와 이벤트 필드 · 오류 문구에 넣어 보내고, **가짜 Upstash가 받은 URL · 헤더 · 명령 전부, 저장 내용, 메모리 저장소, 제한기 키, 콘솔 출력, GET 응답** 어디에도 없음을 확인. (이 테스트가 UA 문자열이 오류 문구에 섞이면 새는 문제를 실제로 잡았고, `<path>` · `=<v>` 규칙으로 고쳤다.)
 - 한계: `sendBeacon`은 브라우저 규칙상 같은 출처 쿠키를 붙일 수 있다 — 사이트가 쿠키를 만들지 않고 서버가 `Cookie` 헤더를 읽지 않는다. Vercel 플랫폼 자체의 요청 로그(IP 포함 가능)는 이 코드 밖이다(§8).
 
 ## 5. 속도 제한 (아무것도 저장 안 함)
-1. 클라이언트별 토큰 버킷(인스턴스 메모리): 키 = `SHA-256(인스턴스 랜덤 솔트 + KST날짜 + 주소)` 앞 24자. 주소(`x-vercel-forwarded-for` → `x-forwarded-for` 첫 값 → `x-real-ip`)는 메모리에서 해시만 하고 저장 · 기록하지 않는다. 날짜가 바뀌면 솔트 재생성 + 버킷 비움. 기본 버스트 20, 초당 0.5 충전(분당 30). 최대 1만 키.
+1. 클라이언트별 토큰 버킷(인스턴스 메모리): 키 = `SHA-256(인스턴스 랜덤 솔트 + KST날짜 + 주소)` 앞 24자. 주소(`x-vercel-forwarded-for` → `x-forwarded-for` 첫 값 → `x-real-ip`)는 메모리에서 해시만 하고 저장 · 기록하지 않는다. `x-vercel-forwarded-for`를 **그대로 신뢰**한다 — Vercel이 자기 프록시에서 채우는 헤더라 Vercel 위에서는 클라이언트가 위조할 수 없다(다른 호스팅으로 옮기면 이 헤더는 위조 가능 → 그 환경의 신뢰 헤더로 바꿔야 함). 날짜가 바뀌면 솔트 재생성 + 버킷 비움. 기본 버스트 20, 초당 0.5 충전(분당 30). 최대 1만 키.
 2. 인스턴스 분당 600요청.
 3. 일일 이벤트 상한 `EV_DAILY_CAP`(기본 20000): 쓰기마다 돌려받는 `_total`로 판단 → 넘으면 그날 `429 daily_cap`. 인스턴스별로 마지막 본 값을 쓰므로 약간 넘칠 수 있다.
 

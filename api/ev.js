@@ -1,15 +1,20 @@
 // /api/ev — anonymous product telemetry (Vercel function, Web-standard handler).
 //   POST {v:1, events:[{k,...}]}  -> counts whitelisted events into per-KST-day aggregates
-//   GET  ?day=YYYY-MM-DD          -> read-only aggregates (cached 30 s)
+//   GET  ?day=YYYY-MM-DD          -> read-only aggregates (cached 30 s; today-90 … today+1 only)
 // Never stores IP, user agent, nickname, cookies, device or session ids. See docs/telemetry.md.
-import { kstDay, isDay } from './_lib/day.js';
+import { kstDay, isDay, daysAgo } from './_lib/day.js';
 import { appIds } from './_lib/apps.js';
 import { MAX_BODY_BYTES, parseBatch } from './_lib/schema.js';
-import { createKvStore, createMemoryStore, kvConfig, StoreError, TOTAL_FIELD } from './_lib/store.js';
+import { createKvStore, createMemoryStore, kvConfig, StoreError, TOTAL_FIELD, TTL_SECONDS } from './_lib/store.js';
 import { createLimiter } from './_lib/ratelimit.js';
 
 const GET_CACHE_MS = 30_000;
 const TOP_ERRORS = 20;
+// Readable days: the retention window (keys expire after TTL_SECONDS) plus tomorrow
+// (a client clock ahead of KST). Anything else is 400 — so an attacker cannot
+// bypass the 30 s per-day cache with an unbounded stream of distinct days.
+const RETENTION_DAYS = TTL_SECONDS / 86_400;
+const FUTURE_DAYS = 1;
 
 function json(status, body, storeKind, extra = {}) {
   return new Response(JSON.stringify(body), {
@@ -118,6 +123,8 @@ export function createHandler(opts = {}) {
     const q = new URL(request.url).searchParams.get('day');
     const day = q === null || q === '' ? kstDay(t) : q;
     if (!isDay(day)) return json(400, { ok: false, error: 'bad_day' }, store.kind);
+    const age = daysAgo(day, t);
+    if (age > RETENTION_DAYS || age < -FUTURE_DAYS) return json(400, { ok: false, error: 'day_out_of_range' }, store.kind);
     const cacheKey = `${store.kind}|${day}`;
     const hit = getCache.get(cacheKey);
     let body = hit && t - hit.at < GET_CACHE_MS ? hit.body : null;

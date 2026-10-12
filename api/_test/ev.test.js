@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createHandler, handler as realHandler } from '../ev.js';
 import defaultExport from '../ev.js';
 import { sanitizeErr, msBucket } from '../_lib/schema.js';
-import { kstDay, isDay } from '../_lib/day.js';
+import { kstDay, isDay, daysAgo } from '../_lib/day.js';
 import { createLimiter } from '../_lib/ratelimit.js';
 
 const URL_EV = 'https://playsnack.test/api/ev';
@@ -95,7 +95,31 @@ test('rejections: 413 oversized, 400 bad json / wrong v / >20 events, 405 method
   assert.equal((await h(post({ v: 1, events: many.slice(0, 20) }))).status, 200);
   assert.equal((await h(new Request(URL_EV, { method: 'PUT', body: '{}' }))).status, 405);
   assert.equal((await h(get('?day=2026-13-40'))).status, 400);
-  assert.equal((await h(get('?day=2026-10-01'))).status, 200);
+  assert.equal((await h(get('?day=' + kstDay()))).status, 200);
+});
+
+test('GET day must be within retention: today-90 … today+1, else 400 day_out_of_range', async () => {
+  const t = Date.parse('2026-10-12T03:00:00Z'); // KST 2026-10-12 12:00
+  const h = createHandler({ env: memEnv, now: () => t });
+  const status = async (day) => {
+    const r = await h(get(`?day=${day}`));
+    return r.status === 200 ? 200 : `${r.status} ${(await r.json()).error}`;
+  };
+  assert.equal(await status('2026-10-12'), 200); // today
+  assert.equal(await status('2026-10-13'), 200); // tomorrow (client clock ahead)
+  assert.equal(await status('2026-07-14'), 200); // today-90 = last day a key can still exist
+  assert.equal(await status('2026-07-13'), '400 day_out_of_range');
+  assert.equal(await status('2026-10-14'), '400 day_out_of_range');
+  assert.equal(await status('1999-01-01'), '400 day_out_of_range');
+  assert.equal(await status('2999-01-01'), '400 day_out_of_range');
+  assert.equal(await status('2026-02-30'), '400 bad_day');
+  assert.equal(await status(''), 200); // default = today
+  // Each in-range day is cached on its own (second read within 30 s hits the cache).
+  const r1 = await h(get('?day=2026-10-11'));
+  assert.equal(r1.status, 200);
+  assert.equal((await r1.json()).day, '2026-10-11');
+  assert.equal(daysAgo('2026-10-11', t), 1);
+  assert.equal(daysAgo('2026-10-13', t), -1);
 });
 
 test('missing env -> in-memory fallback through the real exported handler', async () => {
@@ -172,6 +196,8 @@ test('helpers: sanitizer, buckets, KST day', () => {
   );
   assert.equal(sanitizeErr("Unexpected token '<' in JSON at position 17"), 'Unexpected token <str> in JSON at position #');
   assert.equal(sanitizeErr('chunk deadbeefcafe12 failed'), 'chunk # failed');
+  // Letter+digit handles (an ASCII nickname like scott123 / user_42) vanish; bare words stay.
+  assert.equal(sanitizeErr('player scott123 left, user_42 too, scott stays'), 'player ? left, ? too, scott stays');
   assert.ok(sanitizeErr('a'.repeat(500)).length <= 100);
   assert.doesNotMatch(sanitizeErr('오류 발생 🎉 ok'), /[^\x00-\x7f]/);
   assert.equal(msBucket(0), 'le100');
