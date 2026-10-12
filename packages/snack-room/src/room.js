@@ -179,13 +179,14 @@ export function createRoom(o) {
       setVar("eliminatedCount", S.eliminated.size);
       setVar("lastEvent", `💥 충돌! ${p.map((x) => x.nick).join(" · ")} 탈락`);
     }
-    const survivors = r.roster.size - S.eliminated.size;
-    if (survivors <= 1 || S.nunchiNum > 20) endNunchi();
+    if (nunchiAlive().length <= 1 || S.nunchiNum > 20) endNunchi();
   };
+  // Still in the game: here AND not knocked out (an eliminated player who left is neither).
+  const nunchiAlive = () => [...r.roster.entries()].filter(([id]) => !S.eliminated.has(id)).map(([, n]) => n);
   const endNunchi = () => {
     if (S.phase === "result") return;
     clearSessionTimers();
-    const alive = [...r.roster.entries()].filter(([id]) => !S.eliminated.has(id)).map(([, n]) => n);
+    const alive = nunchiAlive();
     const winner =
       alive.length === 0 ? "전멸 😂 아무도 못 살아남았어요" : alive.length === 1 ? `${alive[0]} 최후의 1인! 🏆` : `${alive.join(" · ")} 공동 생존 🎉`;
     setPhase("result", { nunchiWinner: winner });
@@ -454,7 +455,8 @@ export function createRoom(o) {
       const peer = r.peers.get(peerId);
       if (!peer) return r.peers.size === 0;
       r.peers.delete(peerId);
-      r.roster.delete(peer.anonId);
+      // A reload overlaps its old connection (same anonId): the person is still here.
+      if (![...r.peers.values()].some((p) => p.anonId === peer.anonId)) r.roster.delete(peer.anonId);
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
       setVar("rosterPhotos", rosterPhotosArr());

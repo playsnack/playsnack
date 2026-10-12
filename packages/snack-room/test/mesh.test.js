@@ -129,6 +129,43 @@ test("hand-off moves the host to the back; the old host keeps playing", async ()
   ps.forEach((p) => p.conn.close());
 });
 
+test("hand-off whose announcement is lost: the room still ends up with one host", async () => {
+  // The broker drops the hand-off heartbeat (the one carrying the snapshot) for everyone —
+  // the first three such messages, so a host that repeats itself gets through eventually.
+  const dropped = new Set();
+  const h = hub(5, (m) => {
+    if (m.t !== "here" || !m.snap || (dropped.size >= 3 && !dropped.has(m))) return false;
+    dropped.add(m);
+    return true;
+  });
+  const ps = [1, 2, 3].map((n) => player(h, "r", n));
+  await sleep(400);
+  const old = ps.find((p) => p.conn.isHost);
+  old.conn.handoff();
+  assert.equal(old.conn.isHost, false);
+  await sleep(FAST.silenceMs * 3);
+  assert.ok(dropped.size >= 1, `dropped ${dropped.size}`);
+  assert.equal(hosts(ps), 1, "someone hosts");
+  ps.find((p) => p !== old && !p.conn.isHost).act("tally", { delta: 1 });
+  assert.ok(await until(() => ps.every((p) => p.shared.coopTotal === 1), 1500), JSON.stringify(ps.map((p) => p.shared.coopTotal)));
+  ps.forEach((p) => p.conn.close());
+});
+
+test("a host that quietly stops hosting (heartbeats without a line) is replaced", async () => {
+  // Nothing from the old host carries a line any more and no new line ever arrives:
+  // peers must not wait for silence from a host that keeps beating.
+  const h = hub(5, (m) => m.t === "here" && m.snap);
+  const ps = [1, 2].map((n) => player(h, "r", n));
+  await sleep(400);
+  const old = ps.find((p) => p.conn.isHost);
+  const other = ps.find((p) => p !== old);
+  old.conn.handoff(); // its follow-up announcements are dropped too (they carry the snapshot)
+  assert.ok(await until(() => other.conn.isHost, FAST.silenceMs * 4), "the other player took over");
+  old.act("tally", { delta: 2 });
+  assert.ok(await until(() => ps.every((p) => p.shared.coopTotal === 2), 1500));
+  ps.forEach((p) => p.conn.close());
+});
+
 test("a frozen host is replaced, and steps down when it wakes up", async () => {
   const h = hub();
   const ps = [1, 2, 3].map((n) => player(h, "r", n));
@@ -315,6 +352,34 @@ test("an older batch arriving late never rolls a variable back", async () => {
   }
   bus.close();
   ps.forEach((p) => p.conn.close());
+});
+
+test("snapshots go out only when something changed, and carry only recent action ids", async () => {
+  const h = hub();
+  const realNow = Date.now;
+  let skew = 0;
+  Date.now = () => realNow() + skew;
+  try {
+    const ps = [1, 2].map((n) => player(h, "r", n, { timing: { ...FAST, silenceMs: 60000 } })); // the clock jumps below
+    await sleep(400);
+    const snaps = () => h.published.filter((m) => m.t === "snap");
+    const before = snaps().length;
+    await sleep(600); // ~10 beats in the lobby: nothing changes
+    assert.ok(snaps().length - before <= 1, `${snaps().length - before} snapshots while idle`);
+    const peer = ps.find((p) => !p.conn.isHost);
+    peer.act("tally", { delta: 1 });
+    await sleep(150);
+    assert.equal(snaps().length - before, 1, "a change → one snapshot");
+    assert.equal(snaps().at(-1).seen.length, 1);
+    skew = 20000; // long after any resend could still arrive
+    peer.act("tally", { delta: 1 });
+    await sleep(150);
+    assert.equal(snaps().at(-1).seen.length, 1, "the old id was forgotten");
+    assert.ok(snaps().at(-1).n > snaps().at(-2).n);
+    ps.forEach((p) => p.conn.close());
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test("a host from an older build (no acks): actions are sent once, never resent", async () => {

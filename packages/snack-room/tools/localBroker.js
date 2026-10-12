@@ -19,7 +19,7 @@ export const LOSSY_DEFAULT = { drop: 0.05, minDelay: 50, maxDelay: 300 };
 /**
  * @param {{port?: number, host?: string, lossy?: boolean | {drop?: number, minDelay?: number, maxDelay?: number}, refuse?: boolean, random?: () => number}} [o]
  *        refuse: answer every CONNECT with "server unavailable" (a broker that turns clients away)
- * @returns {Promise<{url: string, port: number, setLossy(l: boolean | object): void, stats: {delivered: number, dropped: number}, close(): Promise<void>}>}
+ * @returns {Promise<{url: string, port: number, setLossy(l: boolean | object): void, stats: {delivered: number, dropped: number, publishes: number, bytes: number, startedAt: number}, close(): Promise<void>}>}
  */
 export async function startLocalBroker({ port = 0, host = "127.0.0.1", lossy = false, refuse = false, random = Math.random } = {}) {
   const aedes = await Aedes.createBroker(
@@ -30,7 +30,9 @@ export async function startLocalBroker({ port = 0, host = "127.0.0.1", lossy = f
     mode = l ? { ...LOSSY_DEFAULT, ...(typeof l === "object" ? l : {}) } : null;
   };
   setLossy(lossy);
-  const stats = { delivered: 0, dropped: 0 };
+  // delivered/dropped: per-subscriber deliveries in lossy mode (evidence that loss happened);
+  // publishes/bytes: what clients published (payload bytes) — the room's broker load.
+  const stats = { delivered: 0, dropped: 0, publishes: 0, bytes: 0, startedAt: Date.now() };
   const wss = new WebSocketServer({ host, port, handleProtocols: (protocols) => (protocols.has("mqtt") ? "mqtt" : false) });
   const sockets = new Set();
 
@@ -74,6 +76,9 @@ export async function startLocalBroker({ port = 0, host = "127.0.0.1", lossy = f
         opts = { protocolVersion: packet.protocolVersion || 4 };
         inp.settings = opts;
         out.settings = opts;
+      } else if (packet.cmd === "publish") {
+        stats.publishes += 1;
+        stats.bytes += packet.payload.length;
       }
       stream.push(mqttPacket.generate(packet, opts));
     });

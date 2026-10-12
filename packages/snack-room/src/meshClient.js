@@ -8,13 +8,17 @@
 //   - newcomers are appended by the host
 //   - host leaves / goes silent → the next alive player in the line takes over
 //     with term+1 and the last snapshot it saw
-//   - host hands off (backgrounded) → moves itself to the back, term+1
+//   - host hands off (backgrounded) → moves itself to the back, term+1, and keeps
+//     announcing that line (with the snapshot) until the next host is heard
 //   - a host that wakes up after a freeze sees a higher term and steps down
+//   - a host whose heartbeats stop carrying a line (it stopped hosting, and its
+//     new line never arrived) is replaced like a silent one
 // Peers only accept room messages from the current host.
 //
 // Bus messages: {from, to?, t, ...}
-//   here {anonId, nick, ack, line?, term?} heartbeat (host includes line/term;
-//                                       ack:1 = "I acknowledge actions")
+//   here {anonId, nick, ack, line?, term?, snap?, seen?}
+//                                       heartbeat (host includes line/term; a handing-off
+//                                       host adds the snapshot; ack:1 = "I acknowledge actions")
 //   bye                                 leaving (also the MQTT last will)
 //   act {d, mid} / react {d}            player → host (to = host); acts are resent
 //                                       until the host acks `mid` (it de-dupes)
@@ -22,7 +26,10 @@
 //                                       BATCH_MS (public brokers drop bursts). `seq`
 //                                       rises per batch: an older batch arriving late
 //                                       never rolls a variable back.
-//   snap {term, snap, seen}             host → everyone: resumable room state
+//   snap {term, n, snap, seen}          host → everyone: resumable room state, only when it
+//                                       changed (and every few seconds regardless, in case
+//                                       one was lost); `n` rises per snapshot — an older
+//                                       one arriving late is ignored
 //   sync                                peer → host: "I never got the room state" (resend)
 //   (in a batch) mack {mid}             host → one peer: action received
 //   (in a batch) resync {sharedState, participants, mine}: host → everyone, for a few
@@ -34,7 +41,11 @@ const rand = () => Math.random().toString(36).slice(2, 10);
 const BATCH_MS = 60;
 const REPLAY_MAX_AGE_MS = 5000; // a queued action older than this is stale (e.g. a "start")
 const PENDING_MAX_AGE_MS = 10000; // stop resending an unacknowledged action after this
-const SEEN_MAX = 2000; // action ids a host remembers for de-duplication
+// Action ids a host remembers for de-duplication: a resend arrives within PENDING_MAX_AGE_MS,
+// so ids older than that are useless — only the recent ones ride in a snapshot.
+const SEEN_MAX = 2000;
+const SEEN_MAX_AGE_MS = PENDING_MAX_AGE_MS + 5000;
+const SNAP_REFRESH_MS = 5000; // an unchanged snapshot is republished this often (a lost one is repaired)
 
 // Within one batch only the last value of a broadcast variable matters.
 const coalesce = (items) => {
@@ -63,12 +74,13 @@ const coalesce = (items) => {
 export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => {}, onStatus = () => {}, timing = {}, engine: engineOpts = {}, debug = () => {} }) {
   const { discoveryMs = 1500, beatMs = 1000, silenceMs = 3500, snapshotMs = 400, resendMs = 700 } = timing;
   const myId = `${rand()}${rand()}`;
-  const peers = new Map(); // id → { anonId, nick, lastSeen, acks }
+  const peers = new Map(); // id → { anonId, nick, lastSeen, acks, idle, hosted }
   let line = [];
   let term = 0;
   let room = null; // engine while hosting
   let joined = new Set(); // peers joined into the engine
-  let lastSnap = null; // { snap, seen, at } — latest from the current host
+  let lastSnap = null; // { snap, seen, at, from?, n? } — latest from the current host
+  let handedOff = null; // { line, term, snap, seen, at } — my hand-off, announced until the next host is heard
   let ready = false; // discovery finished
   let closed = false;
   const outbox = []; // { d, mid, at } — my actions before a host is known
@@ -160,10 +172,21 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   let resyncLeft = 0;
   // Action ids this room already applied (carried in snapshots, so a resend after a
   // host change is not counted twice).
-  let seen = new Set();
+  let seen = new Map(); // mid → when it was applied
+  let seenN = 0; // ids remembered so far (forgetting old ones is not a change)
   const remember = (mid) => {
-    seen.add(mid);
-    if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value);
+    seen.set(mid, now());
+    seenN += 1;
+    if (seen.size > SEEN_MAX) seen.delete(seen.keys().next().value);
+  };
+  // The ids a next host still needs (recent enough to be resent) — older ones are forgotten.
+  const recentSeen = () => {
+    const cutoff = now() - SEEN_MAX_AGE_MS;
+    for (const [mid, at] of seen) {
+      if (at > cutoff) break; // insertion order = time order
+      seen.delete(mid);
+    }
+    return [...seen.keys()];
   };
   const resyncState = () => {
     const mine = {};
@@ -174,11 +197,23 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     return { sharedState: room.sharedState(), participants: joined.size, mine };
   };
   let snapTimer = null;
+  let snapN = 0;
+  let snapKey = null; // what the last published snapshot contained (time-relative fields aside)
+  let snapAt = 0;
+  // Times in a snapshot are relative to when it was taken (and a peer restores it by its
+  // age), so a snapshot whose only change is time passing says nothing new.
+  const timeless = (k, v) => (k === "remaining" || k === "roundStartAgo" || k === "goAtAgo" ? 0 : v);
   const pushSnapshot = () => {
     if (snapTimer || !room) return;
     snapTimer = setTimeout(() => {
       snapTimer = null;
-      if (room) pub({ t: "snap", term, snap: room.snapshot(), seen: [...seen] });
+      if (!room) return;
+      const snap = room.snapshot();
+      const key = JSON.stringify([snap, seenN], timeless);
+      if (key === snapKey && now() - snapAt < SNAP_REFRESH_MS) return;
+      snapKey = key;
+      snapAt = now();
+      pub({ t: "snap", term, n: ++snapN, snap, seen: recentSeen() });
     }, snapshotMs);
   };
   // A peer joins the engine only once its heartbeat told us who it is.
@@ -216,7 +251,9 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       },
     });
     joined = new Set();
-    seen = new Set(lastSnap?.seen ?? []);
+    handedOff = null;
+    seen = new Map((lastSnap?.seen ?? []).map((mid) => [mid, now()]));
+    snapKey = null;
     const takeover = Boolean(lastSnap);
     if (lastSnap) room.restore(lastSnap.snap, now() - lastSnap.at);
     tidyLine();
@@ -254,7 +291,16 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     line = next;
     return changed;
   };
-  const beat = () => pub({ t: "here", anonId: me.anonId, nick: me.nick, ack: 1, ...(room ? { line, term } : {}) });
+  // A handing-off host repeats the new line (with the snapshot — the next host can't get
+  // one without the other) on every beat until the next host is heard: a single lost
+  // announcement must not leave the room without a host.
+  const announce = () => (room ? { line, term } : handedOff ? { line: handedOff.line, term: handedOff.term, snap: handedOff.snap, seen: handedOff.seen } : {});
+  const beat = () => pub({ t: "here", anonId: me.anonId, nick: me.nick, ack: 1, ...announce() });
+  // A peer that was seen hosting, whose heartbeats stopped carrying a line: it no longer
+  // hosts. Two in a row, so a pre-hosting heartbeat delivered late (reordering) never
+  // triggers a takeover. A hand-off target that has not announced yet is not "quit".
+  const quit = (id) => Boolean(peers.get(id)?.hosted) && peers.get(id).idle >= 2;
+  let watched = null; // the host whose heartbeats are being watched for a line
 
   // ── my actions → the host ──
   const sendAct = (mid, d, at) => {
@@ -277,9 +323,14 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   const settle = () => {
     if (!ready || closed || !line.length) return;
     const h = host();
-    if (h && h !== myId && !alive().includes(h)) {
-      // The host left or went silent: the next alive player in the line takes over.
-      const next = line.find((id) => id === myId || alive().includes(id));
+    if (h !== watched) {
+      watched = h;
+      const p = peers.get(h);
+      if (p) p.idle = 0; // only heartbeats from now on count
+    }
+    if (h && h !== myId && (!alive().includes(h) || quit(h))) {
+      // The host left, went silent or stopped hosting: the next alive player in the line takes over.
+      const next = line.find((id) => id !== h && (id === myId || alive().includes(id)));
       if (next === myId) {
         term += 1;
         line = [myId, ...line.filter((id) => id !== myId && id !== h)];
@@ -310,6 +361,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     if (t > term || (t === term && l[0] < (line[0] ?? "~"))) {
       line = l.slice();
       term = t;
+      handedOff = null; // superseded
       debug("adopt", { line, term });
       return true;
     }
@@ -330,10 +382,13 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       p.anonId = String(m.anonId ?? p.anonId);
       p.nick = String(m.nick ?? p.nick);
       p.acks = Boolean(m.ack);
+      p.idle = m.line ? 0 : (p.idle ?? 0) + 1; // heartbeats in a row without a line
+      if (m.line?.[0] === from) p.hosted = true; // announces itself as host
     }
     const isNew = !peers.has(from);
     peers.set(from, p);
     if (m.t === "here") {
+      if (handedOff && m.line?.[0] === from && m.term >= handedOff.term) handedOff = null; // the next host is up
       if (m.line && adopt(m.line, m.term)) {
         if (m.snap) lastSnap = { snap: m.snap, seen: m.seen, at: now() }; // a hand-off
         if (!ready) return finishDiscovery(); // a host answered: no need to wait out discovery
@@ -342,11 +397,14 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
         if (room) settle(); // host: append + join the newcomer
         if (!ready) return;
       } else if (room && !joined.has(from)) settle(); // first heartbeat after an early act
+      else if (from === host() && quit(from)) settle(); // the host no longer hosts: take over now
       if (isNew && ready) beat(); // let the newcomer learn about me quickly
       return;
     }
     if (m.t === "snap") {
-      if (from === host() && m.term >= term) lastSnap = { snap: m.snap, seen: m.seen, at: now() };
+      if (from !== host() || m.term < term) return;
+      if (lastSnap?.from === from && lastSnap.n !== undefined && !(m.n > lastSnap.n)) return; // older, arriving late
+      lastSnap = { snap: m.snap, seen: m.seen, at: now(), from, n: m.n };
       return;
     }
     if (m.t === "batch") {
@@ -425,6 +483,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
         term = Math.max(term, 1);
       }
     }
+    if (handedOff && now() - handedOff.at > silenceMs) handedOff = null; // said it enough; silence rules now
     beat();
     settle();
     if (room) {
@@ -464,11 +523,11 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     handoff() {
       if (!room || alive().length === 0) return;
       flushBatch();
-      const snap = { snap: room.snapshot(), seen: [...seen] };
       term += 1;
       line = [...line.filter((id) => id !== myId && alive().includes(id)), myId];
-      beatAs(line, term, snap);
+      handedOff = { line: line.slice(), term, snap: room.snapshot(), seen: recentSeen(), at: now() };
       stopHosting();
+      beat(); // the new line + snapshot, repeated on every beat until the next host is heard
       onRole(false);
     },
     close() {
@@ -482,10 +541,4 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       bus.close();
     },
   };
-
-  // A handing-off host announces the new line once more (it no longer hosts),
-  // with the room snapshot in the same message — the next host can't get one without the other.
-  function beatAs(l, t, snap) {
-    pub({ t: "here", anonId: me.anonId, nick: me.nick, ack: 1, line: l, term: t, ...snap });
-  }
 }
