@@ -1,7 +1,9 @@
 // Host-action payload contract: what each room action (an app's `emit`) must
 // carry for room.js `action()` to act on it. Mirrors room.js exactly — the
-// drift test in test/actions.test.js runs every entry through the real
-// createRoom, so a change on either side that breaks the other fails there.
+// drift test packages/bite/test/contract.test.js runs every entry through the
+// real createRoom (and validates every template against this contract), so a
+// change on either side that breaks the other fails there. Documented in
+// docs/bite-format.md §6.1.
 //
 // Shape (consumed by @snack/bite validate(doc, { hostActions })):
 //   payload: "none"     — no payload is read (anything sent is ignored)
