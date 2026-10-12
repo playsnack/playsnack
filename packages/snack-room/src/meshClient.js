@@ -26,7 +26,10 @@
 //                                       BATCH_MS (public brokers drop bursts). `seq`
 //                                       rises per batch: an older batch arriving late
 //                                       never rolls a variable back.
-//   snap {term, snap, seen}             host → everyone: resumable room state
+//   snap {term, n, snap, seen}          host → everyone: resumable room state, only when it
+//                                       changed (and every few seconds regardless, in case
+//                                       one was lost); `n` rises per snapshot — an older
+//                                       one arriving late is ignored
 //   sync                                peer → host: "I never got the room state" (resend)
 //   (in a batch) mack {mid}             host → one peer: action received
 //   (in a batch) resync {sharedState, participants, mine}: host → everyone, for a few
@@ -38,7 +41,11 @@ const rand = () => Math.random().toString(36).slice(2, 10);
 const BATCH_MS = 60;
 const REPLAY_MAX_AGE_MS = 5000; // a queued action older than this is stale (e.g. a "start")
 const PENDING_MAX_AGE_MS = 10000; // stop resending an unacknowledged action after this
-const SEEN_MAX = 2000; // action ids a host remembers for de-duplication
+// Action ids a host remembers for de-duplication: a resend arrives within PENDING_MAX_AGE_MS,
+// so ids older than that are useless — only the recent ones ride in a snapshot.
+const SEEN_MAX = 2000;
+const SEEN_MAX_AGE_MS = PENDING_MAX_AGE_MS + 5000;
+const SNAP_REFRESH_MS = 5000; // an unchanged snapshot is republished this often (a lost one is repaired)
 
 // Within one batch only the last value of a broadcast variable matters.
 const coalesce = (items) => {
@@ -72,7 +79,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   let term = 0;
   let room = null; // engine while hosting
   let joined = new Set(); // peers joined into the engine
-  let lastSnap = null; // { snap, seen, at } — latest from the current host
+  let lastSnap = null; // { snap, seen, at, from?, n? } — latest from the current host
   let handedOff = null; // { line, term, snap, seen, at } — my hand-off, announced until the next host is heard
   let ready = false; // discovery finished
   let closed = false;
@@ -165,10 +172,21 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   let resyncLeft = 0;
   // Action ids this room already applied (carried in snapshots, so a resend after a
   // host change is not counted twice).
-  let seen = new Set();
+  let seen = new Map(); // mid → when it was applied
+  let seenN = 0; // ids remembered so far (forgetting old ones is not a change)
   const remember = (mid) => {
-    seen.add(mid);
-    if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value);
+    seen.set(mid, now());
+    seenN += 1;
+    if (seen.size > SEEN_MAX) seen.delete(seen.keys().next().value);
+  };
+  // The ids a next host still needs (recent enough to be resent) — older ones are forgotten.
+  const recentSeen = () => {
+    const cutoff = now() - SEEN_MAX_AGE_MS;
+    for (const [mid, at] of seen) {
+      if (at > cutoff) break; // insertion order = time order
+      seen.delete(mid);
+    }
+    return [...seen.keys()];
   };
   const resyncState = () => {
     const mine = {};
@@ -179,11 +197,23 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     return { sharedState: room.sharedState(), participants: joined.size, mine };
   };
   let snapTimer = null;
+  let snapN = 0;
+  let snapKey = null; // what the last published snapshot contained (time-relative fields aside)
+  let snapAt = 0;
+  // Times in a snapshot are relative to when it was taken (and a peer restores it by its
+  // age), so a snapshot whose only change is time passing says nothing new.
+  const timeless = (k, v) => (k === "remaining" || k === "roundStartAgo" || k === "goAtAgo" ? 0 : v);
   const pushSnapshot = () => {
     if (snapTimer || !room) return;
     snapTimer = setTimeout(() => {
       snapTimer = null;
-      if (room) pub({ t: "snap", term, snap: room.snapshot(), seen: [...seen] });
+      if (!room) return;
+      const snap = room.snapshot();
+      const key = JSON.stringify([snap, seenN], timeless);
+      if (key === snapKey && now() - snapAt < SNAP_REFRESH_MS) return;
+      snapKey = key;
+      snapAt = now();
+      pub({ t: "snap", term, n: ++snapN, snap, seen: recentSeen() });
     }, snapshotMs);
   };
   // A peer joins the engine only once its heartbeat told us who it is.
@@ -222,7 +252,8 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     });
     joined = new Set();
     handedOff = null;
-    seen = new Set(lastSnap?.seen ?? []);
+    seen = new Map((lastSnap?.seen ?? []).map((mid) => [mid, now()]));
+    snapKey = null;
     const takeover = Boolean(lastSnap);
     if (lastSnap) room.restore(lastSnap.snap, now() - lastSnap.at);
     tidyLine();
@@ -371,7 +402,9 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       return;
     }
     if (m.t === "snap") {
-      if (from === host() && m.term >= term) lastSnap = { snap: m.snap, seen: m.seen, at: now() };
+      if (from !== host() || m.term < term) return;
+      if (lastSnap?.from === from && lastSnap.n !== undefined && !(m.n > lastSnap.n)) return; // older, arriving late
+      lastSnap = { snap: m.snap, seen: m.seen, at: now(), from, n: m.n };
       return;
     }
     if (m.t === "batch") {
@@ -492,7 +525,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       flushBatch();
       term += 1;
       line = [...line.filter((id) => id !== myId && alive().includes(id)), myId];
-      handedOff = { line: line.slice(), term, snap: room.snapshot(), seen: [...seen], at: now() };
+      handedOff = { line: line.slice(), term, snap: room.snapshot(), seen: recentSeen(), at: now() };
       stopHosting();
       beat(); // the new line + snapshot, repeated on every beat until the next host is heard
       onRole(false);

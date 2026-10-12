@@ -354,6 +354,34 @@ test("an older batch arriving late never rolls a variable back", async () => {
   ps.forEach((p) => p.conn.close());
 });
 
+test("snapshots go out only when something changed, and carry only recent action ids", async () => {
+  const h = hub();
+  const realNow = Date.now;
+  let skew = 0;
+  Date.now = () => realNow() + skew;
+  try {
+    const ps = [1, 2].map((n) => player(h, "r", n, { timing: { ...FAST, silenceMs: 60000 } })); // the clock jumps below
+    await sleep(400);
+    const snaps = () => h.published.filter((m) => m.t === "snap");
+    const before = snaps().length;
+    await sleep(600); // ~10 beats in the lobby: nothing changes
+    assert.ok(snaps().length - before <= 1, `${snaps().length - before} snapshots while idle`);
+    const peer = ps.find((p) => !p.conn.isHost);
+    peer.act("tally", { delta: 1 });
+    await sleep(150);
+    assert.equal(snaps().length - before, 1, "a change → one snapshot");
+    assert.equal(snaps().at(-1).seen.length, 1);
+    skew = 20000; // long after any resend could still arrive
+    peer.act("tally", { delta: 1 });
+    await sleep(150);
+    assert.equal(snaps().at(-1).seen.length, 1, "the old id was forgotten");
+    assert.ok(snaps().at(-1).n > snaps().at(-2).n);
+    ps.forEach((p) => p.conn.close());
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 test("a host from an older build (no acks): actions are sent once, never resent", async () => {
   const h = hub();
   const old = h.createBus("0-old-host"); // sorts first → founds the room
