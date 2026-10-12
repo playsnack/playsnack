@@ -4,7 +4,7 @@
 //  3. interaction — real pointer taps drive the runtime; drag scrolls
 // Needs `pnpm player:dev` on :5290.  Usage: node snack-server/tools/bite-browser-check.mjs [outDir]
 import { chromium } from "playwright";
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync, readdirSync } from "node:fs";
 import { createBite } from "../../packages/bite/src/index.js";
 import { initLayout, computeScene, absBoxes } from "../../packages/bite-layout/src/index.js";
 
@@ -125,6 +125,25 @@ await page.screenshot({ path: `${outDir}/showcase-after.png` });
 await open("gradients");
 await parity("gradients");
 await page.screenshot({ path: `${outDir}/gradients.png` });
+
+// ── every other dev example ─────────────────────────────────────────────────
+// Each remaining public/bite/*.bite.json must open on the dev route, validate
+// (the player refuses an invalid doc) and lay out identically in the browser.
+const covered = new Set(["reaction", "showcase", "gradients"]);
+const examples = readdirSync(new URL("../../snack-player/public/bite/", import.meta.url))
+  .filter((f) => f.endsWith(".bite.json"))
+  .map((f) => f.slice(0, -".bite.json".length))
+  .filter((n) => !covered.has(n));
+for (const name of examples) {
+  const before = errors.length;
+  try {
+    await open(name);
+    await parity(name);
+  } catch (e) {
+    check(`${name}: opens on ?bite=`, false, String(e.message).split("\n")[0]);
+  }
+  if (errors.length > before) check(`${name}: no page errors`, false, errors.slice(before).join(" | ").slice(0, 200));
+}
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 await browser.close();
