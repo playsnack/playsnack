@@ -8,6 +8,10 @@
   "main": "./src/room.js",
   "exports": {
     ".": "./src/room.js",
+    "./actions": {
+      "types": "./src/actions.d.ts",
+      "default": "./src/actions.js"
+    },
     "./relay-client": {
       "types": "./src/relayClient.d.ts",
       "default": "./src/relayClient.js"

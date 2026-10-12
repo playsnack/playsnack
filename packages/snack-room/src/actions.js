@@ -1,0 +1,64 @@
+// Host-action payload contract: what each room action (an app's `emit`) must
+// carry for room.js `action()` to act on it. Mirrors room.js exactly — the
+// drift test in test/actions.test.js runs every entry through the real
+// createRoom, so a change on either side that breaks the other fails there.
+//
+// Shape (consumed by @snack/bite validate(doc, { hostActions })):
+//   payload: "none"     — no payload is read (anything sent is ignored)
+//            "object"   — a JSON object with `fields`
+//   number:  true       — a bare number is also accepted (start: duration ms)
+//   fields:  { key: { type, required?, enum?, text? } }
+//            type ∈ "string" | "number" | "boolean"; an array = any of them
+//            text: true  — free text (a content/game id), so a string that
+//                          happens to equal a variable name only warns
+
+/** @type {import("./actions").HostActions} */
+export const HOST_ACTIONS = Object.freeze({
+  // r.voters.set(anonId, String(payload.option)); dropped when option == null
+  vote: {
+    payload: "object",
+    fields: { option: { type: ["string", "number"], required: true } },
+    description: "cast / change this player's vote — option key such as \"o0\"",
+  },
+  // r.coop += Number(payload.delta) (non-finite → +1)
+  tally: {
+    payload: "object",
+    fields: { delta: { type: "number" } },
+    description: "add to the shared co-op total (default +1)",
+  },
+  // Number(payload.score) must be finite, else the action is dropped (no ack)
+  score: {
+    payload: "object",
+    fields: { score: { type: "number", required: true } },
+    description: "submit this player's score (best one is kept on the leaderboard)",
+  },
+  // payload unused: tap race +1 / nunchi claim / reaction tap, by session mode
+  tap: { payload: "none", description: "one tap in the running session (race · nunchi · reaction)" },
+  // Number(payload.option) === round.answer (0-based choice index)
+  answer: {
+    payload: "object",
+    fields: { option: { type: "number", required: true } },
+    description: "quiz answer — 0-based choice index",
+  },
+  // startSession(payload): a bare number = { duration }; getPack(game, opts) reads theme
+  start: {
+    payload: "object",
+    number: true,
+    fields: {
+      duration: { type: "number" },
+      game: { type: "string", text: true },
+      theme: { type: "string", text: true },
+      mode: { type: "string", enum: ["reaction", "nunchi", "guess"] },
+      bracket: { type: "boolean" },
+      quiz: { type: "boolean" },
+      rounds: { type: "number" },
+      roundMs: { type: "number" },
+      answerMs: { type: "number" },
+      revealMs: { type: "number" },
+      matchupMs: { type: "number" },
+    },
+    description: "start a synced session (countdown 3·2·1 → play → result)",
+  },
+  // payload unused: back to the lobby
+  lobby: { payload: "none", description: "end the session and return to the lobby" },
+});
