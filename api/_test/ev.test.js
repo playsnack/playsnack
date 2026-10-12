@@ -1,0 +1,185 @@
+// node --test api/_test/
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createHandler, handler as realHandler } from '../ev.js';
+import defaultExport from '../ev.js';
+import { sanitizeErr, msBucket } from '../_lib/schema.js';
+import { kstDay, isDay } from '../_lib/day.js';
+import { createLimiter } from '../_lib/ratelimit.js';
+
+const URL_EV = 'https://playsnack.test/api/ev';
+const post = (body, headers = {}) =>
+  new Request(URL_EV, {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain;charset=UTF-8', ...headers },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+const get = (q = '') => new Request(URL_EV + q);
+const memEnv = {}; // no KV vars -> memory store
+
+test('default export is a Vercel fetch handler wired to the real handler', () => {
+  assert.equal(typeof defaultExport.fetch, 'function');
+  assert.equal(defaultExport.fetch, realHandler);
+});
+
+test('valid batch is counted, invalid events dropped, unknown fields ignored', async () => {
+  const h = createHandler({ env: memEnv });
+  const res = await h(
+    post({
+      v: 1,
+      events: [
+        { k: 'open', route: 'app', app: 'quiz-ox', extra: 'ignored' },
+        { k: 'open', route: 'home' },
+        { k: 'open', route: 'nope' }, // bad value -> dropped
+        { k: 'first_tap', ms: 730, app: 'quiz-ox' },
+        { k: 'first_tap', ms: -5 }, // bad ms -> dropped
+        { k: 'result', app: 'not-an-official-app' }, // -> app "other"
+        { k: 'share', method: 'kakao', app: 'worldcup-food' },
+        { k: 'share', method: 'fax' }, // dropped
+        { k: 'room_join', ok: true, ms: 1500 },
+        { k: 'room_join', ok: false },
+        { k: 'room_join', ok: 'yes' }, // dropped
+        { k: 'err', msg: 'TypeError: x is undefined', where: 'BitePlayer', build: 'a1b2c3d' },
+        { k: 'telemetry_of_doom' }, // unknown kind -> dropped
+        'not an object',
+      ],
+    }),
+  );
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-ev-store'), 'memory');
+  assert.deepEqual(await res.json(), { ok: true, accepted: 8, dropped: 6 });
+
+  const g = await h(get());
+  assert.equal(g.status, 200);
+  assert.equal(g.headers.get('x-ev-store'), 'memory');
+  assert.match(g.headers.get('cache-control'), /max-age=30/);
+  const a = await g.json();
+  assert.equal(a.day, kstDay());
+  assert.equal(a.total, 8);
+  assert.equal(a.appsKnown, 44);
+  const c = a.counters;
+  assert.equal(c.open.n, 2);
+  assert.deepEqual(c.open.route, { app: 1, home: 1 });
+  assert.deepEqual(c.open.app, { 'quiz-ox': 1 });
+  assert.equal(c.first_tap.n, 1);
+  assert.deepEqual(c.first_tap_ms, { le1000: 1 });
+  assert.deepEqual(c.result.app, { other: 1 });
+  assert.deepEqual(c.share.method, { kakao: 1 });
+  assert.equal(c.room_join.ok, 1);
+  assert.equal(c.room_join.fail, 1);
+  assert.deepEqual(c.room_join_ms, { ok: { le2000: 1 } });
+  assert.deepEqual(c.err.where, { BitePlayer: 1 });
+  assert.deepEqual(a.errors.top, [{ msg: 'TypeError: x is undefined', count: 1 }]);
+  assert.equal(c.telemetry_of_doom, undefined);
+});
+
+test('rejections: 413 oversized, 400 bad json / wrong v / >20 events, 405 method', async () => {
+  const h = createHandler({ env: memEnv });
+  const big = JSON.stringify({ v: 1, events: [{ k: 'err', msg: 'x'.repeat(5000) }] });
+  assert.equal((await h(post(big))).status, 413);
+  // Also enforced when the client lies about content-length (streamed body).
+  const stream = new ReadableStream({
+    start(c) {
+      c.enqueue(new TextEncoder().encode(big));
+      c.close();
+    },
+  });
+  assert.equal((await h(new Request(URL_EV, { method: 'POST', body: stream, duplex: 'half' }))).status, 413);
+  assert.equal((await h(post('{not json'))).status, 400);
+  assert.equal((await h(post({ v: 2, events: [] }))).status, 400);
+  assert.equal((await h(post({ v: 1 }))).status, 400);
+  const many = Array.from({ length: 21 }, () => ({ k: 'result' }));
+  const r = await h(post({ v: 1, events: many }));
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, 'too_many_events');
+  assert.equal((await h(post({ v: 1, events: many.slice(0, 20) }))).status, 200);
+  assert.equal((await h(new Request(URL_EV, { method: 'PUT', body: '{}' }))).status, 405);
+  assert.equal((await h(get('?day=2026-13-40'))).status, 400);
+  assert.equal((await h(get('?day=2026-10-01'))).status, 200);
+});
+
+test('missing env -> in-memory fallback through the real exported handler', async () => {
+  for (const k of ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']) {
+    delete process.env[k];
+  }
+  const res = await realHandler(post({ v: 1, events: [{ k: 'open', route: 'create' }] }));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-ev-store'), 'memory');
+  const after = await realHandler(get('?day=' + kstDay()));
+  assert.equal(after.headers.get('x-ev-store'), 'memory');
+  const a = await after.json();
+  assert.equal(a.store, 'memory');
+  assert.ok(a.counters.open.route.create >= 1);
+});
+
+test('rate limits: per-client bucket, per-instance minute cap, daily cap', async () => {
+  let t = Date.parse('2026-10-12T03:00:00Z');
+  const lim = createLimiter({ bucketSize: 3, refillPerSec: 0, minuteCap: 1000, dailyCap: 5 });
+  const h = createHandler({ env: memEnv, limiter: lim, now: () => t });
+  const a = { 'x-forwarded-for': '203.0.113.7' };
+  const b = { 'x-forwarded-for': '198.51.100.9' };
+  const one = { v: 1, events: [{ k: 'result' }, { k: 'result' }] };
+  assert.equal((await h(post(one, a))).status, 200);
+  assert.equal((await h(post(one, a))).status, 200);
+  assert.equal((await h(post(one, a))).status, 200); // total now 6 >= cap 5
+  const r = await h(post(one, a));
+  assert.equal(r.status, 429);
+  assert.equal((await r.json()).error, 'rate_limited');
+  const d = await h(post(one, b)); // other client still has tokens, but daily cap is reached
+  assert.equal(d.status, 429);
+  assert.equal((await d.json()).error, 'daily_cap');
+
+  const lim2 = createLimiter({ bucketSize: 100, minuteCap: 2 });
+  const h2 = createHandler({ env: memEnv, limiter: lim2, now: () => t });
+  assert.equal((await h2(post(one, a))).status, 200);
+  assert.equal((await h2(post(one, b))).status, 200);
+  assert.equal((await h2(post(one, b))).status, 429);
+  t += 60_000;
+  assert.equal((await h2(post(one, b))).status, 200);
+});
+
+test('EV_DAILY_CAP env is honoured', async () => {
+  const h = createHandler({ env: { EV_DAILY_CAP: '3' } });
+  const ev = { v: 1, events: [{ k: 'result' }, { k: 'result' }] };
+  assert.equal((await h(post(ev))).status, 200);
+  assert.equal((await h(post(ev))).status, 200);
+  assert.equal((await h(post(ev))).status, 429);
+});
+
+test('KV failure -> 503 with x-ev-store: kv', async () => {
+  const h = createHandler({
+    env: { KV_REST_API_URL: 'https://kv.test', KV_REST_API_TOKEN: 't' },
+    fetch: async () => new Response('nope', { status: 500 }),
+  });
+  const r = await h(post({ v: 1, events: [{ k: 'result' }] }));
+  assert.equal(r.status, 503);
+  assert.equal(r.headers.get('x-ev-store'), 'kv');
+  const r2 = await h(get());
+  assert.equal(r2.status, 503);
+  const h3 = createHandler({
+    env: { UPSTASH_REDIS_REST_URL: 'https://kv.test', UPSTASH_REDIS_REST_TOKEN: 't' },
+    fetch: async () => {
+      throw new TypeError('network down');
+    },
+  });
+  assert.equal((await h3(post({ v: 1, events: [{ k: 'result' }] }))).status, 503);
+});
+
+test('helpers: sanitizer, buckets, KST day', () => {
+  assert.equal(
+    sanitizeErr('Cannot read "닉네임" of user 김철수 (id 123456, mail kim@example.com) at https://playsnack.vercel.app/p/abc?x=1'),
+    'Cannot read <str> of user ? (id #, mail <email>) at <url>',
+  );
+  assert.equal(sanitizeErr("Unexpected token '<' in JSON at position 17"), 'Unexpected token <str> in JSON at position #');
+  assert.equal(sanitizeErr('chunk deadbeefcafe12 failed'), 'chunk # failed');
+  assert.ok(sanitizeErr('a'.repeat(500)).length <= 100);
+  assert.doesNotMatch(sanitizeErr('오류 발생 🎉 ok'), /[^\x00-\x7f]/);
+  assert.equal(msBucket(0), 'le100');
+  assert.equal(msBucket(2000), 'le2000');
+  assert.equal(msBucket(2001), 'le4000');
+  assert.equal(msBucket(99999), 'gt30000');
+  assert.equal(kstDay(Date.parse('2026-10-12T14:59:59Z')), '2026-10-12');
+  assert.equal(kstDay(Date.parse('2026-10-12T15:00:00Z')), '2026-10-13');
+  assert.ok(isDay('2024-02-29'));
+  assert.ok(!isDay('2026-02-29'));
+});
