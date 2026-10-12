@@ -7,11 +7,30 @@ import { connectRelay } from "@snack/room/relay-client";
 import { connectMesh } from "@snack/room/mesh-client";
 import { mqttBus } from "@snack/room/mqtt-bus";
 import { readFileSync } from "node:fs";
+import { startLocalBroker, isLocalBroker } from "../../packages/snack-room/tools/localBroker.js";
 
 const PORT = process.env.PORT || 4399;
 export const RELAY = Boolean(process.env.SIM_RELAY);
-// SIM_MESH=1 → serverless: clients meet on a public MQTT broker, no snack-server at all.
+// SIM_MESH=1 → serverless: clients meet on an MQTT broker, no snack-server at all.
+// Always a LOCAL broker (started here, lossy unless SIM_LOSSY=0) — a gate never
+// touches a public broker; SIM_BROKER may point at another local one.
 export const MESH = Boolean(process.env.SIM_MESH);
+let localBroker = null;
+/** Mesh mode: make sure SIM_BROKER is a local broker (start one if unset). Call before any SimClient. */
+export async function prepareMesh() {
+  if (!MESH) return null;
+  if (process.env.SIM_BROKER) {
+    if (!isLocalBroker(process.env.SIM_BROKER)) throw new Error(`SIM_BROKER must be a local broker, not ${process.env.SIM_BROKER}`);
+    return null;
+  }
+  localBroker = await startLocalBroker({ lossy: process.env.SIM_LOSSY !== "0" });
+  process.env.SIM_BROKER = localBroker.url;
+  return localBroker;
+}
+export async function stopMesh() {
+  await localBroker?.close();
+  localBroker = null;
+}
 const staticPack = async (game) => {
   try { return JSON.parse(readFileSync(new URL(`../data/multi-content/${game}.json`, import.meta.url), "utf8")); } catch { return null; }
 };
@@ -41,8 +60,10 @@ export class SimClient {
       }
     };
     if (MESH) {
+      const url = process.env.SIM_BROKER;
+      if (!url || !isLocalBroker(url)) throw new Error(`mesh sim needs a local broker (call prepareMesh first), got ${url}`);
       this.relay = connectMesh({
-        createBus: mqttBus({ room: slug, url: process.env.SIM_BROKER || undefined }),
+        createBus: mqttBus({ room: slug, url }),
         me: { slug, anonId, nick: this.nick ?? "" },
         onMessage,
         getPack: staticPack,
