@@ -11,6 +11,7 @@ import { isLocalBroker } from "../../packages/snack-room/tools/localBroker.js";
 
 const BASE = process.env.SNACK_BASE || `http://localhost:${process.env.PORT || 4399}`;
 const wantBattery = process.argv.includes("--battery");
+process.env.SNACK_BASE = BASE; // child gates (e2e-audit) read SNACK_BASE, not PORT
 
 async function serverUp() {
   try { const r = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(2000) }); return r.ok; }
