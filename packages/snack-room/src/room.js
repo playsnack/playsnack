@@ -34,8 +34,8 @@ const buildMatchups = (cands) => {
  */
 export function createRoom(o) {
   const {
-    broadcast,
-    send,
+    broadcast: broadcastOut,
+    send: sendOut,
     defaults = {},
     voters = new Map(),
     onVotersChanged = () => {},
@@ -58,8 +58,28 @@ export function createRoom(o) {
     nicks: new Map(), // anonId → nick (score owner names)
     session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0 },
     destroyed: false,
+    // Variable stores — what a (re)joining player needs to see the room as it is:
+    vars: new Map(), // shared: id → latest broadcast value (round content too)
+    mine: new Map(), // per player: anonId → Map(id → value) sent only to them (e.g. iAmOut)
   };
   const S = r.session;
+  // Every outgoing setVar also lands in a store, so join/resync can resend it.
+  const broadcast = (t, d) => {
+    if (t === "setVar") {
+      r.vars.set(d.id, d.value);
+      for (const own of r.mine.values()) own.delete(d.id); // a broadcast overrides per-player values
+    }
+    broadcastOut(t, d);
+  };
+  const send = (peerId, t, d) => {
+    const peer = r.peers.get(peerId);
+    if (t === "setVar" && peer) {
+      let own = r.mine.get(peer.anonId);
+      if (!own) r.mine.set(peer.anonId, (own = new Map()));
+      own.set(d.id, d.value);
+    }
+    sendOut(peerId, t, d);
+  };
   const setVar = (id, value) => broadcast("setVar", { id, value });
   const shuffled = (a) => {
     const x = [...a];
@@ -423,7 +443,7 @@ export function createRoom(o) {
       r.peers.set(peerId, { anonId, nick });
       r.roster.set(anonId, cleanNick(nick) || "게스트");
       r.nicks.set(anonId, cleanNick(nick) || "게스트");
-      send(peerId, "state", { sharedState: this.sharedState(), participants: r.peers.size });
+      send(peerId, "state", this.stateFor(peerId));
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
       setVar("rosterPhotos", rosterPhotosArr());
@@ -447,17 +467,28 @@ export function createRoom(o) {
       const e = String(emoji ?? "").slice(0, 8);
       if (e) broadcast("reaction", { emoji: e });
     },
+    /** Shared variables: computed defaults, then every value broadcast so far. */
     sharedState() {
       return {
         votesByOption: tally(),
         coopTotal: r.coop,
         leaderboard: board(),
-        roster: rosterArr(),
-        rosterPhotos: rosterPhotosArr(),
         sessionPhase: S.phase,
         sessionCountdown: S.num,
         raceBoard: raceBoard(),
+        ...Object.fromEntries(r.vars), // e.g. a hidden 눈치 배틀 tally stays as last shown
+        roster: rosterArr(),
+        rosterPhotos: rosterPhotosArr(),
       };
+    },
+    /** Values sent to this player only (keyed by anonId — survives a reload). */
+    playerVars(peerId) {
+      const peer = r.peers.get(peerId);
+      return Object.fromEntries((peer && r.mine.get(peer.anonId)) || []);
+    },
+    /** What a joining / resyncing player gets: shared state + its own values. */
+    stateFor(peerId) {
+      return { sharedState: { ...this.sharedState(), ...this.playerVars(peerId) }, participants: r.peers.size };
     },
     get size() {
       return r.peers.size;
@@ -475,6 +506,8 @@ export function createRoom(o) {
         coop: r.coop,
         scores: [...r.scores],
         nicks: [...r.nicks],
+        vars: [...r.vars],
+        mine: [...r.mine].map(([anonId, own]) => [anonId, [...own]]),
         session: {
           ...rest,
           answered: answered ? [...answered] : undefined,
@@ -497,6 +530,8 @@ export function createRoom(o) {
       r.coop = snap.coop;
       r.scores = new Map(snap.scores);
       r.nicks = new Map(snap.nicks);
+      r.vars = new Map(snap.vars ?? []);
+      r.mine = new Map((snap.mine ?? []).map(([anonId, own]) => [anonId, new Map(own)]));
       const { answered, eliminated, reacted, pending, roundStartAgo, goAtAgo, ...rest } = snap.session;
       Object.assign(S, rest, { timers: [] });
       if (answered) S.answered = new Set(answered);
