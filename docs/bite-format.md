@@ -220,6 +220,22 @@ jsep 기반의 JS 식 부분집합.
 - 서버가 쓰는 변수도 `vars`에 선언해야 한다(초기값 = 서버 응답 전 표시값). 선언 안 된 키는 무시.
 - 멀티 앱의 페이즈 동기화는 서버가 변수(예: `session`)를 쓰고, 앱이 `tick`에서 `if` → `go`로 따라가는 방식.
 
+### 6.1 방 액션 페이로드 계약 (`@snack/room/actions`)
+`emit`의 `name`이 방 액션이면 `payload`는 방 엔진(`packages/snack-room/src/room.js`)이 읽는 모양이어야 한다 — 틀리면 방은 조용히 버린다(ack 없음). 계약의 단일 소스는 `packages/snack-room/src/actions.js`의 `HOST_ACTIONS`이고, `validate(doc, { hostActions: HOST_ACTIONS })`가 문서를 그 계약에 대조한다(§8). 계약과 방 엔진이 어긋나면 `packages/bite/test/contract.test.js`가 잡는다(모든 항목을 실제 `createRoom`에 통과시키고, 공식 템플릿 전부를 계약으로 검증).
+
+| 액션 | 페이로드 | 필드 (`type`, 필수 여부) |
+|---|---|---|
+| `vote` | 객체 | `option` string·number **필수** — 선택지 키(예 `"o0"`) |
+| `tally` | 객체 | `delta` number (없으면 +1) |
+| `score` | 객체 | `score` number **필수** (유한수가 아니면 버림) |
+| `answer` | 객체 | `option` number **필수** — 0부터 세는 보기 번호 |
+| `start` | 객체 **또는 숫자**(= `duration` ms) | `duration` `rounds` `roundMs` `answerMs` `revealMs` `matchupMs` number · `game` `theme` string(자유 텍스트) · `mode` `reaction`\|`nunchi`\|`guess` · `bracket` `quiz` boolean |
+| `tap` | 없음 | 보낸 페이로드는 무시 (경주 +1 · 눈치 선점 · 반응 탭, 세션 모드에 따라) |
+| `lobby` | 없음 | 세션 종료 → 대기실 |
+
+- **페이로드 문자열은 템플릿이다.** `"score"`는 글자 그대로 `score`라는 텍스트를 보내고, `"{score}"`가 변수 값을 보낸다. 변수 이름과 똑같은 리터럴은 거의 항상 버그라 검증기가 오류로 잡는다(자유 텍스트 필드 `game`·`theme`에서만 경고).
+- 필드의 타입은 보낼 값의 JSON 타입이다: 리터럴 → string(숫자 필드엔 `"3"` 같은 숫자 텍스트만 허용), `{변수}` → 그 변수 초기값의 타입, 식 → 정적으로 판정 안 함.
+
 ## 7. 런타임 API (`@snack/bite`)
 ```ts
 const app = createBite(doc, { now?: () => number, random?: () => number });
@@ -236,14 +252,25 @@ app.value(template, scope?);       // 템플릿 평가 (text / fill / width 형�
 - 렌더러는 `change`를 받아 **그 변수에 의존하는 노드만** 다시 평가·배치·그린다.
 - 같은 문서 + 같은 `now`/`random` 주입 → 같은 결과 (Node에서 headless 시뮬레이션 가능).
 
-## 8. 검증 (`validate(doc)`)
+## 8. 검증 (`validate(doc, { hostActions? })`)
+```js
+import { validate } from "@snack/bite";
+import { HOST_ACTIONS } from "@snack/room/actions";
+const { errors, warnings } = validate(doc, { hostActions: HOST_ACTIONS }); // [{ path, message }]
+```
+`hostActions`를 주면 §6.1 계약도 검사한다. 안 주면 계약 검사만 빠지고 나머지(변수 이름 리터럴 포함)는 그대로다.
+
 오류(재생 불가):
 - 스키마 위반, 알 수 없는 노드 종류/키, `start`/`go` 대상 페이즈 없음, 없는 컴포넌트 `use`
-- 식 파싱 실패, 선언 안 된 변수 참조/대입, 화이트리스트 밖 함수·메서드, 예약 이름을 변수로 선언
+- 식 파싱 실패, 선언 안 된 변수 참조/대입, 화이트리스트 밖 함수·메서드, 예약 이름이나 **내장 함수 이름**(`clamp` 등)을 변수로 선언
 - 중복 `id`, `free` 밖의 `x`/`y`와 `grid`의 `columns` 누락
+- **범위**: `opacity` 0–1 · `weight` 100–900 · `origin` 각 축 0–1(노드 크기의 비율 — `[0.5, 0.5]`가 중심, `[1, 0.5]`가 오른쪽 가운데; 백분율 `[50, 50]`은 오류)
+- **`emit` 페이로드의 변수 이름 리터럴**: `"score"`처럼 변수 이름과 같은 글자 그대로의 문자열 → `"{score}"`를 뜻했을 것이므로 오류 (`hostActions` 없이도 검사; 자유 텍스트 필드 `start.game`·`theme`에서는 경고)
+- **계약 위반**(`hostActions` 있을 때): 필수 필드 누락(`'vote' needs 'option'`), 타입 불일치(리터럴 또는 `{변수}` 초기값으로 판정 — 식은 판정하지 않음), 객체(또는 `start`의 숫자)여야 할 페이로드가 아님, `enum` 밖의 값
 
 경고(재생 가능):
 - `Math.` 접두 사용, 어떤 페이즈에서도 보이지 않는 노드, 아무 데서도 안 쓰는 변수
+- 계약(`hostActions` 있을 때): 방 액션이 아닌 `emit` 이름(방이 무시함), 페이로드를 안 읽는 액션(`tap`·`lobby`)에 보낸 페이로드, 방이 읽지 않는 필드, 숫자 필드에 보낸 텍스트 템플릿(`"{a}-{b}"`는 항상 문자열)
 - 레이아웃 검사(`@snack/bite-layout` headless): 텍스트가 박스를 넘침, 형제 노드 겹침, 화면 밖으로 나감
 
 ## 9. 전체 예시 — 반응속도 테스트

@@ -33,8 +33,11 @@ function ident(v, max) {
 /**
  * Strip anything that could carry personal or high-cardinality data from an error
  * message: quoted strings, URLs, emails, key=value values, path-like tokens (incl.
- * user-agent product tokens), non-ASCII text (e.g. Korean nicknames), long hex ids
- * and numbers. Result is ASCII, single-spaced, at most 100 chars.
+ * user-agent product tokens), non-ASCII text (e.g. Korean nicknames), long hex ids,
+ * letter+digit tokens (handles like user42) and numbers. Result is ASCII,
+ * single-spaced, at most 100 chars. A bare ASCII-letters-only word (a nickname
+ * such as "scott" typed unquoted into an error message) is indistinguishable from
+ * a word and is NOT removed — see docs/telemetry.md §4.
  */
 export function sanitizeErr(msg) {
   let s = String(msg).slice(0, 1000);
@@ -46,6 +49,7 @@ export function sanitizeErr(msg) {
   s = s.replace(/[^\s()<>]*\/[^\s()<>]*/g, '<path>'); // paths and UA product tokens (Foo/1.2)
   s = s.replace(/[^\x00-\x7f]+/g, '?');
   s = s.replace(/\b[0-9a-f]{8,}\b/gi, '#');
+  s = s.replace(/\b(?=[A-Za-z_]*\d)(?=\d*[A-Za-z_])[A-Za-z0-9_]{2,}\b/g, '?'); // letter+digit tokens (user42, scott123)
   s = s.replace(/\d+(?:\.\d+)?/g, '#');
   s = s.replace(/[\x00-\x1f\x7f]+/g, ' ').replace(/\s+/g, ' ').trim();
   return s.slice(0, 100);

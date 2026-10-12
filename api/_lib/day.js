@@ -12,3 +12,8 @@ export function isDay(s) {
   const d = new Date(`${s}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
+
+/** Whole KST days from `day` to the KST day containing `now`: 0 = today, 1 = yesterday, -1 = tomorrow. */
+export function daysAgo(day, now = Date.now()) {
+  return Math.round((Date.parse(`${kstDay(now)}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000);
+}
