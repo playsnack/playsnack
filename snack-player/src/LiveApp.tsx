@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { BiteDoc } from "@snack/bite";
+// Pixi loads its browser environment and WebGL renderer lazily, which on a play
+// link costs two more round trips after the app code (~1.4 s on Fast 3G).
+// Importing them here puts them in the same download as the player.
+import "pixi.js/browser";
+import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick } from "./identity";
 import type { ConnState, RoomTransport } from "./roomTransport";
@@ -13,6 +18,9 @@ import { C, R } from "./tokens.gen";
 // through a RoomTransport: Bite `emit` → room action, room `setVar` broadcasts
 // → the runtime, so everyone sees the same shared state.
 type Runtime = { setVar: (id: string, v: unknown) => void };
+
+// A real use, so the bundler keeps the renderer here (an unused import is dropped).
+Object.assign(globalThis, { __snackWebGLRenderer: WebGLRenderer });
 
 /** A room that stays silent this long counts as failed (nothing may hang). */
 const ROOM_SILENCE_MS = 15_000;
