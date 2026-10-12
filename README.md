@@ -55,7 +55,8 @@ pnpm player:build    # → snack-player/dist, host it anywhere static
 ```
 
 Deployed on Vercel from this repo (`vercel.json`): a push to `main` rebuilds the site
-when the commit's author is the repo owner (see [Contributing](#contributing)).
+when the commit's author is the repo owner; other merges go live with the owner's next
+one (see [Contributing](#contributing)).
 
 **With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
 
@@ -79,8 +80,8 @@ SIM_MESH=1 node snack-server/tools/multiclient-sim.mjs   # multiplayer sync over
 
 ## Contributing
 
-`main` is what the live site serves, so changes reach it only through a pull request
-that the owner merges.
+`main` is what the live site serves, so changes reach it through pull requests.
+There are two of us, so either of us can merge — no separate approval step.
 
 1. Branch off the latest `main` — never commit or push to `main` directly.
    ```bash
@@ -89,15 +90,19 @@ that the owner merges.
    ```
 2. Commit, push the branch, and open a pull request into `main`. Describe what changed
    and how you checked it (which gates you ran, what you tried on a phone).
-3. Keep pushing to the same branch while it's reviewed; pull in `main` if it moves on.
-4. The owner (@seukwoo) reviews and merges with **Create a merge commit**.
+3. Merge it yourself when it's ready, with **Create a merge commit** (the only method
+   the repo allows).
 
-Why the merge method matters: the site runs on Vercel's free plan, which deploys a commit
-only when its author is the account owner. A merge commit is authored by whoever merges,
-so the merge goes live. *Squash and merge* and *Rebase and merge* keep the contributor as
-author, and Vercel blocks the deploy. A commit pushed straight to `main` by anyone else is
-blocked the same way — it won't show up on the site, but it ships unreviewed with the
-owner's next push, so don't.
+**When does a merge go live?** The site runs on Vercel's free plan, which deploys a commit
+only when its author is the account owner (@seukwoo). A merge commit is authored by
+whoever clicks merge, so:
+
+- merged by @seukwoo → deployed right away;
+- merged by anyone else → the code is on `main`, but Vercel blocks the deploy. It goes
+  live with @seukwoo's next merge or push, or when @seukwoo hits **Redeploy** on the
+  latest deployment in the Vercel dashboard.
+
+This goes away once the project moves to a paid Vercel plan with both of us on the team.
 
 ## License
 
