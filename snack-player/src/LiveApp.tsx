@@ -2,25 +2,41 @@ import { useEffect, useRef, useState } from "react";
 import type { BiteDoc } from "@snack/bite";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick } from "./identity";
-import type { RoomTransport } from "./roomTransport";
-import { createRoom, loadRoomDoc } from "./backend";
+import type { ConnState, RoomTransport } from "./roomTransport";
+import { createRoom, hrefTo, loadRoomDoc } from "./backend";
+import { needsRoom, redirectFor, soloAlternative, type CatalogEntry } from "./catalog";
+import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
+import { C, R } from "./tokens.gen";
 
-// Realtime layer. Cold-loads the app from snack-server, joins its room through a
-// RoomTransport, pipes Bite `emit` -> room action, and applies authoritative setVar broadcasts back
-// into the runtime so every client sees live shared state (the moat).
-// Dev (vite :5290): server is a sibling origin on :4399.
-// Prod (player served BY snack-server): same origin, one port → one share link.
+// Plays one app from a link. Solo apps just play. Together apps (or any app
+// that sends events to a room, or a link that names a room) also join a room
+// through a RoomTransport: Bite `emit` → room action, room `setVar` broadcasts
+// → the runtime, so everyone sees the same shared state.
 type Runtime = { setVar: (id: string, v: unknown) => void };
+
+/** A room that stays silent this long counts as failed (nothing may hang). */
+const ROOM_SILENCE_MS = 15_000;
+
+type LoadError = "notFound" | "network";
+const isNetworkError = (e: unknown) =>
+  (typeof navigator !== "undefined" && navigator.onLine === false) ||
+  (e instanceof TypeError && /fetch|network|load failed/i.test(e.message));
 
 export function LiveApp({ slug, params }: { slug: string; params: URLSearchParams }) {
   const [doc, setDoc] = useState<BiteDoc | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<LoadError | null>(null);
+  const [loadGen, setLoadGen] = useState(0);
+  const [conn, setConn] = useState<ConnState>("connecting");
+  const [roomGen, setRoomGen] = useState(0);
   const [participants, setParticipants] = useState(1);
+  const [solo, setSolo] = useState<CatalogEntry | null>(null);
   const runtimeRef = useRef<Runtime | null>(null);
   const roomRef = useRef<RoomTransport | null>(null);
   const sharedRef = useRef<Record<string, unknown> | null>(null);
   const fxRef = useRef<HTMLDivElement | null>(null);
+  const retryRef = useRef<() => void>(() => {});
   const [reactOpen, setReactOpen] = useState(false);
+  const withRoom = doc ? needsRoom(doc, params) : false;
 
   // Floating emoji reaction that rises and fades (DOM overlay above the canvas).
   const spawnReaction = (emoji: string) => {
@@ -47,23 +63,53 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     for (const [k, v] of Object.entries(shared)) rt.setVar(k, v);
   };
 
+  // Load the app. A merged template's old link moves to the app it became.
   useEffect(() => {
     let closed = false;
+    setErr(null);
+    redirectFor(slug).then((to) => {
+      if (closed || !to) return;
+      closed = true;
+      const q = params.toString();
+      location.replace(hrefTo(`/p/${to}${q ? `?${q}` : ""}`));
+    });
     loadRoomDoc(slug, params)
       .then(({ doc, sharedState }) => {
         if (closed) return;
         sharedRef.current = sharedState ?? null;
         setDoc(doc);
       })
-      .catch((e) => setErr(String(e)));
+      .catch((e) => {
+        if (closed) return;
+        console.warn("[snack] app load failed", e);
+        setErr(isNetworkError(e) ? "network" : "notFound");
+      });
     return () => { closed = true; };
-  }, [slug]);
+  }, [slug, loadGen]);
 
+  // Join the room — only when the app is played together.
   useEffect(() => {
-    if (!doc) return;
+    if (!doc || !withRoom) return;
     const room: RoomTransport = createRoom({ slug, anonId: getAnonId(), nick: getNick() ?? "" }, params);
     roomRef.current = room;
+    let silence: ReturnType<typeof setTimeout> | undefined;
+    const waitForRoom = () => {
+      clearTimeout(silence);
+      silence = setTimeout(() => setConn((s) => (s === "connecting" ? "failed" : s)), ROOM_SILENCE_MS);
+    };
+    const heard = () => {
+      clearTimeout(silence);
+      setConn((s) => (s === "connecting" ? "connected" : s));
+    };
     room.onMessage((m) => {
+      if (m.t === "conn") {
+        const state = m.d.state as ConnState;
+        setConn(state);
+        if (state === "connecting") waitForRoom();
+        else clearTimeout(silence);
+        return;
+      }
+      heard(); // any room traffic means we're in
       if (m.t === "state") {
         sharedRef.current = m.d.sharedState as Record<string, unknown>;
         applyShared(sharedRef.current);
@@ -76,31 +122,64 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         spawnReaction(m.d.emoji as string);
       }
     });
+    setConn("connecting");
+    waitForRoom();
     room.connect();
-    return () => room.close();
-  }, [doc, slug]);
+    // retry() (when the transport has it) restarts the same connection.
+    retryRef.current = room.retry
+      ? () => { setConn("connecting"); waitForRoom(); room.retry!(); }
+      : () => setRoomGen((g) => g + 1);
+    return () => {
+      clearTimeout(silence);
+      room.close();
+      if (roomRef.current === room) roomRef.current = null;
+    };
+  }, [doc, slug, withRoom, roomGen]);
+
+  // The closest one-person app, offered if the room can't be joined.
+  useEffect(() => {
+    if (conn === "failed") soloAlternative(slug).then(setSolo);
+  }, [conn, slug]);
 
   const onReady = (rt: Runtime | undefined) => {
     if (!rt) return;
     runtimeRef.current = rt;
     applyShared(sharedRef.current); // seed from cold-load / latest authoritative state
+    try {
+      performance.mark("snack:first-scene");
+    } catch {}
   };
 
   const onHostEvent = (e: { name: string; payload?: unknown }) => roomRef.current?.sendAction(e.name, e.payload);
 
-  if (err) return <div style={msgStyle}>connect failed:\n{err}</div>;
-  if (!doc) return <div style={msgStyle}>loading…</div>;
+  if (err === "notFound") {
+    return <MessageScreen icon="🔍" title="앱을 찾을 수 없어요" body="링크가 잘못됐거나 더 이상 없는 앱이에요." primary={{ label: "홈으로", onClick: goHome }} />;
+  }
+  if (err === "network") {
+    return (
+      <MessageScreen icon="📡" title="연결이 불안정해요" body="인터넷 연결을 확인하고 다시 시도해 주세요." withHome
+        primary={{ label: "다시 시도", onClick: () => setLoadGen((g) => g + 1) }} />
+    );
+  }
+  if (!doc) return <LoadingScreen />;
   return (
     <>
-      <BitePlayer doc={doc} onHostEvent={onHostEvent} onReady={onReady} />
-      <div style={overlayStyle}>👥 {participants}</div>
+      <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} />
+      <HomeButton />
+      {withRoom && conn !== "failed" && <RoomChip state={conn} people={participants} />}
+      {withRoom && conn === "failed" && (
+        <RoomFailedSheet
+          onRetry={() => retryRef.current()}
+          solo={solo
+            ? { label: `혼자 하기 · ${solo.title}`, onClick: () => { location.href = hrefTo(`/p/tpl-${solo.id}`); } }
+            : { label: "혼자 하는 게임 고르기", onClick: goHome }}
+        />
+      )}
       <div ref={fxRef} style={fxOverlay} />
-      {/* Reactions are a "someone else is watching" feature, so the FAB only
-          appears once another person is in the room (participants > 1). Solo play
-          — most snacks (gacha/worldcup/quiz…) — has NO FAB, so it never overlaps
-          the snack's own bottom content (the recurring "FAB가 하단 도움말 가림" bug).
-          In multiplayer it's small and tucked into the very corner. */}
-      {participants > 1 && (
+      {/* Reactions are a "someone else is watching" feature, so the button only
+          appears once another person is in the room. Solo play never shows it,
+          so it can't cover the app's own bottom content. */}
+      {withRoom && conn === "connected" && participants > 1 && (
         <div style={reactionDock}>
           {reactOpen && (
             <div style={reactionPop}>
@@ -110,7 +189,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
               ))}
             </div>
           )}
-          <button style={reactionFab} onClick={() => setReactOpen((o) => !o)} aria-label="reactions">
+          <button style={reactionFab} onClick={() => setReactOpen((o) => !o)} aria-label="반응 보내기">
             {reactOpen ? "✕" : "💬"}
           </button>
         </div>
@@ -121,33 +200,23 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
 
 const REACTIONS = ["❤️", "🔥", "😂", "👍", "😮"];
 
-const msgStyle: React.CSSProperties = {
-  color: "#D9FF00", padding: 16, font: "14px ui-monospace, monospace", whiteSpace: "pre-wrap",
-};
-const overlayStyle: React.CSSProperties = {
-  position: "fixed", top: "calc(env(safe-area-inset-top, 0px) + 12px)", right: 14,
-  background: "rgba(0,0,0,0.55)", color: "#fff", borderRadius: 999, padding: "6px 12px",
-  font: "600 13px ui-monospace, monospace", pointerEvents: "none", zIndex: 10,
-};
 const fxOverlay: React.CSSProperties = {
   position: "fixed", inset: 0, pointerEvents: "none", zIndex: 12, overflow: "hidden",
 };
-// Tucked into the very corner so it covers as little bottom content as possible
-// (only shown in multiplayer — see the render guard).
+// Tucked into the very corner so it covers as little bottom content as possible.
 const reactionDock: React.CSSProperties = {
   position: "fixed", right: 10, bottom: "calc(env(safe-area-inset-bottom, 0px) + 10px)",
   display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 13,
 };
 const reactionPop: React.CSSProperties = {
-  display: "flex", flexDirection: "column", gap: 8, padding: 8,
-  background: "rgba(0,0,0,0.55)", borderRadius: 999, backdropFilter: "blur(8px)",
+  display: "flex", flexDirection: "column", gap: 8, padding: 6,
+  background: C.surface, border: `2px solid ${C.borderBlock}`, borderRadius: R.block,
 };
 const reactionFab: React.CSSProperties = {
-  width: 46, height: 46, borderRadius: "50%", border: "none", cursor: "pointer",
-  background: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 20, lineHeight: "46px", padding: 0,
-  backdropFilter: "blur(8px)", boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+  width: 46, height: 46, borderRadius: R.block, border: `2px solid ${C.borderBlock}`, cursor: "pointer",
+  background: C.surface, color: C.ink, fontSize: 20, lineHeight: "42px", padding: 0, boxShadow: "0 4px 0 #000000",
 };
 const reactionBtn: React.CSSProperties = {
-  width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer",
-  background: "rgba(255,255,255,0.08)", fontSize: 22, lineHeight: "44px", padding: 0,
+  width: 44, height: 44, borderRadius: R.block, border: "none", cursor: "pointer",
+  background: C.surface2, fontSize: 22, lineHeight: "44px", padding: 0,
 };
