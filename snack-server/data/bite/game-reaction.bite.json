@@ -456,7 +456,7 @@
             "use": "NavBar",
             "props": {
               "title": "측정 완료",
-              "subtitle": "기록이 저장되었습니다"
+              "subtitle": "이번 판 기록이에요"
             }
           },
           {

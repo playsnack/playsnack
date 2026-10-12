@@ -8,8 +8,13 @@ import { dirname, join } from "node:path";
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const TPL_DIR = join(HERE, "..", "data", "bite");
 
+// Templates merged into another (index.json `mergedInto`) only redirect old
+// links now, so the gates skip them.
 export function listIds() {
-  return readdirSync(TPL_DIR).filter((f) => f.endsWith(".bite.json")).map((f) => f.replace(/\.bite\.json$/, ""));
+  return readdirSync(TPL_DIR)
+    .filter((f) => f.endsWith(".bite.json"))
+    .map((f) => f.replace(/\.bite\.json$/, ""))
+    .filter((id) => !loadIndex().get(id)?.mergedInto);
 }
 
 export function loadDoc(id) {
