@@ -1,0 +1,12 @@
+{
+  "bite": 1,
+  "meta": { "name": "opacity out of 0..1" },
+  "frame": [390, 844],
+  "vars": { "n": 0 },
+  "start": "a",
+  "phases": { "a": {} },
+  "view": {
+    "box": "column",
+    "children": [{ "text": "{n}", "opacity": 3 }]
+  }
+}

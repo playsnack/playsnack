@@ -60,7 +60,18 @@ export interface Issue {
   path: string;
   message: string;
 }
-export function validate(doc: unknown): { ok: boolean; errors: Issue[]; warnings: Issue[] };
+/** One room action's payload contract (see `@snack/room/actions` HOST_ACTIONS). */
+export interface HostActionSpec {
+  payload: "none" | "object";
+  /** A bare number is also accepted. */
+  number?: boolean;
+  fields?: Record<string, { type: string | string[]; required?: boolean; enum?: string[]; text?: boolean }>;
+}
+export interface ValidateOptions {
+  /** With it, every `emit` is checked against what the room actually reads. */
+  hostActions?: Readonly<Record<string, HostActionSpec>>;
+}
+export function validate(doc: unknown, opts?: ValidateOptions): { ok: boolean; errors: Issue[]; warnings: Issue[] };
 
 export interface Compiled {
   src: string;

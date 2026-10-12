@@ -1,0 +1,22 @@
+{
+  "bite": 1,
+  "meta": { "name": "T-01 race-tap: score sent as the text \"score\"" },
+  "frame": [390, 844],
+  "vars": { "score": 0, "startedAt": 0, "duration": 10000, "leaderboard": [] },
+  "start": "play",
+  "phases": {
+    "play": {
+      "tick": [
+        { "if": "now - startedAt >= duration", "then": [{ "emit": "score", "payload": { "score": "score" } }, { "go": "result" }] }
+      ]
+    },
+    "result": {}
+  },
+  "view": {
+    "box": "column",
+    "children": [
+      { "id": "pad", "text": "{score}", "onTap": [{ "set": "score", "to": "score + 1" }] },
+      { "text": "{leaderboard.length}" }
+    ]
+  }
+}

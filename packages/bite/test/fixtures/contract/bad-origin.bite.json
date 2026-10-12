@@ -1,0 +1,14 @@
+{
+  "bite": 1,
+  "meta": { "name": "T-02 wheel-fortune: origin written as percent" },
+  "frame": [390, 844],
+  "vars": { "angle": 0 },
+  "start": "ready",
+  "phases": { "ready": {} },
+  "view": {
+    "box": "free",
+    "children": [
+      { "id": "wheel", "box": "free", "width": 300, "height": 300, "origin": [50, 50], "rotate": "{angle}", "fill": "#16181c" }
+    ]
+  }
+}
