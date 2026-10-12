@@ -1,7 +1,7 @@
 {
   "name": "@snack/room",
   "version": "0.1.0",
-  "description": "Room engine \u2014 roster, shared tallies and synchronized game sessions. Pure; runs on the server or in the host player's browser.",
+  "description": "Room engine — roster, shared tallies and synchronized game sessions. Pure; runs on the server or in the host player's browser.",
   "license": "UNLICENSED",
   "private": true,
   "type": "module",
@@ -30,5 +30,10 @@
   },
   "dependencies": {
     "mqtt": "5.16.0"
+  },
+  "devDependencies": {
+    "aedes": "1.2.0",
+    "mqtt-packet": "9.0.2",
+    "ws": "8.21.0"
   }
 }
