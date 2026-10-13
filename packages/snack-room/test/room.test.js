@@ -1177,6 +1177,23 @@ test("R5: 나도 만들기 race — the first new pack in a result wins until th
   assert.equal(ackOf(h, 3, "quizPack").accepted, true);
 });
 
+test("R5: a waiting 나도 만들기 pack whose maker left for good stops blocking the result", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "닉1", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 8000 + 2000);
+  h.act(2, "quizPack", { title: "닉2", questions: QS.slice(0, 1) });
+  h.room.leave("p2"); // the maker leaves before starting it
+  h.act(3, "quizPack", { title: "닉3", questions: QS.slice(0, 1) });
+  assert.equal(ackOf(h, 3, "quizPack").reason, "pack_waiting", "within the grace it still waits");
+  await h.advance(30000);
+  assert.equal(h.v("quizInfo").subjectHere, false);
+  h.act(3, "quizPack", { title: "닉3", questions: QS.slice(0, 1) });
+  assert.equal(ackOf(h, 3, "quizPack").accepted, true);
+  assert.equal(h.v("quizInfo").about, "닉3");
+});
+
 test("R6: size bombs — a mark flood is dropped, text is capped in UTF-16 too; 20 questions × 20 players snapshot < 64 KB", async () => {
   const zalgo = "Z" + "́".repeat(5000);
   const h0 = harness();

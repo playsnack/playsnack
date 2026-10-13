@@ -768,7 +768,7 @@ export function createRoom(o) {
       if (S.phase !== "lobby" && S.phase !== "result") return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_in_lobby" });
       if (S.phase === "lobby" && notSubject(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
       // 나도 만들기: the first new pack in this result wins until the next game starts.
-      if (S.phase === "result" && S.packDone === S.done && S.quizPack.subject.anonId !== anonId) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "pack_waiting" });
+      if (S.phase === "result" && S.packDone === S.done && notSubject(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "pack_waiting" });
       const pack = sanitizeQuizPack(d?.payload);
       if (!pack) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_pack" });
       const about = typeof d.payload.about === "string" ? capText(cleanNick(d.payload.about), NICK_MAX) : ""; // a display name, capped like a nickname
