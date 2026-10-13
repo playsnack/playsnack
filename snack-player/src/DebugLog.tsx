@@ -74,7 +74,7 @@ const bugBtn: React.CSSProperties = {
   fontSize: 16, lineHeight: "28px", cursor: "pointer", opacity: 0.85,
 };
 const panel: React.CSSProperties = {
-  position: "fixed", left: 8, right: 8, bottom: "calc(var(--snack-safe-bottom) + 8px)", top: "calc(var(--snack-safe-top) + 102px)",
+  position: "fixed", left: 8, right: 8, bottom: "calc(var(--snack-safe-bottom) + 8px)", top: "calc(var(--snack-safe-top) + 116px)",
   zIndex: 46, display: "flex", flexDirection: "column", gap: 6, padding: 8,
   background: "rgba(11,12,14,0.96)", color: C.ink, border: `2px solid ${C.borderBlock}`, borderRadius: R.block,
   font: `13px ${TOKENS.font.body}`,
