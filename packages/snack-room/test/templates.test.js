@@ -89,7 +89,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] }
   const app = (i) => devices.get(`p${i}`);
   // A node's text / prop as device i renders it now.
   const nodeById = (nid, n = load(id).view) => (n?.id === nid ? n : (n?.children ?? []).map((c) => nodeById(nid, c)).find(Boolean));
-  const prop = (i, nid, key = "text") => app(i).value(nodeById(nid)[key]);
+  const prop = (i, nid, key = "text") => app(i).value(key.split(".").reduce((o, k) => o?.[k], nodeById(nid)));
   return { room, advance, app, prop, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
 }
 
@@ -176,8 +176,11 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   assert.equal(T.v(0, "iAmSubject"), true);
   assert.equal(T.v(1, "iAmSubject"), false);
   assert.equal(T.v(1, "quizInfo.about"), "A");
-  T.tap(1, "startBtn"); // a friend starts (1 s of the B → host delay)
-  await T.advance(900 + 3000 + 300 + 32);
+  assert.equal(T.tap(1, "startBtn"), false, "only the subject has a start button");
+  assert.equal(T.prop(1, "waitBtn", "props.label"), "A 님이 시작하면 바로 시작돼요");
+  assert.equal(T.prop(0, "lobbyStatus"), "준비 완료 · 시작하기를 눌러요");
+  T.tap(0, "startBtn"); // the subject starts
+  await T.advance(3000 + 300 + 32);
   for (const i of [0, 1, 2]) assert.equal(T.phase(i), "play");
   const right = (i) => {
     const rc = T.v(i, "roundContent");

@@ -342,7 +342,7 @@
             "id": "lobbyIntro",
             "box": "column",
             "width": "fill",
-            "height": 220,
+            "height": "hug",
             "gap": 8,
             "pad": 18,
             "align": "center",
@@ -357,7 +357,7 @@
               },
               {
                 "id": "lobbyTitle",
-                "text": "{quizInfo.custom ? quizInfo.title : '같은 문제를 동시에!'}",
+                "text": "{quizInfo.custom ? (quizInfo.about + ' 맞히기 · ' + quizInfo.count + '문제' + (iAmSubject ? '' : ' · 곧 시작해요')) : '스피드 퀴즈'}",
                 "width": 320,
                 "size": 22,
                 "font": "display",
@@ -367,7 +367,7 @@
               },
               {
                 "id": "lobbySub",
-                "text": "{quizInfo.custom ? ('' + quizInfo.count + '문제 · ' + (quizInfo.about) + ' 님에 대한 퀴즈') : '빠르고 정확할수록 고득점'}",
+                "text": "{quizInfo.custom ? (iAmSubject ? '친구를 초대해서 나를 얼마나 아는지 보자!' : '빠를수록 고득점') : '같은 문제를 동시에 풀어요 · 빠를수록 고득점'}",
                 "width": 320,
                 "size": 15,
                 "weight": 600,
@@ -405,33 +405,28 @@
                 "color": "#9aa3af",
                 "align": "center"
               }
-            ]
-          },
-          {
-            "id": "lobbyHint",
-            "text": "{quizInfo.custom && roster.length < 2 ? '친구를 초대하면 같이 할 수 있어요' : (quizInfo.custom ? (iAmSubject ? '친구들이 나를 얼마나 알까? 시작을 눌러요' : (quizInfo.about + ' 님을 얼마나 알까? 빠를수록 고득점')) : (roster.length < 2 ? '친구를 초대하면 같이 할 수 있어요 · 혼자서도 OK' : '같은 문제를 동시에! 빠르고 정확할수록 고득점'))}",
-            "width": 340,
-            "size": 14,
-            "weight": 500,
-            "color": "#9aa3af",
-            "align": "center"
-          },
-          {
-            "id": "lobbySpacer",
-            "box": "free",
-            "width": "fill",
-            "height": 1,
+            ],
             "grow": 1
+          },
+          {
+            "id": "lobbyStatus",
+            "text": "{quizInfo.custom ? (iAmSubject && roster.length >= 2 ? '준비 완료 · 시작하기를 눌러요' : '') : (roster.length >= 2 ? '' : '친구를 초대하면 같이 할 수 있어요')}",
+            "width": "fill",
+            "size": 15,
+            "weight": 700,
+            "color": "{quizInfo.custom ? '#d9ff00' : '#9aa3af'}",
+            "align": "center",
+            "show": "phase == 'lobby' ? ((quizInfo.custom && iAmSubject && roster.length >= 2) || (!quizInfo.custom && !(roster.length >= 2))) : true"
           },
           {
             "id": "startBtn",
             "use": "PrimaryButton",
             "props": {
-              "label": "{quizInfo.custom && roster.length < 2 ? '친구를 기다리는 중…' : '시작하기 🚀'}"
+              "label": "시작하기 🚀"
             },
             "onTap": [
               {
-                "if": "phase == 'lobby' && !(quizInfo.custom && roster.length < 2)",
+                "if": "phase == 'lobby' && (!quizInfo.custom || (iAmSubject && roster.length >= 2))",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -449,7 +444,22 @@
                   }
                 ]
               }
-            ]
+            ],
+            "show": "phase == 'lobby' ? (!quizInfo.custom || (iAmSubject && roster.length >= 2)) : true"
+          },
+          {
+            "id": "waitBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "{quizInfo.custom && !iAmSubject ? (quizInfo.about + ' 님이 시작하면 바로 시작돼요') : '친구를 기다리는 중…'}"
+            },
+            "show": "phase == 'lobby' ? !(!quizInfo.custom || (iAmSubject && roster.length >= 2)) : false"
+          },
+          {
+            "id": "inviteBand",
+            "box": "free",
+            "width": "fill",
+            "height": 52
           }
         ]
       },
@@ -584,7 +594,7 @@
           {
             "id": "statusText",
             "text": "{phase == 'play' ? (roundAnswer >= 0 ? (iAmSubject ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : (iAmSubject ? ('친구들이 고르는 중… (' + quizProgress.answered + '/' + quizProgress.of + ')') : (myAnswerRound === roundIdx ? '선택 완료! 공개를 기다려요' : (seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!'))))) : ''}",
-            "width": 340,
+            "width": "fill",
             "size": 15,
             "weight": 700,
             "color": "{phase == 'play' ? (roundAnswer >= 0 ? (iAmSubject ? '#ffffff' : (myAnswerRound === roundIdx && myAnswer === roundAnswer ? '#22c55e' : '#ff5a5f')) : (iAmSubject || myAnswerRound === roundIdx ? '#9aa3af' : '#d9ff00')) : '#d9ff00'}",
@@ -823,7 +833,7 @@
           {
             "id": "progressText",
             "text": "{phase == 'play' && !iAmSubject && quizProgress.of > 1 ? ('' + quizProgress.answered + '/' + quizProgress.of + '명 답함') : ''}",
-            "width": 340,
+            "width": "fill",
             "size": 13,
             "weight": 500,
             "color": "#9aa3af",
