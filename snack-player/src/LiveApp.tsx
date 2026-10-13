@@ -140,7 +140,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         applyShared(sharedRef.current);
         if (typeof m.d.participants === "number") setParticipants(m.d.participants);
         const sh = sharedRef.current ?? {};
-        onQuizVar("sessionPhase", sh.sessionPhase);
+        // A new room has no sessionPhase yet (the room sets it on its first phase change): it is in the lobby.
+        onQuizVar("sessionPhase", sh.sessionPhase ?? "lobby");
         onQuizVar("quizInfo", sh.quizInfo ?? null);
       } else if (m.t === "setVar") {
         runtimeRef.current?.setVar(m.d.id as string, m.d.value);
