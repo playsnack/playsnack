@@ -136,7 +136,7 @@ export function createRoom(o) {
     scores: new Map(), // anonId → score
     roster: new Map(), // anonId → nick (live participants, insertion order)
     nicks: new Map(), // anonId → nick (score owner names)
-    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null },
+    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null, sid: "", done: 0, subject: "", answerers: undefined },
     destroyed: false,
     // Variable stores — what a (re)joining player needs to see the room as it is:
     vars: new Map(), // shared: id → latest broadcast value (round content too)
@@ -221,6 +221,7 @@ export function createRoom(o) {
     if (r.vars.has(id)) setVar(id, value);
   };
   const setPhase = (phase, extra = {}) => {
+    if (phase === "result" && S.phase !== "result") S.done += 1; // sessions finished in this room (telemetry §9.3)
     S.phase = phase;
     setVar("sessionPhase", phase);
     for (const [k, v] of Object.entries(extra)) {
@@ -443,10 +444,17 @@ export function createRoom(o) {
     revealGuessRound,
   };
 
-  const startSession = async (opts) => {
+  // A session / pack id that is the same whichever host applies the action (telemetry §9.3).
+  const idOf = (mid) => {
+    const x = String(mid ?? "").replace(/-/g, "");
+    return /^[A-Za-z0-9_]{16,32}$/.test(x) ? x : Array.from({ length: 32 }, () => Math.floor(random() * 36).toString(36)).join("");
+  };
+  const startSession = async (opts, clientMsgId) => {
     if (S.phase === "countdown" || S.phase === "play") return; // already running
     if (typeof opts === "number") opts = { duration: opts };
     opts = opts || {};
+    S.sid = idOf(clientMsgId);
+    S.answerers = new Set(); // quiz: who answered at least once (the subject never does)
     clearSessionTimers();
     S.round += 1;
     S.mode = "";
@@ -652,6 +660,7 @@ export function createRoom(o) {
       const valid = round && Number.isInteger(option) && option >= 0 && option < round.options.length;
       if (S.quiz && S.accepting && valid && S.answered && !S.answered.has(anonId) && !isSubject(anonId)) {
         S.answered.add(anonId);
+        S.answerers?.add(anonId);
         addQuizPlayer(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
         const ms = answerTime(d.payload.ms);
         const correct = option === round.answer;
@@ -668,6 +677,7 @@ export function createRoom(o) {
       const pack = sanitizeQuizPack(d?.payload);
       if (!pack) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_pack" });
       S.quizPack = { ...pack, subject: { anonId, nick: peerNick(peer) || "게스트" } };
+      S.subject = anonId;
       setVar("quizInfo", quizInfo());
       for (const [id, p] of r.peers) sendSubjectFlag(id, p.anonId);
       ack(peerId, d?.clientMsgId);
@@ -677,7 +687,7 @@ export function createRoom(o) {
       if (p && typeof p === "object" && p.quiz && S.quizPack && S.phase !== "countdown" && S.phase !== "play" && !answerersHere().length) {
         return ack(peerId, d?.clientMsgId, { accepted: false, reason: "need_answerer" });
       }
-      startSession(d?.payload).catch((e) => console.error("[snack-room] startSession failed", e));
+      startSession(d?.payload, d?.clientMsgId).catch((e) => console.error("[snack-room] startSession failed", e));
       onPoints(anonId, nick, 1);
       ack(peerId, d?.clientMsgId);
     } else if (name === "lobby") {
@@ -767,7 +777,7 @@ export function createRoom(o) {
      */
     snapshot() {
       const t = now();
-      const { timers, answered, eliminated, reacted, pending, roundStart, goAt, playAt, lateUntil, ...rest } = S;
+      const { timers, answered, answerers, eliminated, reacted, pending, roundStart, goAt, playAt, lateUntil, ...rest } = S;
       return {
         v: 1,
         voters: [...r.voters],
@@ -779,6 +789,7 @@ export function createRoom(o) {
         session: {
           ...rest,
           answered: answered ? [...answered] : undefined,
+          answerers: answerers ? [...answerers] : undefined,
           eliminated: eliminated ? [...eliminated] : undefined,
           reacted: reacted ? [...reacted] : undefined,
           pending: pending?.map(({ anonId, nick, peerId }) => ({ anonId, nick, peerId })),
@@ -802,9 +813,10 @@ export function createRoom(o) {
       r.nicks = new Map(snap.nicks);
       r.vars = new Map(snap.vars ?? []);
       r.mine = new Map((snap.mine ?? []).map(([anonId, own]) => [anonId, new Map(own)]));
-      const { answered, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, ...rest } = snap.session;
+      const { answered, answerers, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, ...rest } = snap.session;
       Object.assign(S, rest, { timers: [] });
       if (answered) S.answered = new Set(answered);
+      if (answerers) S.answerers = new Set(answerers);
       if (eliminated) S.eliminated = new Set(eliminated);
       if (reacted) S.reacted = new Set(reacted);
       if (pending) S.pending = pending;

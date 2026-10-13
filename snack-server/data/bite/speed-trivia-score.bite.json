@@ -27,7 +27,26 @@
     "roundAnswer": -1,
     "raceBoard": [],
     "myAnswer": -1,
-    "myAnswerRound": -2
+    "myAnswerRound": -2,
+    "quizInfo": {
+      "title": "",
+      "count": 0,
+      "custom": false,
+      "about": "",
+      "answerMs": 9000
+    },
+    "quizRecap": {
+      "subject": null,
+      "rounds": []
+    },
+    "quizProgress": {
+      "answered": 0,
+      "of": 0
+    },
+    "iAmSubject": false,
+    "seenRound": -1,
+    "seenAt": 0,
+    "myMs": -1
   },
   "components": {
     "NavBar": {
@@ -204,9 +223,30 @@
         {
           "set": "myAnswerRound",
           "to": "-2"
+        },
+        {
+          "set": "seenRound",
+          "to": "-1"
+        },
+        {
+          "set": "myMs",
+          "to": "-1"
         }
       ],
       "tick": [
+        {
+          "if": "roundIdx >= 0 && roundAnswer < 0 && seenRound !== roundIdx",
+          "then": [
+            {
+              "set": "seenRound",
+              "to": "roundIdx"
+            },
+            {
+              "set": "seenAt",
+              "to": "now"
+            }
+          ]
+        },
         {
           "if": "sessionPhase === 'lobby'",
           "then": [
@@ -294,17 +334,16 @@
             "id": "navL",
             "use": "NavBar",
             "props": {
-              "title": "스피드 퀴즈",
+              "title": "{quizInfo.custom ? (quizInfo.about + ' 맞히기') : '스피드 퀴즈'}",
               "subtitle": "대기실"
             }
           },
           {
-            "id": "lobbyCard",
+            "id": "lobbyIntro",
             "box": "column",
-            "width": 358,
-            "height": 250,
-            "grow": 1,
-            "gap": 10,
+            "width": "fill",
+            "height": 220,
+            "gap": 8,
             "pad": 18,
             "align": "center",
             "justify": "center",
@@ -316,6 +355,38 @@
                 "size": 48,
                 "align": "center"
               },
+              {
+                "id": "lobbyTitle",
+                "text": "{quizInfo.custom ? quizInfo.title : '같은 문제를 동시에!'}",
+                "width": 320,
+                "size": 22,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "center",
+                "lines": 2
+              },
+              {
+                "id": "lobbySub",
+                "text": "{quizInfo.custom ? ('' + quizInfo.count + '문제 · ' + (quizInfo.about) + ' 님에 대한 퀴즈') : '빠르고 정확할수록 고득점'}",
+                "width": 320,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "lobbyCard",
+            "box": "column",
+            "width": 358,
+            "height": 160,
+            "gap": 10,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
               {
                 "id": "lobbyCount",
                 "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
@@ -338,7 +409,7 @@
           },
           {
             "id": "lobbyHint",
-            "text": "같은 문제를 동시에! 빠르고 정확할수록 고득점 · 6문제 라이브 퀴즈쇼",
+            "text": "{quizInfo.custom && roster.length < 2 ? '친구를 초대하면 같이 할 수 있어요' : (quizInfo.custom ? (iAmSubject ? '친구들이 나를 얼마나 알까? 시작을 눌러요' : (quizInfo.about + ' 님을 얼마나 알까? 빠를수록 고득점')) : (roster.length < 2 ? '친구를 초대하면 같이 할 수 있어요 · 혼자서도 OK' : '같은 문제를 동시에! 빠르고 정확할수록 고득점'))}",
             "width": 340,
             "size": 14,
             "weight": 500,
@@ -349,17 +420,18 @@
             "id": "lobbySpacer",
             "box": "free",
             "width": "fill",
-            "height": 1
+            "height": 1,
+            "grow": 1
           },
           {
             "id": "startBtn",
             "use": "PrimaryButton",
             "props": {
-              "label": "시작하기 🚀"
+              "label": "{quizInfo.custom && roster.length < 2 ? '친구를 기다리는 중…' : '시작하기 🚀'}"
             },
             "onTap": [
               {
-                "if": "phase == 'lobby'",
+                "if": "phase == 'lobby' && !(quizInfo.custom && roster.length < 2)",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -401,7 +473,7 @@
             "id": "navC",
             "use": "NavBar",
             "props": {
-              "title": "스피드 퀴즈",
+              "title": "{quizInfo.custom ? (quizInfo.about + ' 맞히기') : '스피드 퀴즈'}",
               "subtitle": "곧 시작!"
             }
           },
@@ -458,48 +530,87 @@
             "id": "navP",
             "use": "NavBar",
             "props": {
-              "title": "스피드 퀴즈",
-              "subtitle": "퀴즈!"
+              "title": "{quizInfo.custom ? (quizInfo.about + ' 맞히기') : '스피드 퀴즈'}",
+              "subtitle": "{phase == 'play' ? ('' + roundNum + ' / ' + roundTotal) : ''}"
             }
           },
           {
-            "id": "roundLabel",
-            "text": "{phase == 'play' ? (('' + (roundNum) + ' / ' + (roundTotal))) : '1 / 6'}",
-            "width": 340,
-            "size": 14,
-            "weight": 700,
-            "color": "#9aa3af",
-            "align": "center"
+            "id": "timerRow",
+            "box": "row",
+            "width": "fill",
+            "height": 28,
+            "gap": 12,
+            "align": "center",
+            "children": [
+              {
+                "id": "timerTrack",
+                "box": "free",
+                "height": 10,
+                "grow": 1,
+                "fill": "#1e2127",
+                "children": [
+                  {
+                    "id": "timerBar",
+                    "box": "free",
+                    "x": 0,
+                    "y": 0,
+                    "height": 10,
+                    "width": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx ? round(298 * max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / (quizInfo.answerMs || 9000)) : 0}",
+                    "fill": "#d9ff00"
+                  }
+                ]
+              },
+              {
+                "id": "timerSecs",
+                "text": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx ? ('' + ceil(max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / 1000)) : ''}",
+                "width": 48,
+                "size": 22,
+                "font": "display",
+                "color": "#ffffff",
+                "align": "right"
+              }
+            ]
           },
           {
             "id": "qText",
             "text": "{phase == 'play' ? (roundContent.q || '') : ''}",
             "width": 350,
             "size": 22,
-            "font": "display",
+            "weight": 800,
             "color": "#ffffff",
-            "align": "center"
+            "align": "center",
+            "lines": 4
           },
           {
             "id": "statusText",
-            "text": "{phase == 'play' ? (roundAnswer < 0 ? '⏱ 정답을 빠르게!' : ((myAnswerRound === roundIdx && myAnswer === roundAnswer) ? '정답! 🎉' : (myAnswerRound === roundIdx ? '땡! 😢' : '시간 초과 ⌛'))) : '⏱ 정답을 빠르게!'}",
+            "text": "{phase == 'play' ? (roundAnswer >= 0 ? (iAmSubject ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : (iAmSubject ? ('친구들이 고르는 중… (' + quizProgress.answered + '/' + quizProgress.of + ')') : (myAnswerRound === roundIdx ? '선택 완료! 공개를 기다려요' : (seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!'))))) : ''}",
             "width": 340,
             "size": 15,
             "weight": 700,
-            "color": "{phase == 'play' ? (roundAnswer < 0 ? '#d9ff00' : ((myAnswerRound === roundIdx && myAnswer === roundAnswer) ? '#22c55e' : '#FF5A5F')) : '#d9ff00'}",
+            "color": "{phase == 'play' ? (roundAnswer >= 0 ? (iAmSubject ? '#ffffff' : (myAnswerRound === roundIdx && myAnswer === roundAnswer ? '#22c55e' : '#ff5a5f')) : (iAmSubject || myAnswerRound === roundIdx ? '#9aa3af' : '#d9ff00')) : '#d9ff00'}",
             "align": "center"
           },
           {
             "id": "tile0",
             "box": "row",
             "width": "fill",
-            "pad": 12,
+            "height": 64,
+            "pad": [
+              8,
+              12,
+              8,
+              12
+            ],
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (0 === roundAnswer ? '#18351f' : ((myAnswer === 0 && myAnswerRound === roundIdx) ? '#3a171a' : '#16181c')) : ((myAnswer === 0 && myAnswerRound === roundIdx) ? '#2a3a10' : '#1e2127')) : '#1e2127'}",
+            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (0 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 0 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 0 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
+            "stroke": {
+              "color": "{phase == 'play' && roundAnswer >= 0 && 0 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "width": 2
+            },
             "onTap": [
               {
-                "if": "phase == 'play'",
+                "if": "phase == 'play' && !iAmSubject && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -510,9 +621,14 @@
                     "to": "roundIdx"
                   },
                   {
+                    "set": "myMs",
+                    "to": "now - seenAt"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
-                      "option": 0
+                      "option": 0,
+                      "ms": "{myMs}"
                     }
                   }
                 ]
@@ -521,12 +637,13 @@
             "children": [
               {
                 "id": "tile0Txt",
-                "text": "{phase == 'play' ? ((roundContent.options && roundContent.options[0]) || '') : ''}",
+                "text": "{phase == 'play' ? ((roundAnswer >= 0 ? (0 === roundAnswer ? '✓ ' : (myAnswerRound === roundIdx && myAnswer === 0 ? '✗ ' : '')) : '') + ((roundContent.options && roundContent.options[0]) || '')) : ''}",
                 "width": 320,
-                "size": 20,
+                "size": 19,
                 "weight": 800,
-                "color": "#ffffff",
-                "align": "center"
+                "color": "{phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 0 ? '#0b0c0e' : (phase == 'play' && roundAnswer >= 0 && 0 !== roundAnswer && !(myAnswerRound === roundIdx && myAnswer === 0) ? '#9aa3af' : '#ffffff')}",
+                "align": "center",
+                "lines": 2
               }
             ]
           },
@@ -534,13 +651,23 @@
             "id": "tile1",
             "box": "row",
             "width": "fill",
-            "pad": 12,
+            "height": 64,
+            "pad": [
+              8,
+              12,
+              8,
+              12
+            ],
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (1 === roundAnswer ? '#18351f' : ((myAnswer === 1 && myAnswerRound === roundIdx) ? '#3a171a' : '#16181c')) : ((myAnswer === 1 && myAnswerRound === roundIdx) ? '#2a3a10' : '#1e2127')) : '#1e2127'}",
+            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (1 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 1 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 1 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
+            "stroke": {
+              "color": "{phase == 'play' && roundAnswer >= 0 && 1 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "width": 2
+            },
             "onTap": [
               {
-                "if": "phase == 'play'",
+                "if": "phase == 'play' && !iAmSubject && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -551,9 +678,14 @@
                     "to": "roundIdx"
                   },
                   {
+                    "set": "myMs",
+                    "to": "now - seenAt"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
-                      "option": 1
+                      "option": 1,
+                      "ms": "{myMs}"
                     }
                   }
                 ]
@@ -562,12 +694,13 @@
             "children": [
               {
                 "id": "tile1Txt",
-                "text": "{phase == 'play' ? ((roundContent.options && roundContent.options[1]) || '') : ''}",
+                "text": "{phase == 'play' ? ((roundAnswer >= 0 ? (1 === roundAnswer ? '✓ ' : (myAnswerRound === roundIdx && myAnswer === 1 ? '✗ ' : '')) : '') + ((roundContent.options && roundContent.options[1]) || '')) : ''}",
                 "width": 320,
-                "size": 20,
+                "size": 19,
                 "weight": 800,
-                "color": "#ffffff",
-                "align": "center"
+                "color": "{phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 1 ? '#0b0c0e' : (phase == 'play' && roundAnswer >= 0 && 1 !== roundAnswer && !(myAnswerRound === roundIdx && myAnswer === 1) ? '#9aa3af' : '#ffffff')}",
+                "align": "center",
+                "lines": 2
               }
             ]
           },
@@ -575,13 +708,24 @@
             "id": "tile2",
             "box": "row",
             "width": "fill",
-            "pad": 12,
+            "height": 64,
+            "pad": [
+              8,
+              12,
+              8,
+              12
+            ],
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (2 === roundAnswer ? '#18351f' : ((myAnswer === 2 && myAnswerRound === roundIdx) ? '#3a171a' : '#16181c')) : ((myAnswer === 2 && myAnswerRound === roundIdx) ? '#2a3a10' : '#1e2127')) : '#1e2127'}",
+            "show": "phase == 'play' ? (roundContent.options && roundContent.options.length > 2) : true",
+            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (2 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 2 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 2 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
+            "stroke": {
+              "color": "{phase == 'play' && roundAnswer >= 0 && 2 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "width": 2
+            },
             "onTap": [
               {
-                "if": "phase == 'play'",
+                "if": "phase == 'play' && !iAmSubject && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -592,9 +736,14 @@
                     "to": "roundIdx"
                   },
                   {
+                    "set": "myMs",
+                    "to": "now - seenAt"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
-                      "option": 2
+                      "option": 2,
+                      "ms": "{myMs}"
                     }
                   }
                 ]
@@ -603,12 +752,13 @@
             "children": [
               {
                 "id": "tile2Txt",
-                "text": "{phase == 'play' ? ((roundContent.options && roundContent.options[2]) || '') : ''}",
+                "text": "{phase == 'play' ? ((roundAnswer >= 0 ? (2 === roundAnswer ? '✓ ' : (myAnswerRound === roundIdx && myAnswer === 2 ? '✗ ' : '')) : '') + ((roundContent.options && roundContent.options[2]) || '')) : ''}",
                 "width": 320,
-                "size": 20,
+                "size": 19,
                 "weight": 800,
-                "color": "#ffffff",
-                "align": "center"
+                "color": "{phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 2 ? '#0b0c0e' : (phase == 'play' && roundAnswer >= 0 && 2 !== roundAnswer && !(myAnswerRound === roundIdx && myAnswer === 2) ? '#9aa3af' : '#ffffff')}",
+                "align": "center",
+                "lines": 2
               }
             ]
           },
@@ -616,13 +766,24 @@
             "id": "tile3",
             "box": "row",
             "width": "fill",
-            "pad": 12,
+            "height": 64,
+            "pad": [
+              8,
+              12,
+              8,
+              12
+            ],
             "align": "center",
             "justify": "center",
-            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (3 === roundAnswer ? '#18351f' : ((myAnswer === 3 && myAnswerRound === roundIdx) ? '#3a171a' : '#16181c')) : ((myAnswer === 3 && myAnswerRound === roundIdx) ? '#2a3a10' : '#1e2127')) : '#1e2127'}",
+            "show": "phase == 'play' ? (roundContent.options && roundContent.options.length > 3) : true",
+            "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (3 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 3 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 3 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
+            "stroke": {
+              "color": "{phase == 'play' && roundAnswer >= 0 && 3 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "width": 2
+            },
             "onTap": [
               {
-                "if": "phase == 'play'",
+                "if": "phase == 'play' && !iAmSubject && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -633,9 +794,14 @@
                     "to": "roundIdx"
                   },
                   {
+                    "set": "myMs",
+                    "to": "now - seenAt"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
-                      "option": 3
+                      "option": 3,
+                      "ms": "{myMs}"
                     }
                   }
                 ]
@@ -644,14 +810,24 @@
             "children": [
               {
                 "id": "tile3Txt",
-                "text": "{phase == 'play' ? ((roundContent.options && roundContent.options[3]) || '') : ''}",
+                "text": "{phase == 'play' ? ((roundAnswer >= 0 ? (3 === roundAnswer ? '✓ ' : (myAnswerRound === roundIdx && myAnswer === 3 ? '✗ ' : '')) : '') + ((roundContent.options && roundContent.options[3]) || '')) : ''}",
                 "width": 320,
-                "size": 20,
+                "size": 19,
                 "weight": 800,
-                "color": "#ffffff",
-                "align": "center"
+                "color": "{phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 3 ? '#0b0c0e' : (phase == 'play' && roundAnswer >= 0 && 3 !== roundAnswer && !(myAnswerRound === roundIdx && myAnswer === 3) ? '#9aa3af' : '#ffffff')}",
+                "align": "center",
+                "lines": 2
               }
             ]
+          },
+          {
+            "id": "progressText",
+            "text": "{phase == 'play' && !iAmSubject && quizProgress.of > 1 ? ('' + quizProgress.answered + '/' + quizProgress.of + '명 답함') : ''}",
+            "width": 340,
+            "size": 13,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
           }
         ]
       },
