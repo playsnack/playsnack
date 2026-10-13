@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createBite } from "../../bite/src/runtime.js";
 import { createRoom } from "../src/room.js";
+// raceBoard rows carry a per-room `pid`; compare names and scores
+const rows = (b) => (b || []).map(({ pid, ...x }) => x);
 
 // Headless "two devices, one room": each device runs the REAL template in the Bite
 // runtime; its `emit`s go into the room engine and the engine's setVars go back to every
@@ -105,7 +107,7 @@ test("tap-battle: game 2 started by the OTHER device — board == 내 탭 card o
   await T.advance(10000); // the 10 s window ends (+ the final batch)
   assert.equal(T.phase(1), "result");
   assert.equal(T.v(1, "myTaps"), 40);
-  assert.deepEqual(T.v(1, "raceBoard"), [{ nick: "B", score: 40 }]);
+  assert.deepEqual(rows(T.v(1, "raceBoard")), [{ nick: "B", score: 40 }]);
   T.tap(0, "againBtn"); // A starts game 2; B never pressed anything but the pad
   await T.advance(3200);
   assert.equal(T.phase(1), "play");
@@ -117,7 +119,7 @@ test("tap-battle: game 2 started by the OTHER device — board == 내 탭 card o
   await T.advance(10000);
   assert.equal(T.phase(1), "result");
   assert.equal(T.v(1, "myTaps"), 50);
-  assert.deepEqual(T.v(1, "raceBoard"), [{ nick: "B", score: 50 }], "board == card (not 90)");
+  assert.deepEqual(rows(T.v(1, "raceBoard")), [{ nick: "B", score: 50 }], "board == card (not 90)");
   assert.deepEqual(T.v(0, "raceBoard"), T.v(1, "raceBoard"));
 });
 
@@ -217,7 +219,8 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   // reveal: B and C both right — B was faster on its own device, so B leads
   const pts = (ms) => Math.max(100, 1000 - Math.round((ms / 8000) * 800));
   const board = T.v(0, "raceBoard");
-  assert.deepEqual(board, [{ nick: "B", score: pts(msB) }, { nick: "C", score: pts(msC) }]);
+  assert.deepEqual(board, [{ nick: "B", score: pts(msB), pid: "p2" }, { nick: "C", score: pts(msC), pid: "p3" }]);
+  assert.deepEqual([0, 1, 2].map((i) => T.v(i, "myPid")), ["p1", "p2", "p3"], "each device knows its own row");
   assert.match(T.prop(1, "statusText"), /^정답! ✓ /);
   assert.equal(T.prop(0, "statusText"), "정답 공개!");
   assert.match(T.prop(1, `tile${right(1)}Txt`), /^✓ /);

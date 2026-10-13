@@ -194,7 +194,7 @@ const results = [];
   const ok1 = packed && playing && done && same3(board) && same3(recap) && same3((x) => x.shared.quizInfo) && same(board(c[1]), wantBoard) && recap(c[1])?.subject === "G1" && same(picks0(c[1]), [["G0", 300, true], ["G2", 600, true], ["G3", 900, true]]) && recap(c[1])?.rounds?.length === 2;
   const detail = { packed, playing, done, board1: board(c[1]), board2: board(c[2]), board3: board(c[3]), subject: recap(c[1])?.subject, picks: picks0(c[1]) };
   // the stored pack survived the hand-over: the next game on the new host plays it again
-  c[2].start({ game: "trivia", quiz: true, rounds: 6, answerMs: 9000, revealMs: 1500 });
+  c[1].start({ game: "trivia", quiz: true, rounds: 6, answerMs: 9000, revealMs: 1500 }); // the subject starts again
   const again = await until(() => rest.every((x) => x.shared.sessionPhase === "play" && x.shared.roundContent?.q === pack.questions[0].q && x.shared.quizInfo?.about === "G1"), 8000);
   results.push({ id: "G quiz: custom pack + device-ms scores survive the host leaving", ok: ok1 && again, detail: { ...detail, again } });
   c.forEach((x) => x.close());
