@@ -15,6 +15,7 @@ import { getContent } from "./content.mjs";
 import { validate as validateBite } from "@snack/bite";
 import { createRoom, cleanNick } from "@snack/room";
 import { attachRelay } from "./relay.mjs";
+import { appSlugOf, isFriendRoom, isRoomId, roomIdForApp, sumRoomsOf } from "./roomId.mjs";
 
 // Each starter template is also a canonical LIVE shared room at /p/tpl-<id> —
 // so the dashboard's "지금 N명 / leaderboard / votes" are real & shared. (Defined
@@ -68,7 +69,11 @@ function builderAllowed(req) {
 // JSON files; SQLite is the documented production upgrade).
 const VOTES = resolve(__dirname, "../data/votes");
 mkdirSync(VOTES, { recursive: true });
+// Friends-only rooms (`<slug>~<CODE>`, roomId.mjs) are ephemeral: their votes
+// live in the engine only — no file per code, nothing to evict. Slugs reach
+// these only after isRoomId() (no slashes), so the path stays inside VOTES.
 const loadVoters = (slug) => {
+  if (isFriendRoom(slug)) return new Map();
   try { return new Map(Object.entries(JSON.parse(readFileSync(resolve(VOTES, `${slug}.json`), "utf8")))); }
   catch { return new Map(); }
 };
@@ -79,6 +84,7 @@ mkdirSync(PHOTOS, { recursive: true });
 const photoPath = (id) => resolve(PHOTOS, String(id).replace(/[^a-zA-Z0-9-]/g, "").slice(0, 64) + ".jpg");
 const hasPhoto = (id) => { try { return existsSync(photoPath(id)); } catch { return false; } };
 const saveVoters = (slug, voters) => {
+  if (isFriendRoom(slug)) return;
   try { writeFileSync(resolve(VOTES, `${slug}.json`), JSON.stringify(Object.fromEntries(voters))); }
   catch { /* best-effort */ }
 };
@@ -93,7 +99,7 @@ const room = (slug) => {
   const voters = loadVoters(slug);
   // A friends-only room is `<app slug>~<code>` (snack-player/src/links.ts): its
   // own tallies, the app's defaults.
-  const appSlug = slug.split("~")[0];
+  const appSlug = appSlugOf(slug);
   const engine = createRoom({
     defaults: () => apps[appSlug]?.defaults ?? {},
     voters,
@@ -111,7 +117,7 @@ const room = (slug) => {
 };
 // Cold-load view of a room nobody is in yet (no engine created).
 const coldShared = (slug) => {
-  const votesByOption = { ...(apps[slug]?.defaults ?? {}) };
+  const votesByOption = { ...(apps[appSlugOf(slug)]?.defaults ?? {}) };
   for (const opt of loadVoters(slug).values()) votesByOption[opt] = (votesByOption[opt] ?? 0) + 1;
   return { votesByOption, coopTotal: 0, leaderboard: [] };
 };
@@ -203,8 +209,9 @@ const globalOnline = () => {
   for (const r of relay.rooms.values()) n += r.peers.size;
   return n;
 };
-const playingIn = (slug) => (rooms.get(slug)?.engine.size ?? 0) + relay.size(slug);
-const recentActivityCount = (slug, now) => ACTIVITY.reduce((n, a) => n + (a.slug === slug && now - a.t < TREND_WINDOW ? 1 : 0), 0);
+// Per app: the public room plus every friends-only room of it (`<slug>~<CODE>`).
+const playingIn = (slug) => sumRoomsOf(rooms, slug, (r) => r.engine.size) + sumRoomsOf(relay.rooms, slug, (r) => r.peers.size);
+const recentActivityCount = (slug, now) => ACTIVITY.reduce((n, a) => n + (appSlugOf(a.slug) === slug && now - a.t < TREND_WINDOW ? 1 : 0), 0);
 
 const app = express();
 app.use(express.json({ limit: "1mb" })); // room for a downscaled selfie data-URL
@@ -486,12 +493,15 @@ app.post("/api/apps", (req, res) => {
   res.json({ slug, url: `/p/${slug}` });
 });
 
+// `?room=<slug>~<CODE>` names a friends-only room of this app: the state that
+// comes back is that room's, never the public room's.
 app.get("/api/apps/:slug", (req, res) => {
   const a = apps[req.params.slug];
   if (!a) return res.status(404).json({ error: "not found" });
-  const slug = req.params.slug;
-  const live = rooms.get(slug)?.engine.sharedState();
-  res.json({ doc: a.doc, sharedState: live ? { votesByOption: live.votesByOption, coopTotal: live.coopTotal, leaderboard: live.leaderboard } : coldShared(slug) });
+  const roomId = roomIdForApp(req.params.slug, req.query.room);
+  const live = rooms.get(roomId)?.engine.sharedState();
+  res.set("Cache-Control", "no-store");
+  res.json({ doc: a.doc, sharedState: live ? { votesByOption: live.votesByOption, coopTotal: live.coopTotal, leaderboard: live.leaderboard } : coldShared(roomId) });
 });
 
 // Round content for a host-mode room (the host's device asks; same packs the
@@ -514,7 +524,7 @@ app.post("/api/events", (req, res) => {
   if (hits.length >= 60) return res.status(429).json({ ok: false });
   hits.push(now);
   eventHits.set(ip, hits);
-  const slug = String(req.body?.slug ?? "").slice(0, 64);
+  const slug = isRoomId(req.body?.slug) ? req.body.slug : ""; // a room id (public or ~CODE), else no activity
   const events = Array.isArray(req.body?.events) ? req.body.events.slice(0, 50) : [];
   let applied = 0;
   for (const e of events) {
@@ -585,7 +595,8 @@ app.get("/api/live", (_req, res) => {
   snacks.sort((a, b) => (orderIdx.get(a.id) ?? 999) - (orderIdx.get(b.id) ?? 999));
   snacks.forEach((s, i) => { s.trendRank = i + 1; });
   const ticker = ACTIVITY.slice(-10).reverse().map((a) => {
-    const id = a.slug.startsWith(TPL_PREFIX) ? a.slug.slice(TPL_PREFIX.length) : a.slug;
+    const appSlug = appSlugOf(a.slug); // a friends-only room's activity counts for its app
+    const id = appSlug.startsWith(TPL_PREFIX) ? appSlug.slice(TPL_PREFIX.length) : appSlug;
     const m = templateMeta(id);
     return { emoji: m?.emoji || "✨", title: m?.title || id, label: a.label, t: a.t };
   });
@@ -629,7 +640,10 @@ wss.on("connection", (ws) => {
     const { t, d } = msg;
     if (t === "hello") {
       if (slug) return; // one room per socket
-      slug = String(d?.slug ?? "");
+      // The room id names a votes file and a map key: only [\w.~-]{1,80}
+      // (roomId.mjs) — anything else (paths, blanks) is refused.
+      if (!isRoomId(d?.slug)) return ws.close(1008, "bad room id");
+      slug = d.slug;
       const r = room(slug);
       r.sockets.set(peerId, ws);
       r.engine.join(peerId, { anonId: d?.anonId, nick: d?.nick });

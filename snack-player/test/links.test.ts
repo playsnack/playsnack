@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_CODE_MIN,
-  friendLink, newRoomCode, parseRoute, playPath, roomCodeOf, roomIdFor,
+  appApiPath, friendLink, newRoomCode, parseRoute, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf,
 } from "../src/links.ts";
 
 const loc = (pathname: string, search = "", hash = "") => ({ pathname, search, hash });
@@ -27,12 +27,37 @@ test("old hash link #/p/<slug>?… → same route + the path form to replace it 
   assert.equal(canonical, "/p/tpl-tap-battle?room=ABCDEFGH23&host=1");
 });
 
-test("old hash link on /index.html with a made app's d= payload keeps the payload", () => {
+test("old hash link on /index.html with a made app's d= payload keeps the payload, moved to the fragment", () => {
   const d = "eJyrVspMUbJSSk7MyU_JLFaqBQAlvwTz";
   const { route, canonical } = parseRoute(loc("/index.html", "", `#/p/app-k3j9x?d=${d}`));
   assert.equal(route.slug, "app-k3j9x");
   assert.equal(route.params.get("d"), d);
-  assert.equal(canonical, `/p/app-k3j9x?d=${d}`);
+  assert.equal(canonical, `/p/app-k3j9x#d=${d}`, "the doc never travels in the query (server round trip, URL limit)");
+});
+
+test("made-app link: #d= fragment is read as a param; query d= (old form) still works; playPath writes the fragment", () => {
+  const d = "eJyrVspMUbJSSk7MyU_JLFaqBQAlvwTz";
+  const frag = parseRoute(loc("/p/app-k3j9x", "?room=K7MNP2QRS4", `#d=${d}`));
+  assert.equal(frag.route.name, "live");
+  assert.equal(frag.route.slug, "app-k3j9x");
+  assert.equal(frag.route.params.get("d"), d);
+  assert.equal(frag.route.params.get("room"), "K7MNP2QRS4");
+  assert.equal(frag.canonical, null);
+  const query = parseRoute(loc("/p/app-k3j9x", `?d=${d}`));
+  assert.equal(query.route.params.get("d"), d);
+  // the query wins over the fragment for the same key
+  assert.equal(parseRoute(loc("/p/x", "?k=q", "#k=f")).route.params.get("k"), "q");
+  assert.equal(playPath("app-k3j9x", new URLSearchParams({ room: "K7MNP2QRS4", d })), `/p/app-k3j9x?room=K7MNP2QRS4#d=${d}`);
+  assert.equal(playPath("app-k3j9x", new URLSearchParams({ d })), `/p/app-k3j9x#d=${d}`);
+  // friendLink keeps the doc in the fragment too
+  assert.equal(friendLink("https://h", "app-k3j9x", new URLSearchParams({ d }), "K7MNP2QRS4"), `https://h/p/app-k3j9x?room=K7MNP2QRS4#d=${d}`);
+});
+
+test("malformed percent-escape in the slug does not throw: raw slug, no app → not found", () => {
+  const { route } = parseRoute(loc("/p/100%"));
+  assert.equal(route.name, "live");
+  assert.equal(route.slug, "100%");
+  assert.equal(parseRoute(loc("/", "", "#/p/%E0%A4%A")).route.slug, "%E0%A4%A");
 });
 
 test("hash link with a query before the # merges it (the hash's own query wins)", () => {
@@ -88,6 +113,33 @@ test("room code generation uses the given random bytes uniformly (5-bit mask, ev
   assert.equal(seen.size, ROOM_CODE_ALPHABET.length);
   // default source is crypto.getRandomValues: two draws differ
   assert.notEqual(newRoomCode(), newRoomCode());
+});
+
+test("roomParamOf: none / legacy (room=, room=1) / code / invalid — invalid is never the public room", () => {
+  assert.deepEqual(roomParamOf(new URLSearchParams("host=1")), { kind: "none" });
+  for (const legacy of ["room=", "room=1", "room=true"]) assert.deepEqual(roomParamOf(new URLSearchParams(legacy)), { kind: "legacy" }, legacy);
+  assert.deepEqual(roomParamOf(new URLSearchParams("room=K7MNP2QRS4")), { kind: "code", code: "K7MNP2QRS4" });
+  // a chat app cut the code short
+  assert.deepEqual(roomParamOf(new URLSearchParams("room=K7MNP2Q")), { kind: "invalid", raw: "K7MNP2Q" });
+  // longer than any code
+  assert.equal(roomParamOf(new URLSearchParams(`room=${"A".repeat(33)}`)).kind, "invalid");
+  assert.equal(roomParamOf(new URLSearchParams(`room=${"A".repeat(32)}`)).kind, "code");
+  // symbols outside the alphabet: 0/1/O/I are all rejected, never mapped to another room
+  for (const bad of ["K7MNP2QRS0", "K7MNP2QRS1", "K7MNP2QRSO", "K7MNP2QRSI", "K7MNP2QRS4!", "K7MNP2QRS4/x"]) {
+    assert.equal(roomParamOf(new URLSearchParams({ room: bad })).kind, "invalid", bad);
+  }
+  // roomIdFor on legacy/none is the public room; LiveApp blocks "invalid" before joining
+  assert.equal(roomIdFor("tpl-x", new URLSearchParams("room=1")), "tpl-x");
+});
+
+test("appApiPath (server mode) names the room so the state returned is that room's", () => {
+  assert.equal(appApiPath("tpl-x", new URLSearchParams("")), "/api/apps/tpl-x");
+  assert.equal(appApiPath("tpl-x", new URLSearchParams("room=1")), "/api/apps/tpl-x");
+  assert.equal(appApiPath("tpl-x", new URLSearchParams("room=k7mnp2qrs4")), "/api/apps/tpl-x?room=tpl-x~K7MNP2QRS4");
+});
+
+test("publicLink drops the room param, keeps the rest", () => {
+  assert.equal(publicLink("tpl-x", new URLSearchParams("room=K7MNP2Q&host=1")), "/p/tpl-x?host=1");
 });
 
 test("roomCodeOf: normalizes case, strips separators, rejects short/absent values", () => {
