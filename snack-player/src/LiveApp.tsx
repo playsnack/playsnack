@@ -215,9 +215,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} />
       <HomeButton />
       {withRoom && conn !== "failed" && <RoomChip state={conn} people={participants} />}
-      {/* Friends-only room pill (bottom-left): "친구끼리" opens a new coded room
+      {/* Friends-only room pill (top row, right of 홈): "친구끼리" opens a new coded room
           (an unlisted link — friends who have it meet there); in a coded room it
-          hands the invite link out. */}
+          hands the invite link out. The bottom corners belong to the templates' buttons (MP-09). */}
       {withRoom && conn !== "failed" && (
         <div style={inviteDock}>
           {invite === "copied" && <div style={inviteNote} role="status">초대 링크를 복사했어요</div>}
@@ -268,10 +268,11 @@ const REACTIONS = ["❤️", "🔥", "😂", "👍", "😮"];
 const fxOverlay: React.CSSProperties = {
   position: "fixed", inset: 0, pointerEvents: "none", zIndex: 12, overflow: "hidden",
 };
-// Bottom-left, mirroring the reaction dock; the note sits above the pill.
+// Top row, between 홈 (left) and the people chip (right): never over a template's
+// bottom buttons (MP-09). Column-reverse keeps the pill on the row and notes under it.
 const inviteDock: React.CSSProperties = {
-  position: "fixed", left: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)", maxWidth: "70vw",
-  display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, zIndex: 13,
+  position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", left: 84, maxWidth: "calc(100vw - 180px)",
+  display: "flex", flexDirection: "column-reverse", alignItems: "flex-start", gap: 8, zIndex: 13,
 };
 const inviteNote: React.CSSProperties = {
   ...pill, minHeight: 0, padding: "8px 12px", whiteSpace: "normal", wordBreak: "break-all", fontWeight: 600, alignItems: "flex-start",
@@ -280,10 +281,11 @@ const closeBtn: React.CSSProperties = {
   flex: "none", width: 32, height: 32, margin: "-4px -6px -4px 0", padding: 0, border: "none", background: "transparent",
   color: C.ink, fontSize: 16, cursor: "pointer",
 };
-// Tucked into the very corner so it covers as little bottom content as possible.
+// Under the people chip on every screen (MP-09): the bottom corners belong to the
+// templates' buttons. The emoji list opens downward.
 const reactionDock: React.CSSProperties = {
-  position: "fixed", right: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)",
-  display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 13,
+  position: "fixed", right: 12, top: "calc(var(--snack-safe-top) + 62px)",
+  display: "flex", flexDirection: "column-reverse", alignItems: "center", gap: 8, zIndex: 13,
 };
 const reactionPop: React.CSSProperties = {
   display: "flex", flexDirection: "column", gap: 8, padding: 6,
