@@ -630,7 +630,7 @@ test("quizPack: sanitized (trim, caps, invalid questions dropped), quizInfo has 
   assert.deepEqual(p.questions[0].options, ["나".repeat(30), "B"]);
   assert.deepEqual(p.questions[1], { q: "빈 보기는 빠지고 답 번호가 따라감", options: ["A", "C"], answer: 1 });
   assert.deepEqual(p.settings, { rounds: 20, answerMs: 3000 }); // clamped
-  assert.deepEqual(info(h), { title: "제".repeat(40), count: 2, custom: true, about: "닉1", answerMs: 3000 });
+  assert.deepEqual(info(h), { title: "제".repeat(40), count: 2, custom: true, about: "닉1", answerMs: 3000, subjectHere: true });
   assert.match(h.v("quizInfo").packId, /^[a-z0-9]{32}$/); // a random id per accepted pack
   assert.ok(!JSON.stringify(h.v("quizInfo")).includes('"answer"'), "no answers in the public var");
   // more than 20 valid questions → the first 20
@@ -650,11 +650,11 @@ test("quizPack: nothing playable is refused (the stored pack stays); the subject
   assert.equal(h.v("quizInfo").title, "첫 팩");
   assert.equal(h.v("quizInfo").about, "닉1");
   h.act(1, "quizPack", { title: "고친 팩", questions: QS.slice(0, 1), about: "  내 이름은 아주아주 긴 별명입니다  " });
-  assert.deepEqual(info(h), { title: "고친 팩", count: 1, custom: true, about: "내 이름은 아주아주", answerMs: null }); // `about`: a nickname, ≤10 graphemes
+  assert.deepEqual(info(h), { title: "고친 팩", count: 1, custom: true, about: "내 이름은 아주아주", answerMs: null, subjectHere: true }); // `about`: a nickname, ≤10 graphemes
   assert.equal(h.room._state.session.quizPack.questions.length, 1);
 });
 
-test("quizPack in the lobby: only the subject may replace it (not_subject) — unless the subject left", () => {
+test("quizPack in the lobby: only the subject may replace it (not_subject) — unless the subject left (30 s grace)", async () => {
   const h = harness();
   [1, 2, 3].forEach(h.join);
   h.act(1, "quizPack", { title: "닉1 팩", questions: QS });
@@ -662,7 +662,10 @@ test("quizPack in the lobby: only the subject may replace it (not_subject) — u
   assert.deepEqual(ackOf(h, 2, "quizPack"), { clientMsgId: "m2quizPack", accepted: false, reason: "not_subject" });
   assert.equal(h.v("quizInfo").about, "닉1");
   assert.equal(h.room._state.session.subject, "a1");
-  h.room.leave("p1"); // the subject is gone: the room is not stuck with their quiz
+  h.room.leave("p1"); // the subject switched apps…
+  h.act(2, "quizPack", { title: "닉2 팩", questions: QS });
+  assert.equal(ackOf(h, 2, "quizPack").reason, "not_subject", "…a few seconds away is not 'left'");
+  await h.advance(30000); // gone for good: the room is not stuck with their quiz
   h.act(2, "quizPack", { title: "닉2 팩", questions: QS });
   assert.equal(ackOf(h, 2, "quizPack").accepted, true);
   assert.equal(h.v("quizInfo").about, "닉2");
@@ -719,7 +722,7 @@ test("no pack (opened cold): the default trivia pack plays solo, no subject", as
   h.act(1, "start", QUIZ_START);
   await h.advance(3000 + 1000);
   assert.equal(h.v("sessionPhase"), "play");
-  assert.deepEqual(h.v("quizInfo"), { title: "상식", count: 3, custom: false, about: null, answerMs: 8000, packId: null });
+  assert.deepEqual(h.v("quizInfo"), { title: "상식", count: 3, custom: false, about: null, answerMs: 8000, packId: null, subjectHere: true });
   h.act(1, "answer", { option: shownAnswer(h), ms: 800 });
   await h.advance(8000);
   assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉1", score: pts(800) }]);
@@ -847,7 +850,7 @@ test("나도 만들기: a pack sent from the result makes a new subject; scores 
   assert.equal(h.v("raceBoard")[0].nick, "닉2");
   h.act(2, "quizPack", { title: "이번엔 나", questions: QS.slice(1, 3) }); // from the result screen
   assert.equal(ackOf(h, 2, "quizPack").accepted, true);
-  assert.deepEqual(info(h), { title: "이번엔 나", count: 2, custom: true, about: "닉2", answerMs: null });
+  assert.deepEqual(info(h), { title: "이번엔 나", count: 2, custom: true, about: "닉2", answerMs: null, subjectHere: true });
   assert.notEqual(h.v("quizInfo").packId, h.v("quizRecap").packId, "the result screen can tell a new quiz is waiting");
   assert.equal(h.v("raceBoard")[0].nick, "닉2", "the old result stays until the next start");
   h.act(1, "start", QUIZ_START); // the old subject: not their quiz any more
@@ -985,6 +988,7 @@ test("start in the result: a cold quiz restarts from anyone; a custom one only f
   h.act(2, "start", QUIZ_START);
   assert.equal(ackOf(h, 2, "start").reason, "not_subject");
   h.room.leave("p1"); // the subject is gone: the room is not stuck
+  await h.advance(30000);
   h.join(3);
   h.act(2, "start", QUIZ_START);
   await h.advance(0);

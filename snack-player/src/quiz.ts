@@ -397,7 +397,7 @@ export const RESEND_GAP_MS = 3000;
 /** Unconfirmed sends before this device gives up and says so. */
 export const MAX_SENDS = 5;
 /** Ack reasons that mean "this pack will not be taken" (stop re-sending). */
-export const PACK_REFUSALS = new Set(["invalid_pack", "not_subject"]);
+export const PACK_REFUSALS = new Set(["invalid_pack", "not_subject", "pack_waiting"]);
 
 export type PackState = {
   /** The room's sessionPhase ("lobby" until the room sets it). */
@@ -438,5 +438,6 @@ export function packAction(s: PackState): "confirm" | "forget" | "send" | "faile
 export function packFailureMessage(refused: string | undefined): string {
   if (refused === "invalid_pack") return "퀴즈를 방에 넘기지 못했어요. 퀴즈를 다시 만들어 주세요.";
   if (refused === "not_subject") return "지금은 다른 친구의 퀴즈 차례라 내 퀴즈를 넘기지 못했어요. 이번 판이 끝나면 다시 해 주세요.";
+  if (refused === "pack_waiting") return "다른 친구가 먼저 새 퀴즈를 만들었어요. 그 판이 끝나면 다시 보내 주세요.";
   return "퀴즈를 방에 넘기지 못했어요. 연결을 확인하고 다시 보내 주세요.";
 }

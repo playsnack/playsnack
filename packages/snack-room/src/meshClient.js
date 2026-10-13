@@ -216,7 +216,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   let snapAt = 0;
   // Times in a snapshot are relative to when it was taken (and a peer restores it by its
   // age), so a snapshot whose only change is time passing says nothing new.
-  const TIME_KEYS = new Set(["remaining", "roundStartAgo", "goAtAgo", "playAtAgo", "lateLeft"]);
+  const TIME_KEYS = new Set(["remaining", "roundStartAgo", "goAtAgo", "playAtAgo", "lateLeft", "subjectAwayAgo"]);
   const timeless = (k, v) => (TIME_KEYS.has(k) ? 0 : v);
   const pushSnapshot = () => {
     if (snapTimer || !room) return;

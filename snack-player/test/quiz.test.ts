@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   ABOUT_ME, ANSWER_MS, MAKE_PARAM, MAX_SENDS, OPTION_MAX, Q_MAX, QUESTIONS_MAX, QUESTIONS_MIN, QUIZ_SLUG, QUIZ_TTL_MS, RECENT_KEEP, SUGGEST_COUNT, TITLE_MAX,
   addOption, addSuggested, blankQuestion, buildQuizPack, canFinish, defaultTitle, draftFromPack, draftProblems, editOption, editQuestion,
-  fromTemplate, graphemeLength, isQuizPack, nameProblem, newDraft, oneLine, opensMakerPage, packAction, packFailureMessage, questionProblems, quizStore,
+  fromTemplate, graphemeLength, isQuizPack, nameProblem, newDraft, oneLine, opensMakerPage, PACK_REFUSALS, packAction, packFailureMessage, questionProblems, quizStore,
   removeOption, setName, swapCandidate, swapNeedsConfirm, tapAnswer,
   type Draft, type KV, type PackState,
 } from "../src/quiz.ts";
@@ -341,5 +341,7 @@ test("packAction: stop re-sending when refused or after 5 unconfirmed sends — 
   assert.equal(packAction(st({ iAmSubject: true, entry: { sends: MAX_SENDS } })), "confirm", "a late confirmation still wins");
   assert.match(packFailureMessage("invalid_pack"), /다시 만들어/);
   assert.match(packFailureMessage("not_subject"), /다른 친구의 퀴즈 차례/);
+  assert.match(packFailureMessage("pack_waiting"), /다른 친구가 먼저 새 퀴즈를 만들었어요/);
+  assert.ok(PACK_REFUSALS.has("pack_waiting"), "the room's first-maker-wins refusal stops re-sending");
   assert.match(packFailureMessage(undefined), /연결을 확인/);
 });

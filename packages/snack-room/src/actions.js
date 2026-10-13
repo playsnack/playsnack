@@ -55,17 +55,20 @@ export const HOST_ACTIONS = Object.freeze({
   // Number(payload.option) === round.answer (0-based choice index, in the order shown).
   // ms = "question shown → tap" measured on the device; missing / not a number / < 0 /
   // past the window + 0.5 s → the host's own measurement; never above what the host saw
-  // + 50 ms. One answer per player per round; the quiz's subject (pack sender) is ignored.
+  // + 50 ms. One answer per player per round, only while a round is open; the quiz's subject
+  // (pack sender) is ignored. round / sessionNo = what the device answered (roundIdx /
+  // sessionNo): another round or game → actionAck {accepted:false, reason:"stale_round"}.
   answer: {
     payload: "object",
-    fields: { option: { type: "number", required: true }, ms: { type: "number" } },
+    fields: { option: { type: "number", required: true }, ms: { type: "number" }, round: { type: "number" }, sessionNo: { type: "number" } },
     description: "quiz answer — 0-based choice index, plus the answer time this device measured (ms)",
   },
   // 나 맞히기: sanitizeQuizPack(payload) — title ≤40, 1–20 questions {q ≤80, options 2–4
   // each ≤30, answer}, settings {rounds 1–20, answerMs 3000–20000}; invalid questions are
   // dropped, none valid → actionAck {accepted:false, reason:"invalid_pack"}. Lobby/result
   // only (else "not_in_lobby"); in the lobby only the current subject may replace it (else
-  // "not_subject", unless that subject left). The sender becomes the subject, shown as
+  // "not_subject", unless that subject has been gone 30 s); in a result the first new pack
+  // wins until the next start (else "pack_waiting"). The sender becomes the subject, shown as
   // `about` (cleaned like a nickname) or else their nickname.
   quizPack: {
     payload: "object",
@@ -78,8 +81,9 @@ export const HOST_ACTIONS = Object.freeze({
     description: "store this player's own quiz (they become its subject) — used by the next quiz start",
   },
   // startSession(payload): a bare number = { duration }; getPack(game, opts) reads theme.
-  // A quiz with a stored pack starts only from its subject (anyone if the subject left;
-  // else actionAck reason "not_subject") and needs one more player ("need_answerer").
+  // In a room with a stored quiz pack any start comes only from its subject (anyone once the
+  // subject has been gone 30 s; else actionAck reason "not_subject"); a quiz start needs one
+  // more player ("need_answerer"). `lobby` follows the same subject rule.
   start: {
     payload: "object",
     number: true,

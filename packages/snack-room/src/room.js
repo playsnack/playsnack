@@ -50,7 +50,27 @@ const QUIZ_ANSWER_MS = [3000, 20000]; // answer window bounds (ms)
 // so an honest claim never exceeds the window by much; beyond this it is not believed.
 const ANSWER_GRACE_MS = 500;
 const RECAP_PLAYERS_MAX = 20; // answerers listed per round in quizRecap (snapshot size)
-const clip = (s, n) => capGraphemes(String(s).trim(), n).trimEnd();
+// The subject switching apps (e.g. to share the invite in KakaoTalk) drops out of the
+// roster after ~3.5 s of silence; only this long away counts as "left" for the quiz rules.
+export const SUBJECT_GRACE_MS = 30000;
+// Also at most 4 UTF-16 units per allowed grapheme: one "grapheme" can carry thousands of
+// combining marks (a size bomb in every snapshot). Text with more than 2 marks per base
+// character is dropped (an emoji's variation selector / keycap is 1–2).
+const MARKS = /\p{M}/gu;
+const capText = (s, n) => {
+  let out = capGraphemes(s, n);
+  if (out.length > 4 * n) {
+    let cut = "";
+    for (const g of segmenter ? Array.from(segmenter.segment(out), (x) => x.segment) : Array.from(out)) {
+      if (cut.length + g.length > 4 * n) break;
+      cut += g;
+    }
+    out = cut;
+  }
+  const marks = (out.match(MARKS) || []).length;
+  return marks > 2 * Math.max(1, Array.from(out).length - marks) ? "" : out;
+};
+const clip = (s, n) => capText(String(s).trim(), n).trimEnd();
 const clampInt = (v, lo, hi) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : undefined;
@@ -137,7 +157,7 @@ export function createRoom(o) {
     roster: new Map(), // anonId → nick (live participants, insertion order)
     nicks: new Map(), // anonId → nick (score owner names)
     pids: new Map(), // anonId → "p1", "p2"… (join order; a stable per-room key — two players may share a nick)
-    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null, sid: "", done: 0, subject: "", answerers: undefined, acted: undefined },
+    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null, sid: "", done: 0, subject: "", answerers: undefined, acted: undefined, subjectAwayAt: null, packDone: -1 },
     destroyed: false,
     // Variable stores — what a (re)joining player needs to see the room as it is:
     vars: new Map(), // shared: id → latest broadcast value (round content too)
@@ -185,14 +205,17 @@ export function createRoom(o) {
     if (!r.pids.has(anonId)) r.pids.set(anonId, `p${r.pids.size + 1}`);
     return r.pids.get(anonId);
   };
+  // While a quiz round is open, a join/leave must not publish this round's points early.
+  const shownScores = () => (S.quiz && S.accepting && S.revealed ? S.revealed : [...r.scores.entries()]);
   const raceBoard = () =>
-    [...r.scores.entries()]
+    shownScores()
       .map(([id, score]) => {
         const nick = r.nicks.get(id) || r.roster.get(id) || "게스트";
         const pid = pidOf(id);
         return r.roster.has(id) ? { nick, score, pid } : { nick: `${nick} ${LEFT_MARK}`, score, pid, left: true };
       })
-      .sort((a, b) => b.score - a.score)
+      // MP-11: a tie stays a tie — listed by nickname, then join order, the same on every host
+      .sort((a, b) => b.score - a.score || (a.nick < b.nick ? -1 : a.nick > b.nick ? 1 : 0) || Number(a.pid.slice(1)) - Number(b.pid.slice(1)))
       .slice(0, 8);
   const rosterArr = () => [...r.roster.values()].slice(0, 8);
   const rosterPhotosArr = () => [...r.roster.keys()].slice(0, 8).map((id) => photoUrl(id) || "");
@@ -257,22 +280,42 @@ export function createRoom(o) {
   // 나 맞히기: the player whose pack is playing (the subject) watches; everyone else answers.
   const isSubject = (anonId) => Boolean(S.quizSubject) && S.quizSubject.anonId === anonId;
   const answerersHere = () => [...r.roster.keys()].filter((id) => !(S.quizPack && S.quizPack.subject.anonId === id));
+  // Is the stored pack's subject (still) here? Away less than SUBJECT_GRACE_MS still counts.
+  const subjectHere = () =>
+    !S.quizPack || r.roster.has(S.quizPack.subject.anonId) || (S.subjectAwayAt != null && now() - S.subjectAwayAt < SUBJECT_GRACE_MS);
+  let awayTimer = null;
+  const publishSubjectHere = () => {
+    const cur = r.vars.get("quizInfo");
+    if (S.quizPack && cur && cur.subjectHere !== subjectHere()) setVar("quizInfo", { ...cur, subjectHere: subjectHere() });
+  };
+  const watchSubjectAway = () => {
+    if (awayTimer != null) clearTimer(awayTimer);
+    awayTimer = null;
+    if (S.subjectAwayAt == null) return;
+    awayTimer = setTimer(() => {
+      awayTimer = null;
+      if (!r.destroyed) publishSubjectHere();
+    }, Math.max(0, SUBJECT_GRACE_MS - (now() - S.subjectAwayAt)));
+  };
+  // Who else may act for the quiz: only the subject, unless they are gone (past the grace).
+  const notSubject = (anonId) => Boolean(S.quizPack) && S.quizPack.subject.anonId !== anonId && subjectHere();
   // An answerer of this session: listed in the recap and on the board (0 until they score).
   const addQuizPlayer = (anonId, nick) => {
     if (isSubject(anonId) || S.players.some((x) => x.anonId === anonId)) return;
     S.players.push({ anonId, nick });
     if (!r.scores.has(anonId)) r.scores.set(anonId, 0);
+    if (S.revealed && !S.revealed.some(([id]) => id === anonId)) S.revealed.push([anonId, r.scores.get(anonId)]);
     r.nicks.set(anonId, nick);
   };
   const quizProgress = () => {
-    const answered = Object.keys(S.picks?.[S.roundIdx] ?? {}).length;
-    const here = [...r.roster.keys()].filter((id) => !isSubject(id)).length;
-    return { answered, of: Math.max(answered, here) };
+    const here = [...r.roster.keys()].filter((id) => !isSubject(id));
+    const picks = S.picks?.[S.roundIdx] ?? {};
+    return { answered: here.filter((id) => picks[id]).length, of: here.length };
   };
   const quizInfo = (count, answerMs) => {
     const p = S.quizPack;
     const n = count ?? Math.min(p.questions.length, p.settings.rounds ?? p.questions.length);
-    return { title: p.title || `${p.subject.nick} 퀴즈`, count: n, custom: true, about: p.subject.nick, answerMs: answerMs ?? p.settings.answerMs ?? null, packId: p.id };
+    return { title: p.title || `${p.subject.nick} 퀴즈`, count: n, custom: true, about: p.subject.nick, answerMs: answerMs ?? p.settings.answerMs ?? null, packId: p.id, subjectHere: subjectHere() };
   };
   // Each player's own "am I the subject?" — per player (keyed by anonId, survives a reload).
   const sendSubjectFlag = (peerId, anonId) => send(peerId, "setVar", { id: "iAmSubject", value: Boolean(S.quizPack) && S.quizPack.subject.anonId === anonId });
@@ -323,6 +366,7 @@ export function createRoom(o) {
   };
   const revealQuizRound = (i) => {
     S.accepting = false;
+    S.revealed = [...r.scores.entries()];
     setVar("roundAnswer", S.rounds[i].answer);
     setVar("raceBoard", raceBoard());
     later("startQuizRound", i + 1, S.revealMs);
@@ -468,6 +512,8 @@ export function createRoom(o) {
     if (typeof opts === "number") opts = { duration: opts };
     opts = opts || {};
     S.sid = idOf(clientMsgId);
+    S.accepting = false; // no answer counts until a round opens (a lobby/countdown answer never scores)
+    S.revealed = null;
     S.answerers = new Set(); // quiz: who answered at least once (the subject never does)
     S.acted = new Set(); // who took part in this session (telemetry: "판을 끝낸 인원")
     clearSessionTimers();
@@ -556,7 +602,8 @@ export function createRoom(o) {
       if (S.quizSubject) S.acted.add(S.quizSubject.anonId); // the subject takes part by being guessed
       for (const [id, n] of r.roster) addQuizPlayer(id, n);
       S.picks = S.rounds.map(() => ({}));
-      const info = custom ? quizInfo(S.rounds.length, S.answerMs) : { title: packTitle || "상식", count: S.rounds.length, custom: false, about: null, answerMs: S.answerMs, packId: null };
+      S.revealed = [...r.scores.entries()]; // everyone at 0 until the first reveal
+      const info = custom ? quizInfo(S.rounds.length, S.answerMs) : { title: packTitle || "상식", count: S.rounds.length, custom: false, about: null, answerMs: S.answerMs, packId: null, subjectHere: true };
       S.quizMeta = { title: info.title, about: info.about, packId: info.packId };
       setVar("quizInfo", info);
       setVar("sessionNo", S.round); // one number per game (start), for per-game UI
@@ -600,15 +647,18 @@ export function createRoom(o) {
     return Math.max(1, 2000 - Math.round(m));
   };
 
-  const PLAY_ACTIONS = new Set(["vote", "tally", "score", "tap", "taps", "reaction", "answer"]);
+  // Took part in this session (telemetry §9.5): an action the session accepted in its play window.
+  const took = (anonId) => {
+    if (S.acted && inWindow()) S.acted.add(anonId);
+  };
   function action(peerId, d) {
     const peer = r.peers.get(peerId);
     if (!peer) return;
     const { anonId, nick } = peer;
     const name = d?.name;
-    if (S.acted && S.phase !== "lobby" && PLAY_ACTIONS.has(name)) S.acted.add(anonId); // took part in this session
     if (name === "vote" && d?.payload?.option != null) {
       r.voters.set(anonId, String(d.payload.option)); // one vote per person, re-vote allowed
+      took(anonId);
       onVotersChanged();
       onPoints(anonId, nick, 1);
       // 눈치 배틀 keeps the tally hidden until the reveal.
@@ -619,6 +669,7 @@ export function createRoom(o) {
     } else if (name === "tally") {
       const delta = Number(d?.payload?.delta);
       r.coop += Number.isFinite(delta) ? delta : 1;
+      took(anonId);
       onPoints(anonId, nick, 1);
       setVar("coopTotal", r.coop);
       onActivity("tally", "힘 보탬");
@@ -629,6 +680,7 @@ export function createRoom(o) {
         const wasTop = board()[0] ?? 0;
         const isRecord = s > (r.scores.get(anonId) ?? -Infinity);
         if (isRecord) r.scores.set(anonId, s);
+        took(anonId);
         onPoints(anonId, nick, isRecord ? 2 : 1);
         setVar("leaderboard", board());
         onActivity("score", s >= wasTop && s > 0 ? "신기록 🏆" : "점수 갱신");
@@ -639,6 +691,7 @@ export function createRoom(o) {
         if (S.phase === "play" && !S.eliminated.has(anonId) && !(S.pending || []).some((x) => x.anonId === anonId)) {
           S.pending = S.pending || [];
           S.pending.push({ anonId, nick: peerNick(peer) || r.roster.get(anonId) || "게스트", peerId });
+          took(anonId);
           if (S.pending.length === 1) later("resolveNunchi", null, 350); // collision window
         }
       } else if (S.mode === "reaction") {
@@ -648,9 +701,11 @@ export function createRoom(o) {
           r.nicks.set(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
           const score = S.goAt > 0 ? Math.max(1, 2000 - (now() - S.goAt)) : 0; // 0 = 부정출발
           r.scores.set(anonId, score);
+          took(anonId);
           setVar("raceBoard", raceBoard());
         }
       } else if (S.phase === "play") {
+        took(anonId);
         tapCount(peer, (r.scores.get(anonId) ?? 0) + 1);
       }
       ack(peerId, d?.clientMsgId);
@@ -659,7 +714,10 @@ export function createRoom(o) {
       // the end) — the host keeps the max, so a lost or late batch never loses taps.
       const n = Math.floor(Number(d?.payload?.count));
       if (!Number.isFinite(n) || n < 0) return;
-      if (S.mode === "" && S.playAt && inWindow()) tapCount(peer, n); // the single play window (tap race)
+      if (S.mode === "" && S.playAt && inWindow()) {
+        took(anonId);
+        tapCount(peer, n); // the single play window (tap race)
+      }
       ack(peerId, d?.clientMsgId);
     } else if (name === "reaction") {
       // MP-08: "green shown → tap" measured on the device; the host checks plausibility only.
@@ -667,6 +725,7 @@ export function createRoom(o) {
       if (!Number.isFinite(ms)) return;
       if (S.mode === "reaction" && S.reacted && !S.reacted.has(anonId) && inWindow()) {
         S.reacted.add(anonId);
+        took(anonId);
         r.nicks.set(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
         const score = reactionScore(ms);
         if (score !== null) {
@@ -677,17 +736,26 @@ export function createRoom(o) {
       ack(peerId, d?.clientMsgId);
     } else if (name === "answer") {
       // One answer per player per round; the subject only watches. Scores show at the reveal.
+      // A late resend (mesh resends for up to 10 s, a new host replays) names the round it
+      // answered: another round or game is refused, so it never lands in the next one.
+      const said = (k) => d?.payload?.[k] != null && d.payload[k] !== "";
+      if (S.quiz && ((said("round") && Number(d.payload.round) !== S.roundIdx) || (said("sessionNo") && Number(d.payload.sessionNo) !== S.round))) {
+        return ack(peerId, d?.clientMsgId, { accepted: false, reason: "stale_round" });
+      }
       const round = S.rounds[S.roundIdx];
       const option = Number(d?.payload?.option);
       const valid = round && Number.isInteger(option) && option >= 0 && option < round.options.length;
-      if (S.quiz && S.accepting && valid && S.answered && !S.answered.has(anonId) && !isSubject(anonId)) {
+      if (S.quiz && S.phase === "play" && S.accepting && valid && S.answered && !S.answered.has(anonId) && !isSubject(anonId)) {
         S.answered.add(anonId);
         S.answerers?.add(anonId);
+        took(anonId);
         addQuizPlayer(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
         const ms = answerTime(d.payload.ms);
         const correct = option === round.answer;
         const points = correct ? Math.max(100, 1000 - Math.round((ms / S.answerMs) * 800)) : 0; // faster = more
         S.picks[S.roundIdx][anonId] = { option, ms, correct, points };
+        // the device's own record of what the room took (a reload mid-round restores it)
+        send(peerId, "setVar", { id: "myPick", value: { sessionNo: S.round, round: S.roundIdx, option, ms } });
         r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + points);
         onPoints(anonId, nick, correct ? 2 : 1);
         setVar("quizProgress", quizProgress());
@@ -698,13 +766,17 @@ export function createRoom(o) {
       // their quiz (or anyone, when none is stored or its subject has left the room); from
       // the result anyone may send one ("나도 만들기").
       if (S.phase !== "lobby" && S.phase !== "result") return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_in_lobby" });
-      const owner = S.quizPack?.subject.anonId;
-      if (S.phase === "lobby" && owner && owner !== anonId && r.roster.has(owner)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
+      if (S.phase === "lobby" && notSubject(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
+      // 나도 만들기: the first new pack in this result wins until the next game starts.
+      if (S.phase === "result" && S.packDone === S.done && S.quizPack.subject.anonId !== anonId) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "pack_waiting" });
       const pack = sanitizeQuizPack(d?.payload);
       if (!pack) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_pack" });
-      const about = typeof d.payload.about === "string" ? cleanNick(d.payload.about) : ""; // a display name, capped like a nickname
+      const about = typeof d.payload.about === "string" ? capText(cleanNick(d.payload.about), NICK_MAX) : ""; // a display name, capped like a nickname
       S.quizPack = { ...pack, id: idOf(d.clientMsgId), subject: { anonId, nick: about || peerNick(peer) || "게스트" } };
       S.subject = anonId;
+      S.packDone = S.phase === "result" ? S.done : -1;
+      S.subjectAwayAt = null;
+      watchSubjectAway();
       setVar("quizInfo", quizInfo());
       for (const [id, p] of r.peers) {
         sendSubjectFlag(id, p.anonId);
@@ -714,17 +786,20 @@ export function createRoom(o) {
     } else if (name === "start") {
       // 나 맞히기 (lobby or result): the subject starts their quiz — anyone if they left the
       // room — and needs someone to guess: the subject plus at least one friend.
+      // Any start payload: a crafted {} or number must not start another game in this room.
       const p = d?.payload;
-      if (p && typeof p === "object" && p.quiz && S.quizPack && S.phase !== "countdown" && S.phase !== "play") {
-        const owner = S.quizPack.subject.anonId;
-        if (owner !== anonId && r.roster.has(owner)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
-        if (!answerersHere().length) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "need_answerer" });
+      if (S.quizPack && S.phase !== "countdown" && S.phase !== "play") {
+        if (notSubject(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
+        if (p && typeof p === "object" && p.quiz && !answerersHere().length) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "need_answerer" });
       }
       startSession(d?.payload, d?.clientMsgId).catch((e) => console.error("[snack-room] startSession failed", e));
       onPoints(anonId, nick, 1);
       ack(peerId, d?.clientMsgId);
     } else if (name === "lobby") {
+      // With a stored quiz only its subject (or anyone, once they are gone) ends a game.
+      if (notSubject(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
       clearSessionTimers();
+      S.accepting = false;
       S.playAt = 0;
       S.lateUntil = 0;
       setPhase("lobby", { sessionCountdown: 0 });
@@ -744,6 +819,11 @@ export function createRoom(o) {
       r.nicks.set(anonId, cleanNick(nick) || "게스트");
       send(peerId, "state", this.stateFor(peerId));
       if (S.quizPack) sendSubjectFlag(peerId, anonId);
+      if (S.quizPack && anonId === S.quizPack.subject.anonId && S.subjectAwayAt != null) {
+        S.subjectAwayAt = null; // back in time (or late): the quiz is theirs again
+        watchSubjectAway();
+        publishSubjectHere();
+      }
       if (S.quizPack || S.quiz) send(peerId, "setVar", { id: "myPid", value: pidOf(anonId) }); // which board row / pick is mine
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
@@ -769,6 +849,10 @@ export function createRoom(o) {
       if (gone && r.scores.has(peer.anonId)) setKnown("raceBoard", raceBoard()); // now marked as left
       if (gone) maybeAdvanceMatchup(); // everyone still here may already have voted
       if (gone && S.quiz && S.phase === "play") setVar("quizProgress", quizProgress());
+      if (gone && S.quizPack && peer.anonId === S.quizPack.subject.anonId) {
+        S.subjectAwayAt = now(); // counts as left only after SUBJECT_GRACE_MS
+        watchSubjectAway();
+      }
       if (r.peers.size === 0) this.destroy();
       return r.peers.size === 0;
     },
@@ -812,7 +896,7 @@ export function createRoom(o) {
      */
     snapshot() {
       const t = now();
-      const { timers, answered, answerers, acted, eliminated, reacted, pending, roundStart, goAt, playAt, lateUntil, ...rest } = S;
+      const { timers, answered, answerers, acted, eliminated, reacted, pending, roundStart, goAt, playAt, lateUntil, subjectAwayAt, ...rest } = S;
       return {
         v: 1,
         voters: [...r.voters],
@@ -820,7 +904,9 @@ export function createRoom(o) {
         scores: [...r.scores],
         nicks: [...r.nicks],
         pids: [...r.pids],
-        vars: [...r.vars],
+        // quizRecap is rebuilt from rounds + picks on restore (the questions are already here twice)
+        vars: [...r.vars].filter(([id]) => id !== "quizRecap"),
+        recap: r.vars.has("quizRecap"),
         mine: [...r.mine].map(([anonId, own]) => [anonId, [...own]]),
         session: {
           ...rest,
@@ -834,6 +920,7 @@ export function createRoom(o) {
           goAtAgo: goAt ? t - goAt : undefined,
           playAtAgo: playAt ? t - playAt : undefined,
           lateLeft: lateUntil ? Math.max(0, lateUntil - t) : undefined,
+          subjectAwayAgo: subjectAwayAt != null ? t - subjectAwayAt : undefined,
         },
         timers: timers.map((x) => ({ step: x.step, arg: x.arg, remaining: Math.max(0, x.at - t) })),
       };
@@ -851,7 +938,7 @@ export function createRoom(o) {
       r.pids = new Map(snap.pids ?? []);
       r.vars = new Map(snap.vars ?? []);
       r.mine = new Map((snap.mine ?? []).map(([anonId, own]) => [anonId, new Map(own)]));
-      const { answered, answerers, acted, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, ...rest } = snap.session;
+      const { answered, answerers, acted, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, subjectAwayAgo, ...rest } = snap.session;
       Object.assign(S, rest, { timers: [] });
       if (answered) S.answered = new Set(answered);
       if (answerers) S.answerers = new Set(answerers);
@@ -863,12 +950,17 @@ export function createRoom(o) {
       if (goAtAgo !== undefined) S.goAt = t - goAtAgo - age;
       if (playAtAgo !== undefined) S.playAt = t - playAtAgo - age;
       if (lateLeft !== undefined) S.lateUntil = t + Math.max(0, lateLeft - age);
+      // Nobody has joined this engine yet: the subject's grace runs from now unless it already ran.
+      S.subjectAwayAt = subjectAwayAgo !== undefined ? t - subjectAwayAgo - age : S.quizPack ? t : null;
+      watchSubjectAway();
+      if (snap.recap) r.vars.set("quizRecap", S.quiz && S.phase === "result" ? quizRecap() : { subject: null, about: null, title: "", packId: null, rounds: [] });
       for (const x of snap.timers) later(x.step, x.arg, Math.max(0, x.remaining - age));
       return true;
     },
     destroy() {
       r.destroyed = true;
       clearSessionTimers();
+      if (awayTimer != null) clearTimer(awayTimer);
     },
     /** Internal state, for tests and (later) host snapshots. */
     _state: r,

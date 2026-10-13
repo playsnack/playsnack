@@ -34,7 +34,8 @@
       "custom": false,
       "about": "",
       "answerMs": 9000,
-      "packId": null
+      "packId": null,
+      "subjectHere": true
     },
     "quizRecap": {
       "subject": null,
@@ -71,7 +72,13 @@
       "sharePrimary": true
     },
     "reactionStage": "",
-    "canMake": false
+    "canMake": false,
+    "myPick": {
+      "sessionNo": 0,
+      "round": -1,
+      "option": -1,
+      "ms": -1
+    }
   },
   "components": {
     "NavBar": {
@@ -273,6 +280,23 @@
           ]
         },
         {
+          "if": "myPick.sessionNo === sessionNo && myPick.round === roundIdx && roundIdx >= 0 && myAnswerRound !== roundIdx",
+          "then": [
+            {
+              "set": "myAnswer",
+              "to": "myPick.option"
+            },
+            {
+              "set": "myAnswerRound",
+              "to": "roundIdx"
+            },
+            {
+              "set": "myMs",
+              "to": "myPick.ms"
+            }
+          ]
+        },
+        {
           "if": "sessionPhase === 'lobby'",
           "then": [
             {
@@ -435,13 +459,13 @@
           },
           {
             "id": "lobbyStatus",
-            "text": "{quizInfo.custom ? (iAmSubject && roster.length >= 2 ? '준비 완료 · 시작하기를 눌러요' : '') : (roster.length >= 2 ? '' : '친구를 초대하면 같이 할 수 있어요')}",
+            "text": "{quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject ? (quizInfo.about + ' 님이 나갔어요 · 대신 시작할 수 있어요') : (quizInfo.custom ? (iAmSubject && roster.length >= 2 ? '준비 완료 · 시작하기를 눌러요' : '') : (roster.length >= 2 ? '' : '친구를 초대하면 같이 할 수 있어요'))}",
             "width": "fill",
             "size": 15,
             "weight": 700,
             "color": "{quizInfo.custom ? '#d9ff00' : '#9aa3af'}",
             "align": "center",
-            "show": "phase == 'lobby' ? ((quizInfo.custom && iAmSubject && roster.length >= 2) || (!quizInfo.custom && !(roster.length >= 2))) : true"
+            "show": "phase == 'lobby' ? ((quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject) || (quizInfo.custom && iAmSubject && roster.length >= 2) || (!quizInfo.custom && !(roster.length >= 2))) : true"
           },
           {
             "id": "startBtn",
@@ -451,7 +475,7 @@
             },
             "onTap": [
               {
-                "if": "phase == 'lobby' && (!quizInfo.custom || (iAmSubject && roster.length >= 2))",
+                "if": "phase == 'lobby' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject))",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -470,7 +494,7 @@
                 ]
               }
             ],
-            "show": "phase == 'lobby' ? (!quizInfo.custom || (iAmSubject && roster.length >= 2)) : true"
+            "show": "phase == 'lobby' ? (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) : true"
           },
           {
             "id": "waitBtn",
@@ -478,7 +502,7 @@
             "props": {
               "label": "{quizInfo.custom && !iAmSubject ? (quizInfo.about + ' 님이 시작하면 바로 시작돼요') : '친구를 기다리는 중…'}"
             },
-            "show": "phase == 'lobby' ? !(!quizInfo.custom || (iAmSubject && roster.length >= 2)) : false"
+            "show": "phase == 'lobby' ? !(!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) : false"
           },
           {
             "id": "inviteBand",
@@ -663,7 +687,9 @@
                     "emit": "answer",
                     "payload": {
                       "option": 0,
-                      "ms": "{myMs}"
+                      "ms": "{myMs}",
+                      "round": "{roundIdx}",
+                      "sessionNo": "{sessionNo}"
                     }
                   }
                 ]
@@ -720,7 +746,9 @@
                     "emit": "answer",
                     "payload": {
                       "option": 1,
-                      "ms": "{myMs}"
+                      "ms": "{myMs}",
+                      "round": "{roundIdx}",
+                      "sessionNo": "{sessionNo}"
                     }
                   }
                 ]
@@ -778,7 +806,9 @@
                     "emit": "answer",
                     "payload": {
                       "option": 2,
-                      "ms": "{myMs}"
+                      "ms": "{myMs}",
+                      "round": "{roundIdx}",
+                      "sessionNo": "{sessionNo}"
                     }
                   }
                 ]
@@ -836,7 +866,9 @@
                     "emit": "answer",
                     "payload": {
                       "option": 3,
-                      "ms": "{myMs}"
+                      "ms": "{myMs}",
+                      "round": "{roundIdx}",
+                      "sessionNo": "{sessionNo}"
                     }
                   }
                 ]
