@@ -24,7 +24,7 @@ export type QuizPick = { pid?: string; nick: string; option: number; ms?: number
 export type QuizRound = { q: string; options: string[]; answer: number; picks: QuizPick[] };
 export type QuizRecap = { subject: string | null; rounds: QuizRound[]; title?: string; about?: string | null; packId?: string | null };
 export type BoardEntry = { pid?: string; nick: string; score: number; left?: boolean };
-export type QuizInfo = { title?: string; count?: number; custom?: boolean; about?: string | null; packId?: string | null };
+export type QuizInfo = { title?: string; count?: number; custom?: boolean; about?: string | null; packId?: string | null; subjectHere?: boolean };
 
 export type ResultInput = {
   quizRecap?: Partial<QuizRecap> | null;
@@ -138,7 +138,8 @@ export function nextStep(input: { quizRecap?: Partial<QuizRecap> | null; quizInf
   const recap = input.quizRecap ?? {};
   const info = input.quizInfo ?? {};
   const finishedSubject = recap.about || recap.subject || null;
-  const waiting = Boolean(info.custom && info.packId && info.packId !== (recap.packId ?? null));
+  // A waiting quiz whose maker has been gone 30 s (room: subjectHere false) no longer holds the room: 나도 만들기 again.
+  const waiting = Boolean(info.custom && info.packId && info.packId !== (recap.packId ?? null) && (info.subjectHere !== false || input.iAmSubjectNow));
   if (waiting) {
     if (input.iAmSubjectNow) {
       return (input.roster?.length ?? 0) >= 2

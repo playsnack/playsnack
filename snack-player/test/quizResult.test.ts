@@ -141,6 +141,11 @@ test("next: someone else's new quiz waiting → banner with their name", () => {
   assert.deepEqual(s, { next: "waiting", nextText: "하늘님이 새 퀴즈를 만들었어요 · 곧 시작해요" });
 });
 
+test("next: the waiting quiz's maker left for good (subjectHere false) → 나도 만들기 again, not a banner forever", () => {
+  const s = nextStep({ quizRecap: group.quizRecap, quizInfo: { custom: true, about: "하늘", packId: "pack-haneul", subjectHere: false }, iAmSubjectNow: false, roster: ["도윤"] });
+  assert.equal(s.next, "make");
+});
+
 test("next: default quiz (no subject) → 다시 하기; finished custom quiz → 나도 만들기", () => {
   const cold = { subject: null, rounds: group.quizRecap!.rounds };
   assert.equal(nextStep({ quizRecap: cold, quizInfo: { custom: false, about: null } }).next, "again");
