@@ -136,6 +136,7 @@ export function createRoom(o) {
     scores: new Map(), // anonId → score
     roster: new Map(), // anonId → nick (live participants, insertion order)
     nicks: new Map(), // anonId → nick (score owner names)
+    pids: new Map(), // anonId → "p1", "p2"… (join order; a stable per-room key — two players may share a nick)
     session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null, sid: "", done: 0, subject: "", answerers: undefined, acted: undefined },
     destroyed: false,
     // Variable stores — what a (re)joining player needs to see the room as it is:
@@ -180,11 +181,16 @@ export function createRoom(o) {
   const board = () => [...r.scores.values()].sort((a, b) => b - a).slice(0, 10);
   // Named race board: top-8 {nick, score} — lets results say WHO won.
   // A player who left stays ranked, marked (MP-12) — the same on every screen.
+  const pidOf = (anonId) => {
+    if (!r.pids.has(anonId)) r.pids.set(anonId, `p${r.pids.size + 1}`);
+    return r.pids.get(anonId);
+  };
   const raceBoard = () =>
     [...r.scores.entries()]
       .map(([id, score]) => {
         const nick = r.nicks.get(id) || r.roster.get(id) || "게스트";
-        return r.roster.has(id) ? { nick, score } : { nick: `${nick} ${LEFT_MARK}`, score, left: true };
+        const pid = pidOf(id);
+        return r.roster.has(id) ? { nick, score, pid } : { nick: `${nick} ${LEFT_MARK}`, score, pid, left: true };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);
@@ -266,7 +272,7 @@ export function createRoom(o) {
   const quizInfo = (count, answerMs) => {
     const p = S.quizPack;
     const n = count ?? Math.min(p.questions.length, p.settings.rounds ?? p.questions.length);
-    return { title: p.title || `${p.subject.nick} 퀴즈`, count: n, custom: true, about: p.subject.nick, answerMs: answerMs ?? p.settings.answerMs ?? null };
+    return { title: p.title || `${p.subject.nick} 퀴즈`, count: n, custom: true, about: p.subject.nick, answerMs: answerMs ?? p.settings.answerMs ?? null, packId: p.id };
   };
   // Each player's own "am I the subject?" — per player (keyed by anonId, survives a reload).
   const sendSubjectFlag = (peerId, anonId) => send(peerId, "setVar", { id: "iAmSubject", value: Boolean(S.quizPack) && S.quizPack.subject.anonId === anonId });
@@ -286,15 +292,20 @@ export function createRoom(o) {
   };
   const quizRecap = () => {
     const players = S.players.slice(0, RECAP_PLAYERS_MAX);
+    const m = S.quizMeta ?? {};
     return {
       subject: S.quizSubject ? S.quizSubject.nick : null,
+      about: m.about ?? null,
+      title: m.title ?? "",
+      packId: m.packId ?? null,
       rounds: S.rounds.map((rd, i) => ({
         q: rd.q,
         options: rd.options,
         answer: rd.answer,
         picks: players.map(({ anonId, nick }) => {
           const p = S.picks[i]?.[anonId];
-          return p ? { nick, ...p } : { nick, option: -1, ms: -1, correct: false, points: 0 };
+          const pid = pidOf(anonId);
+          return p ? { nick, pid, ...p } : { nick, pid, option: -1, ms: -1, correct: false, points: 0 };
         }),
       })),
     };
@@ -445,9 +456,12 @@ export function createRoom(o) {
   };
 
   // A session / pack id that is the same whichever host applies the action (telemetry §9.3).
+  let idSeq = 0;
   const idOf = (mid) => {
     const x = String(mid ?? "").replace(/-/g, "");
-    return /^[A-Za-z0-9_]{16,32}$/.test(x) ? x : Array.from({ length: 32 }, () => Math.floor(random() * 36).toString(36)).join("");
+    if (/^[A-Za-z0-9_]{16,32}$/.test(x)) return x;
+    const tail = (++idSeq).toString(36); // distinct even if `random` repeats
+    return Array.from({ length: 32 - tail.length }, () => Math.floor(random() * 36).toString(36)).join("") + tail;
   };
   const startSession = async (opts, clientMsgId) => {
     if (S.phase === "countdown" || S.phase === "play") return; // already running
@@ -542,8 +556,12 @@ export function createRoom(o) {
       if (S.quizSubject) S.acted.add(S.quizSubject.anonId); // the subject takes part by being guessed
       for (const [id, n] of r.roster) addQuizPlayer(id, n);
       S.picks = S.rounds.map(() => ({}));
-      setVar("quizInfo", custom ? quizInfo(S.rounds.length, S.answerMs) : { title: packTitle || "상식", count: S.rounds.length, custom: false, about: null, answerMs: S.answerMs });
-      setKnown("quizRecap", { subject: null, rounds: [] });
+      const info = custom ? quizInfo(S.rounds.length, S.answerMs) : { title: packTitle || "상식", count: S.rounds.length, custom: false, about: null, answerMs: S.answerMs, packId: null };
+      S.quizMeta = { title: info.title, about: info.about, packId: info.packId };
+      setVar("quizInfo", info);
+      setVar("sessionNo", S.round); // one number per game (start), for per-game UI
+      for (const [id, peer] of r.peers) send(id, "setVar", { id: "myPid", value: pidOf(peer.anonId) });
+      setKnown("quizRecap", { subject: null, about: null, title: "", packId: null, rounds: [] });
       setKnown("raceBoard", raceBoard());
       later("startQuizRound", 0, 3000);
     } else if (pack && pack.length) {
@@ -685,16 +703,22 @@ export function createRoom(o) {
       const pack = sanitizeQuizPack(d?.payload);
       if (!pack) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_pack" });
       const about = typeof d.payload.about === "string" ? cleanNick(d.payload.about) : ""; // a display name, capped like a nickname
-      S.quizPack = { ...pack, subject: { anonId, nick: about || peerNick(peer) || "게스트" } };
+      S.quizPack = { ...pack, id: idOf(d.clientMsgId), subject: { anonId, nick: about || peerNick(peer) || "게스트" } };
       S.subject = anonId;
       setVar("quizInfo", quizInfo());
-      for (const [id, p] of r.peers) sendSubjectFlag(id, p.anonId);
+      for (const [id, p] of r.peers) {
+        sendSubjectFlag(id, p.anonId);
+        send(id, "setVar", { id: "myPid", value: pidOf(p.anonId) });
+      }
       ack(peerId, d?.clientMsgId);
     } else if (name === "start") {
-      // 나 맞히기 needs someone to guess: the subject plus at least one friend.
+      // 나 맞히기 (lobby or result): the subject starts their quiz — anyone if they left the
+      // room — and needs someone to guess: the subject plus at least one friend.
       const p = d?.payload;
-      if (p && typeof p === "object" && p.quiz && S.quizPack && S.phase !== "countdown" && S.phase !== "play" && !answerersHere().length) {
-        return ack(peerId, d?.clientMsgId, { accepted: false, reason: "need_answerer" });
+      if (p && typeof p === "object" && p.quiz && S.quizPack && S.phase !== "countdown" && S.phase !== "play") {
+        const owner = S.quizPack.subject.anonId;
+        if (owner !== anonId && r.roster.has(owner)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
+        if (!answerersHere().length) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "need_answerer" });
       }
       startSession(d?.payload, d?.clientMsgId).catch((e) => console.error("[snack-room] startSession failed", e));
       onPoints(anonId, nick, 1);
@@ -715,10 +739,12 @@ export function createRoom(o) {
       nick = String(nick ?? "");
       onPoints(anonId, nick, 0); // register the nickname (no points yet)
       r.peers.set(peerId, { anonId, nick });
+      pidOf(anonId); // keys go out in join order
       r.roster.set(anonId, cleanNick(nick) || "게스트");
       r.nicks.set(anonId, cleanNick(nick) || "게스트");
       send(peerId, "state", this.stateFor(peerId));
       if (S.quizPack) sendSubjectFlag(peerId, anonId);
+      if (S.quizPack || S.quiz) send(peerId, "setVar", { id: "myPid", value: pidOf(anonId) }); // which board row / pick is mine
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
       setPhotos();
@@ -793,6 +819,7 @@ export function createRoom(o) {
         coop: r.coop,
         scores: [...r.scores],
         nicks: [...r.nicks],
+        pids: [...r.pids],
         vars: [...r.vars],
         mine: [...r.mine].map(([anonId, own]) => [anonId, [...own]]),
         session: {
@@ -821,6 +848,7 @@ export function createRoom(o) {
       r.coop = snap.coop;
       r.scores = new Map(snap.scores);
       r.nicks = new Map(snap.nicks);
+      r.pids = new Map(snap.pids ?? []);
       r.vars = new Map(snap.vars ?? []);
       r.mine = new Map((snap.mine ?? []).map(([anonId, own]) => [anonId, new Map(own)]));
       const { answered, answerers, acted, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, ...rest } = snap.session;

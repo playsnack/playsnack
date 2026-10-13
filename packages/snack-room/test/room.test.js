@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRoom, cleanNick } from "../src/room.js";
+// raceBoard rows carry a per-room `pid`; compare names and scores
+const rows = (b) => (b || []).map(({ pid, ...x }) => x);
 
 // Deterministic clock + timer queue; every broadcast/send is recorded.
 function harness({ pack = null, defaults = {}, random = () => 0.5 } = {}) {
@@ -116,7 +118,7 @@ test("single-window session: countdown 3·2·1 → play → taps race → result
   h.act(1, "tap");
   h.act(1, "tap");
   h.act(2, "tap");
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: 2 }, { nick: "닉2", score: 1 }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉1", score: 2 }, { nick: "닉2", score: 1 }]);
   h.act(2, "start", {}); // ignored while running
   await h.advance(5000);
   assert.equal(h.v("sessionPhase"), "result");
@@ -421,20 +423,20 @@ test("MP-08: tap counts — the max of the device's cumulative batches, capped a
   await h.advance(3000 + 1000); // 1 s into play
   h.act(1, "taps", { count: 5 });
   h.act(1, "taps", { count: 3 }); // an older batch arriving late: never rolls back
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: 5 }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉1", score: 5 }]);
   h.act(1, "taps", { count: 100 }); // 100 taps in 1 s: impossible → clamped to 15·1 + 5
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: 20 }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉1", score: 20 }]);
   h.act(2, "tap"); // legacy per-tap clients still count (+1 each)
   h.act(2, "tap");
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: 20 }, { nick: "닉2", score: 2 }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉1", score: 20 }, { nick: "닉2", score: 2 }]);
   await h.advance(4000); // window over → result
   assert.equal(h.v("sessionPhase"), "result");
   await h.advance(2000); // two lost sends (700 ms resend) + the worst broker delay still make it
   h.act(2, "taps", { count: 7 }); // the final batch lands inside the grace: the board agrees with the card
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: 20 }, { nick: "닉2", score: 7 }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉1", score: 20 }, { nick: "닉2", score: 7 }]);
   await h.advance(1000);
   h.act(2, "taps", { count: 9 }); // too late (grace is 2.5 s)
-  assert.deepEqual(h.v("raceBoard")[1], { nick: "닉2", score: 7 });
+  assert.deepEqual(rows(h.v("raceBoard"))[1], { nick: "닉2", score: 7 });
   assert.ok(h.out.some((m) => m.type === "actionAck" && m.d.clientMsgId === "m2taps"), "acked anyway");
 });
 
@@ -533,10 +535,10 @@ test("MP-12: a player whose connection flapped during the result is unmarked on 
   await h.advance(3000);
   assert.equal(h.v("sessionPhase"), "result");
   h.room.leave("p2");
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉2 (나감)", score: 1, left: true }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉2 (나감)", score: 1, left: true }]);
   h.room.join("p2b", { anonId: "a2", nick: "닉2" });
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉2", score: 1 }]);
-  assert.deepEqual(stateTo(h, "p2b").raceBoard, [{ nick: "닉2 (나감)", score: 1, left: true }]); // the state went first …
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉2", score: 1 }]);
+  assert.deepEqual(rows(stateTo(h, "p2b").raceBoard), [{ nick: "닉2 (나감)", score: 1, left: true }]); // the state went first …
   assert.ok(h.out.at(-1).type !== "state"); // … and the unmarked board followed it
 });
 
@@ -572,12 +574,12 @@ test("MP-12: a player who left is still ranked, marked (나감), on every board"
   h.act(2, "tap");
   h.act(1, "tap");
   h.room.leave("p2");
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉2 (나감)", score: 2, left: true }, { nick: "닉1", score: 1 }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉2 (나감)", score: 2, left: true }, { nick: "닉1", score: 1 }]);
   h.join(4); // a late joiner sees the same
   assert.deepEqual(stateTo(h, "p4").raceBoard, h.v("raceBoard"));
   h.room.join("p2b", { anonId: "a2", nick: "닉2" }); // back → unmarked again on the next change
   h.act(3, "tap");
-  assert.deepEqual(h.v("raceBoard")[0], { nick: "닉2", score: 2 });
+  assert.deepEqual(rows(h.v("raceBoard"))[0], { nick: "닉2", score: 2 });
 });
 
 // ── 나 맞히기 퀴즈: quizPack, subject, device-measured answers, recap ──
@@ -595,6 +597,10 @@ const shownAnswer = (h) => {
 };
 const QUIZ_START = { game: "trivia", quiz: true, rounds: 6, answerMs: 8000, revealMs: 2000 };
 const pts = (ms, win = 8000) => Math.max(100, 1000 - Math.round((ms / win) * 800));
+const info = (h) => {
+  const { packId, ...rest } = h.v("quizInfo");
+  return rest;
+};
 
 test("quizPack: sanitized (trim, caps, invalid questions dropped), quizInfo has no answers", () => {
   const h = harness();
@@ -624,7 +630,8 @@ test("quizPack: sanitized (trim, caps, invalid questions dropped), quizInfo has 
   assert.deepEqual(p.questions[0].options, ["나".repeat(30), "B"]);
   assert.deepEqual(p.questions[1], { q: "빈 보기는 빠지고 답 번호가 따라감", options: ["A", "C"], answer: 1 });
   assert.deepEqual(p.settings, { rounds: 20, answerMs: 3000 }); // clamped
-  assert.deepEqual(h.v("quizInfo"), { title: "제".repeat(40), count: 2, custom: true, about: "닉1", answerMs: 3000 });
+  assert.deepEqual(info(h), { title: "제".repeat(40), count: 2, custom: true, about: "닉1", answerMs: 3000 });
+  assert.match(h.v("quizInfo").packId, /^[a-z0-9]{32}$/); // a random id per accepted pack
   assert.ok(!JSON.stringify(h.v("quizInfo")).includes('"answer"'), "no answers in the public var");
   // more than 20 valid questions → the first 20
   h.act(1, "quizPack", { title: "많다", questions: Array.from({ length: 25 }, (_, i) => ({ q: `Q${i}`, options: ["a", "b"], answer: 1 })) });
@@ -643,7 +650,7 @@ test("quizPack: nothing playable is refused (the stored pack stays); the subject
   assert.equal(h.v("quizInfo").title, "첫 팩");
   assert.equal(h.v("quizInfo").about, "닉1");
   h.act(1, "quizPack", { title: "고친 팩", questions: QS.slice(0, 1), about: "  내 이름은 아주아주 긴 별명입니다  " });
-  assert.deepEqual(h.v("quizInfo"), { title: "고친 팩", count: 1, custom: true, about: "내 이름은 아주아주", answerMs: null }); // `about`: a nickname, ≤10 graphemes
+  assert.deepEqual(info(h), { title: "고친 팩", count: 1, custom: true, about: "내 이름은 아주아주", answerMs: null }); // `about`: a nickname, ≤10 graphemes
   assert.equal(h.room._state.session.quizPack.questions.length, 1);
 });
 
@@ -712,17 +719,17 @@ test("no pack (opened cold): the default trivia pack plays solo, no subject", as
   h.act(1, "start", QUIZ_START);
   await h.advance(3000 + 1000);
   assert.equal(h.v("sessionPhase"), "play");
-  assert.deepEqual(h.v("quizInfo"), { title: "상식", count: 3, custom: false, about: null, answerMs: 8000 });
+  assert.deepEqual(h.v("quizInfo"), { title: "상식", count: 3, custom: false, about: null, answerMs: 8000, packId: null });
   h.act(1, "answer", { option: shownAnswer(h), ms: 800 });
   await h.advance(8000);
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: pts(800) }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉1", score: pts(800) }]);
 });
 
 test("custom pack: creator's question order, its settings win, options shuffled with the answer remapped", async () => {
   const h = harness(); // random 0.5: [a, b, c, d] → [a, d, b, c]; [a, b] stays
   [1, 2].forEach(h.join);
   h.act(1, "quizPack", { title: "나", questions: QS, settings: { rounds: 2, answerMs: 5000 } });
-  h.act(2, "start", { ...QUIZ_START, rounds: 6, answerMs: 9000 });
+  h.act(1, "start", { ...QUIZ_START, rounds: 6, answerMs: 9000 });
   await h.advance(3000);
   assert.equal(h.v("roundTotal"), 2);
   assert.equal(h.room._state.session.answerMs, 5000);
@@ -774,7 +781,7 @@ test("answers: one per player per round; an invalid option is not an answer; the
   assert.deepEqual(h.v("quizProgress"), { answered: 2, of: 2 });
   assert.ok(!h.out.some((m) => m.d?.id === "raceBoard" && m.d.value.some((x) => x.score > 0)), "no score shown before the reveal");
   await h.advance(7000);
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉3", score: pts(900) }, { nick: "닉2", score: 0 }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉3", score: pts(900) }, { nick: "닉2", score: 0 }]);
 });
 
 test("ties stay ties: the same device time scores the same", async () => {
@@ -810,15 +817,16 @@ test("quizRecap: {subject, rounds}: options as shown, every answerer's pick (no 
   const recap = h.v("quizRecap");
   const rounds = h.room._state.session.rounds;
   assert.equal(recap.subject, "닉1");
+  assert.deepEqual([recap.title, recap.about, recap.packId], ["나", "닉1", h.v("quizInfo").packId]);
   assert.equal(recap.rounds.length, 2);
   assert.deepEqual(recap.rounds.map((r) => [r.q, r.options, r.answer]), rounds.map((r) => [r.q, r.options, r.answer]));
   assert.deepEqual(recap.rounds[0].picks, [
-    { nick: "닉2", option: a0, ms: 1000, correct: true, points: pts(1000) },
-    { nick: "닉3", option: (a0 + 1) % 4, ms: 900, correct: false, points: 0 },
+    { nick: "닉2", pid: "p2", option: a0, ms: 1000, correct: true, points: pts(1000) },
+    { nick: "닉3", pid: "p3", option: (a0 + 1) % 4, ms: 900, correct: false, points: 0 },
   ]);
   assert.deepEqual(recap.rounds[1].picks, [
-    { nick: "닉2", option: a1, ms: 400, correct: true, points: pts(400) },
-    { nick: "닉3", option: -1, ms: -1, correct: false, points: 0 },
+    { nick: "닉2", pid: "p2", option: a1, ms: 400, correct: true, points: pts(400) },
+    { nick: "닉3", pid: "p3", option: -1, ms: -1, correct: false, points: 0 },
   ]);
   assert.ok(recap.rounds.every((r) => r.picks.every((p) => p.nick !== "닉1")), "the subject has no picks");
   // the recap is set before the result phase, so the result screen has it on entry
@@ -839,12 +847,18 @@ test("나도 만들기: a pack sent from the result makes a new subject; scores 
   assert.equal(h.v("raceBoard")[0].nick, "닉2");
   h.act(2, "quizPack", { title: "이번엔 나", questions: QS.slice(1, 3) }); // from the result screen
   assert.equal(ackOf(h, 2, "quizPack").accepted, true);
-  assert.deepEqual(h.v("quizInfo"), { title: "이번엔 나", count: 2, custom: true, about: "닉2", answerMs: null });
+  assert.deepEqual(info(h), { title: "이번엔 나", count: 2, custom: true, about: "닉2", answerMs: null });
+  assert.notEqual(h.v("quizInfo").packId, h.v("quizRecap").packId, "the result screen can tell a new quiz is waiting");
   assert.equal(h.v("raceBoard")[0].nick, "닉2", "the old result stays until the next start");
-  h.act(1, "start", QUIZ_START);
+  h.act(1, "start", QUIZ_START); // the old subject: not their quiz any more
   await h.advance(0);
-  assert.deepEqual(h.v("quizRecap"), { subject: null, rounds: [] });
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: 0 }]); // 닉2 is the subject now
+  assert.deepEqual(ackOf(h, 1, "start"), { clientMsgId: "m1start", accepted: false, reason: "not_subject" });
+  assert.equal(h.v("sessionPhase"), "result");
+  h.act(2, "start", QUIZ_START); // the new subject starts from the result
+  await h.advance(0);
+  assert.equal(h.v("sessionPhase"), "countdown");
+  assert.deepEqual(h.v("quizRecap"), { subject: null, about: null, title: "", packId: null, rounds: [] });
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉1", score: 0 }]); // 닉2 is the subject now
   await h.advance(3000 + 500);
   h.act(2, "answer", { option: 0, ms: 100 }); // the new subject: ignored
   h.act(1, "answer", { option: shownAnswer(h), ms: 500 });
@@ -852,6 +866,8 @@ test("나도 만들기: a pack sent from the result makes a new subject; scores 
   assert.equal(h.v("raceBoard")[0].score, pts(500));
   await h.advance(20000);
   assert.equal(h.v("quizRecap").subject, "닉2");
+  assert.equal(h.v("quizRecap").title, "이번엔 나");
+  assert.equal(h.v("quizRecap").packId, h.v("quizInfo").packId);
   assert.equal(h.v("raceBoard").length, 1);
 });
 
@@ -884,7 +900,7 @@ test("hand-over mid-quiz: pack, subject, picks and scores carry over; the next h
   assert.equal(recap.subject, "닉1");
   assert.deepEqual(recap.rounds[0].picks.map((p) => [p.nick, p.ms, p.correct]), [["닉2", 700, true], ["닉3", 1200, true]]);
   assert.deepEqual(recap.rounds[1].options, snap.session.rounds[1].options, "round 2 options were fixed before the hand-over");
-  assert.deepEqual(b.v("raceBoard"), [{ nick: "닉3", score: pts(1200) + pts(300) }, { nick: "닉2", score: pts(700) }]);
+  assert.deepEqual(rows(b.v("raceBoard")), [{ nick: "닉3", score: pts(1200) + pts(300) }, { nick: "닉2", score: pts(700) }]);
   assert.equal(b.room._state.session.quizPack.subject.anonId, "a1");
 });
 
@@ -899,7 +915,7 @@ test("hand-over in the lobby: the stored pack (and its subject) is used by the n
   [1, 2].forEach(b.join);
   assert.equal(stateTo(b, "p1").quizInfo.about, "닉2");
   assert.equal(stateTo(b, "p2").iAmSubject, true);
-  b.act(1, "start", QUIZ_START);
+  b.act(2, "start", QUIZ_START);
   await b.advance(3000);
   assert.equal(b.v("roundContent").q, QS[0].q);
   assert.equal(b.v("roundTotal"), 1);
@@ -920,7 +936,7 @@ test("2 players (1:1): subject + one friend play a whole quiz to the result", as
     await h.advance(7500 + 2000);
   }
   assert.equal(h.v("sessionPhase"), "result");
-  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉2", score: 3 * pts(500) }]);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉2", score: 3 * pts(500) }]);
   assert.equal(h.v("quizRecap").rounds.length, 3);
 });
 
@@ -928,12 +944,12 @@ test("telemetry state: S.acted = who took part (a late joiner who never acts is 
   const a = harness();
   [1, 2, 3].forEach(a.join);
   a.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
-  a.act(3, "start", QUIZ_START); // pressing start is not taking part
+  a.act(1, "start", QUIZ_START);
   await a.advance(3000 + 500);
   a.act(2, "answer", { option: 0, ms: 300 });
   a.join(4); // late joiner, never acts
   const S = a.room._state.session;
-  assert.deepEqual([...S.acted].sort(), ["a1", "a2"]); // the subject takes part by being guessed
+  assert.deepEqual([...S.acted].sort(), ["a1", "a2"]); // the subject takes part by being guessed; 3 and 4 did nothing
   assert.deepEqual([...S.answerers], ["a2"]);
   assert.equal(S.subject, "a1");
   assert.ok(S.sid.length >= 16);
@@ -952,4 +968,53 @@ test("telemetry state: S.acted = who took part (a late joiner who never acts is 
   b.act(1, "start", QUIZ_START);
   await b.advance(0);
   assert.deepEqual([...b.room._state.session.acted], ["a1"], "reset on each start");
+});
+
+test("start in the result: a cold quiz restarts from anyone; a custom one only from its subject (anyone once they left)", async () => {
+  const h = harness({ pack: QS });
+  [1, 2].forEach(h.join);
+  h.act(2, "start", QUIZ_START); // cold: anyone
+  await h.advance(3000 + 3 * (8000 + 2000));
+  assert.equal(h.v("sessionPhase"), "result");
+  h.act(1, "start", QUIZ_START); // cold again, from the result, by someone else
+  await h.advance(0);
+  assert.equal(h.v("sessionPhase"), "countdown");
+  assert.equal(h.v("sessionNo"), 2);
+  await h.advance(3000 + 3 * (8000 + 2000));
+  h.act(1, "quizPack", { title: "닉1", questions: QS.slice(0, 1) }); // 나도 만들기 from the result
+  h.act(2, "start", QUIZ_START);
+  assert.equal(ackOf(h, 2, "start").reason, "not_subject");
+  h.room.leave("p1"); // the subject is gone: the room is not stuck
+  h.join(3);
+  h.act(2, "start", QUIZ_START);
+  await h.advance(0);
+  assert.equal(ackOf(h, 2, "start").accepted, true);
+  assert.equal(h.v("sessionNo"), 3);
+});
+
+test("pid: a per-room key on every board row and recap pick — two players with one nick stay two; survives a hand-over", async () => {
+  const a = harness();
+  a.room.join("p1", { anonId: "a1", nick: "민지" });
+  a.room.join("p2", { anonId: "a2", nick: "철수" });
+  a.room.join("p3", { anonId: "a3", nick: "철수" }); // same nickname
+  a.act(1, "quizPack", { title: "민지", questions: QS.slice(0, 1) });
+  const myPid = (h, peer) => h.out.filter((m) => m.to === peer && m.d?.id === "myPid").at(-1)?.d.value;
+  assert.deepEqual(["p1", "p2", "p3"].map((p) => myPid(a, p)), ["p1", "p2", "p3"]);
+  a.act(1, "start", QUIZ_START);
+  await a.advance(3000 + 1000);
+  a.act(2, "answer", { option: shownAnswer(a), ms: 500 });
+  const snap = JSON.parse(JSON.stringify(a.room.snapshot()));
+  assert.ok(!JSON.stringify(snap.pids).includes("p0"));
+  const b = harness();
+  b.room.restore(snap, 0);
+  b.room.join("q3", { anonId: "a3", nick: "철수" }); // re-joins the new host in another order
+  b.room.join("q1", { anonId: "a1", nick: "민지" });
+  b.room.join("q2", { anonId: "a2", nick: "철수" });
+  assert.equal(stateTo(b, "q3").myPid ?? myPid(b, "q3"), "p3");
+  await b.advance(20000);
+  assert.deepEqual(b.v("raceBoard"), [{ nick: "철수", score: pts(500), pid: "p2" }, { nick: "철수", score: 0, pid: "p3" }]);
+  assert.deepEqual(b.v("quizRecap").rounds[0].picks.map((p) => p.pid), ["p2", "p3"]);
+  assert.ok(!JSON.stringify(b.v("raceBoard")).includes("a2"), "never the anonId");
+  assert.equal(stateTo(b, "q1").sessionNo, 1);
+  assert.equal(b.room.snapshot().session.round, 1, "sessionNo rides in the snapshot (session.round)");
 });

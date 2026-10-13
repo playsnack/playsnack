@@ -33,10 +33,14 @@
       "count": 0,
       "custom": false,
       "about": "",
-      "answerMs": 9000
+      "answerMs": 9000,
+      "packId": null
     },
     "quizRecap": {
       "subject": null,
+      "about": null,
+      "title": "",
+      "packId": null,
       "rounds": []
     },
     "quizProgress": {
@@ -47,6 +51,7 @@
     "seenRound": -1,
     "seenAt": 0,
     "myMs": -1,
+    "myPid": "",
     "sessionNo": 0,
     "resultView": {
       "mode": "",

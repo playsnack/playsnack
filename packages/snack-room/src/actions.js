@@ -77,7 +77,9 @@ export const HOST_ACTIONS = Object.freeze({
     },
     description: "store this player's own quiz (they become its subject) — used by the next quiz start",
   },
-  // startSession(payload): a bare number = { duration }; getPack(game, opts) reads theme
+  // startSession(payload): a bare number = { duration }; getPack(game, opts) reads theme.
+  // A quiz with a stored pack starts only from its subject (anyone if the subject left;
+  // else actionAck reason "not_subject") and needs one more player ("need_answerer").
   start: {
     payload: "object",
     number: true,
