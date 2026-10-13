@@ -34,7 +34,7 @@ The full format is specified in [`docs/bite-format.md`](docs/bite-format.md).
 | [`packages/bite-pixi`](packages/bite-pixi) | Renderer on Pixi v8: drawing, taps, scrolling. |
 | [`packages/snack-room`](packages/snack-room) | The room engine (lobby → countdown → play → result, votes, tallies) and the ways to run it: on a server, on a host player behind a thin relay, or with no server at all (players meet on a public MQTT broker and elect a host). |
 | [`packages/snack-content`](packages/snack-content) | Keyless content: curated banks and seed pools for quizzes and brackets. |
-| [`snack-player`](snack-player) | React app: home, live player (`#/p/<slug>`), chat builder with in-place text editing. |
+| [`snack-player`](snack-player) | React app: home, live player (`/p/<slug>`, `?room=<code>` for an unlisted friends-only room; old `#/p/<slug>` links still open), chat builder with in-place text editing. |
 | [`snack-server`](snack-server) | Optional. Express + WebSocket: templates, rooms (an app `emit`s → the server decides → `setVar` to everyone), fresh content, the AI builder. |
 
 The AI builder asks an OpenAI model for a Bite document, grounds it on the
@@ -51,8 +51,21 @@ travels inside its link. The AI builder needs a server, so it is off here.
 ```bash
 pnpm install
 pnpm player:dev      # http://localhost:5290
-pnpm player:build    # → snack-player/dist, host it anywhere static
+pnpm player:build    # → snack-player/dist; any static host that serves index.html for /p/* (see Links)
 ```
+
+**Links** are plain paths: `https://<host>/p/tpl-tap-battle` opens an app's public room,
+`…/p/tpl-tap-battle?room=K7MNP2QRS4` a friends-only room (the 🤝 친구끼리 pill makes the
+code: 10 symbols from a 32-letter alphabet, 50 bits), and a made app travels inside its
+link's fragment (`/p/app-<hash>#d=…`, never sent to a server). The static host must serve
+`index.html` for `/p/*` (`vercel.json` rewrites; snack-server has the same fallback). Old
+`#/p/…` links still open and are rewritten to the path form in place.
+
+A friends-only room is **unlisted, not private**: the code keeps strangers from stumbling
+in, nothing more. Serverless rooms ride a public MQTT broker and the room id is the
+topic, so anyone subscribing to the prefix sees every code and all room traffic
+(nicknames, actions). Treat it like a link you would not post publicly. Real protection
+(token auth) is the U1 step of `docs/master-plan.md`.
 
 Deployed on Vercel from this repo (`vercel.json`): a push to `main` rebuilds the site
 when the commit's author is the repo owner; other merges go live with the owner's next

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file=.env --watch src/index.mjs",
-    "start": "node --env-file=.env src/index.mjs"
+    "start": "node --env-file=.env src/index.mjs",
+    "test": "node --test test/"
   },
   "dependencies": {
     "@snack/bite": "workspace:*",

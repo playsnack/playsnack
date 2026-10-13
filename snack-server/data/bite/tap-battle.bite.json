@@ -645,7 +645,8 @@
                 "y": 17,
                 "size": 17,
                 "weight": 700,
-                "color": "#0b0c0e"
+                "color": "#0b0c0e",
+                "lines": 1
               },
               {
                 "id": "rscore0",
@@ -694,7 +695,8 @@
                 "y": 17,
                 "size": 17,
                 "weight": 700,
-                "color": "#ffffff"
+                "color": "#ffffff",
+                "lines": 1
               },
               {
                 "id": "rscore1",
@@ -743,7 +745,8 @@
                 "y": 17,
                 "size": 17,
                 "weight": 700,
-                "color": "#ffffff"
+                "color": "#ffffff",
+                "lines": 1
               },
               {
                 "id": "rscore2",

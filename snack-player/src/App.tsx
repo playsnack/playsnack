@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { currentRoute, hrefTo } from "./backend";
+import { playPath } from "./links";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { validate, type BiteDoc } from "@snack/bite";
 import { HOST_ACTIONS } from "@snack/room/actions";
@@ -16,16 +17,21 @@ const CreateApp = import.meta.env.VITE_SERVER_URL
   ? lazy(() => import("./CreateApp.tsx").then((m) => ({ default: m.CreateApp })))
   : null;
 
-// Routing (no router dep, see backend.currentRoute): ?bite=<name> -> Bite dev
-// player (public/bite/<name>.bite.json); #/create (or /create) -> builder (server
-// builds only); #/p/:slug (or /p/:slug) -> live player; otherwise -> Discover home.
+// Routing (no router dep, see backend.currentRoute / links.ts): ?bite=<name> ->
+// Bite dev player (public/bite/<name>.bite.json); /create -> builder (server
+// builds only); /p/:slug -> live player; otherwise -> Discover home. Old hash
+// links (#/p/:slug) are read the same way and rewritten to the path form.
 export function App() {
-  // Hash routes (#/p/…, #/create) change without a reload — re-render on change.
+  // In-app moves (navigate(), back/forward, an old hash link changing) re-read the route.
   const [route, setRoute] = useState(currentRoute);
   useEffect(() => {
     const on = () => setRoute(currentRoute());
+    addEventListener("popstate", on);
     addEventListener("hashchange", on);
-    return () => removeEventListener("hashchange", on);
+    return () => {
+      removeEventListener("popstate", on);
+      removeEventListener("hashchange", on);
+    };
   }, []);
   useEffect(() => {
     if (route.name === "create" && !CreateApp) location.replace(hrefTo("/"));
@@ -42,8 +48,7 @@ export function App() {
     redirectFor(slug).then((to) => {
       if (!on) return;
       if (!to) return setCheckedSlug(slug);
-      const q = route.params.toString();
-      location.replace(hrefTo(`/p/${to}${q ? `?${q}` : ""}`));
+      location.replace(playPath(to, route.params));
     });
     return () => { on = false; };
   }, [isLive, route.slug]);
@@ -63,7 +68,9 @@ export function App() {
   if (route.name === "create" && CreateApp) return <Suspense fallback={<LoadingScreen />}><CreateApp /></Suspense>;
   if (route.name === "live") {
     if (checkedSlug !== route.slug) return <LoadingScreen />;
-    return <LiveApp key={location.hash} slug={route.slug!} params={route.params} />;
+    // Keyed by the whole link: a different app or room (e.g. a friends-only
+    // code) remounts the player and joins that room.
+    return <LiveApp key={`${route.slug}?${route.params}`} slug={route.slug!} params={route.params} />;
   }
   return <Discover />;
 }

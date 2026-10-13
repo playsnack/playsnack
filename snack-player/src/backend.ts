@@ -7,6 +7,7 @@
 import type { BiteDoc } from "@snack/bite";
 import { contentFor, parseContentUrl, type ContentData } from "@snack/content";
 import { MeshTransport, RelayTransport, ServerTransport, type Identity, type RoomTransport } from "./roomTransport";
+import { appApiPath, parseRoute, playPath, type Route } from "./links";
 
 const SERVER_ENV = (import.meta.env.VITE_SERVER_URL as string | undefined) || "";
 export const SERVERLESS = !SERVER_ENV;
@@ -18,20 +19,23 @@ const json = async <T>(url: string): Promise<T> => {
   return r.json() as Promise<T>;
 };
 
-// ── routes (hash routes when serverless: static hosts can't serve /p/… paths) ──
-export type Route = { name: "home" | "create" | "live" | "bite"; slug?: string; params: URLSearchParams };
+// ── routes: path links (/p/<slug>) in both modes. The static host rewrites
+// /p/* to index.html (vercel.json); snack-server has the same fallback. Old
+// hash links (#/p/…) still open: they are read as the path form and the
+// address bar is rewritten in place (no reload). Rules: links.ts.
+export type { Route } from "./links";
 export function currentRoute(): Route {
-  const search = new URLSearchParams(location.search);
-  if (search.has("bite")) return { name: "bite", params: search };
-  const [hashPath, hashQuery = ""] = location.hash.replace(/^#/, "").split("?");
-  const path = hashPath.startsWith("/") ? hashPath : location.pathname;
-  const params = new URLSearchParams(hashPath.startsWith("/") ? hashQuery : location.search);
-  const live = path.match(/^\/p\/([^/]+)/);
-  if (live) return { name: "live", slug: decodeURIComponent(live[1]), params };
-  if (path.startsWith("/create")) return { name: "create", params };
-  return { name: "home", params };
+  const { route, canonical } = parseRoute(location);
+  if (canonical) history.replaceState(history.state, "", canonical);
+  return route;
 }
-export const hrefTo = (path: string) => (SERVERLESS ? `#${path}` : path);
+/** Kept for callers: links are plain paths now in both modes. */
+export const hrefTo = (path: string) => path;
+/** Move to another route without a reload (the app re-reads the route on popstate). */
+export function navigate(path: string) {
+  history.pushState(history.state, "", path);
+  dispatchEvent(new PopStateEvent("popstate"));
+}
 
 // ── templates ──
 export type TemplateMeta = {
@@ -97,15 +101,16 @@ export async function shareApp(doc: BiteDoc): Promise<string> {
   if (!SERVERLESS) {
     const r = await fetch(`${SERVER_URL}/api/apps`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ doc }) });
     const { slug } = await r.json();
-    return `${location.origin}/p/${slug}`;
+    return `${location.origin}${playPath(slug)}`;
   }
   const data = await encodeDoc(doc);
-  return `${location.origin}${location.pathname}#/p/app-${shortHash(data)}?d=${data}`;
+  return `${location.origin}${playPath(`app-${shortHash(data)}`, new URLSearchParams({ d: data }))}`;
 }
 
-/** The app a live room plays: a template, a link-carried app, or (server) a saved app. */
+/** The app a live room plays: a template, a link-carried app, or (server) a saved app.
+    Server mode names the room (`?room=`), so the state that comes back is that room's. */
 export async function loadRoomDoc(slug: string, params: URLSearchParams): Promise<{ doc: BiteDoc; sharedState?: Record<string, unknown> }> {
-  if (!SERVERLESS) return json(`${SERVER_URL}/api/apps/${slug}`);
+  if (!SERVERLESS) return json(`${SERVER_URL}${appApiPath(slug, params)}`);
   if (slug.startsWith("tpl-")) return { doc: await getTemplateDoc(slug.slice(4)) };
   const d = params.get("d");
   if (slug.startsWith("app-") && d) return { doc: await decodeDoc(d) };

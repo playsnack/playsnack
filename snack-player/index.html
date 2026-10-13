@@ -32,8 +32,9 @@
         files.forEach(function (f) {
           preload(base + f, "font", "font/woff2");
         });
-        // Static build: an official app's document, fetched alongside the code.
-        var tpl = location.hash.match(/^#\/p\/tpl-([a-z0-9-]+)/);
+        // Static build: an official app's document, fetched alongside the code
+        // (path link, or an old hash link the app rewrites to it).
+        var tpl = location.pathname.match(/\/p\/tpl-([a-z0-9-]+)/) || location.hash.match(/^#\/p\/tpl-([a-z0-9-]+)/);
         if (tpl) {
           var data = base.replace(/fonts\/$/, "") + "data/bite/";
           preload(data + tpl[1] + ".bite.json", "fetch");
