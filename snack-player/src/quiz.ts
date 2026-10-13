@@ -20,6 +20,17 @@ export const QUIZ_APP_ID = "speed-trivia-score";
 export const QUIZ_SLUG = `tpl-${QUIZ_APP_ID}`;
 /** `?make=1` on the quiz link opens the maker (in a room: for the next round). */
 export const MAKE_PARAM = "make";
+/** Window event LiveApp listens for: open the maker over the current room. */
+export const MAKE_EVENT = "snack:make-quiz";
+/**
+ * "나도 만들기" (for the result screen): opens the maker over the room this
+ * player is in. When done, the new quiz goes to the SAME room as `quizPack`,
+ * so the next round is about this player. In the public room (no room code)
+ * the maker opens on its own page and makes a new friends-only room instead.
+ */
+export function openQuizMaker(): void {
+  if (typeof dispatchEvent === "function") dispatchEvent(new Event(MAKE_EVENT));
+}
 
 export const TITLE_MAX = 40;
 export const Q_MAX = 80;
@@ -294,7 +305,7 @@ export function lobbyCopy(info: QuizInfo | null, isSubject: boolean, people: num
       body: people > 1 ? `준비 완료 · ${people}명이 모였어요. 아래에서 시작해요` : "친구에게 초대 링크를 보내면 이 방으로 들어와요",
     };
   }
-  const about = info?.about ? `${info.about} 맞히기` : info?.title || "나 맞히기 퀴즈";
+  const about = info?.custom && info.about ? `${info.about} 맞히기` : info?.title || "퀴즈";
   const count = info?.count ? ` · ${info.count}문제` : "";
-  return { title: `${about}${count} · 곧 시작해요`, body: info?.custom ? "친구가 직접 만든 퀴즈예요" : "만든 사람의 퀴즈를 기다리는 중이에요" };
+  return { title: `${about}${count} · 곧 시작해요`, body: info?.custom ? "친구가 직접 만든 퀴즈예요" : "퀴즈를 만든 친구가 들어오면 그 퀴즈로 바뀌어요" };
 }

@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SERVERLESS, hrefTo } from "./backend";
 import { homeApps, type CatalogEntry } from "./catalog";
 import { MessageScreen } from "./Screens";
+import { playPath } from "./links";
+import { MAKE_PARAM, QUIZ_APP_ID, QUIZ_SLUG } from "./quiz";
 import { BLOCK_CSS } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
@@ -42,7 +44,8 @@ export function Discover() {
     try {
       sessionStorage.setItem(SCROLL_KEY, String(shellRef.current?.scrollTop ?? 0));
     } catch {}
-    location.href = hrefTo(`/p/tpl-${id}`);
+    // The quiz app's primary action is making a "나 맞히기" quiz (App → QuizMaker).
+    location.href = hrefTo(id === QUIZ_APP_ID ? playPath(QUIZ_SLUG, new URLSearchParams({ [MAKE_PARAM]: "1" })) : `/p/tpl-${id}`);
   };
 
   if (failed) return <MessageScreen icon="📡" title="목록을 불러오지 못했어요" body="인터넷 연결을 확인하고 다시 시도해 주세요." primary={{ label: "다시 시도", onClick: load }} />;
@@ -57,12 +60,21 @@ export function Discover() {
           탭하면 바로 시작해요 · <span style={tagInline}>같이</span> 표시는 친구랑 함께 해요
         </p>
 
+        {/* The first game: make a quiz about yourself, then invite friends. */}
+        {apps?.some((m) => m.id === QUIZ_APP_ID) && (
+          <button className="blk" style={makeCta} onClick={() => open(QUIZ_APP_ID)}>
+            🙋 나 맞히기 만들기
+            <span style={{ display: "block", marginTop: S.s1, fontWeight: 700, fontSize: TOKENS.size.bodySm }}>내 답을 고르고 친구를 초대해요 · 1~2분</span>
+          </button>
+        )}
+
         <h2 style={sectionTitle}>🎮 스낵 게임</h2>
         <div style={grid}>
           {(apps ?? []).map((m) => (
             <button key={m.id} className="blk" style={card} onClick={() => open(m.id)}>
               <span style={{ fontSize: 34 }}>{m.emoji}</span>
               <div style={cardTitle}>{m.title}</div>
+              {m.id === QUIZ_APP_ID && <div style={{ ...cardTitle, marginTop: S.s1, color: C.accent, fontSize: TOKENS.size.bodySm }}>나 맞히기 만들기 →</div>}
               <div style={{ display: "flex", alignItems: "center", gap: S.s2, marginTop: S.s2, flexWrap: "wrap" }}>
                 <span style={{ color: C.inkMuted, fontSize: TOKENS.size.caption }}>{CAT[m.category] ?? "스낵"}</span>
                 {m.mode === "multi" && <span style={tag}>같이</span>}
