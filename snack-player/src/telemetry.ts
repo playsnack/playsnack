@@ -2,7 +2,7 @@
 // - No cookies, localStorage, device/session ids, nicknames or user agents are sent.
 // - Off in dev, with VITE_TELEMETRY=off, or when Do Not Track / Global Privacy Control is set.
 // - Batches every 5 s / 20 events / when the page is hidden; sendBeacon, fetch keepalive fallback.
-// Not wired into the app yet; callers use track()/installErrorBeacon().
+// Wired in main.tsx (installErrorBeacon) and LiveApp via roomJoin.ts (room_join).
 // Erasable TypeScript only (Node can run this file directly for tests).
 
 export type Route = 'home' | 'app' | 'room' | 'create' | 'other';
@@ -13,7 +13,7 @@ export type TelemetryEvent =
   | { k: 'first_tap'; ms: number; app?: string }
   | { k: 'result'; app?: string }
   | { k: 'share'; method: ShareMethod; app?: string }
-  | { k: 'room_join'; ok: boolean; ms?: number; app?: string }
+  | { k: 'room_join'; ok: boolean; ms?: number; reason?: string; app?: string }
   | { k: 'err'; msg: string; where?: string; build?: string };
 
 export type TelemetryOptions = {

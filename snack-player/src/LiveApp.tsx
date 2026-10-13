@@ -14,6 +14,7 @@ import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
 import { pill } from "./ui";
 import { C, R } from "./tokens.gen";
+import { joinTracker } from "./roomJoin";
 
 // Plays one app from a link. Solo apps just play. Together apps (or any app
 // that sends events to a room, or a link that names a room) also join a room
@@ -103,18 +104,21 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     // friends-only link (links.ts). The transport passes it through unchanged.
     const room: RoomTransport = createRoom({ slug: roomIdFor(slug, params), anonId: getAnonId(), nick: getNick() ?? "" }, params);
     roomRef.current = room;
+    const join = joinTracker({ slug, room: roomIdFor(slug, params) }); // room_join telemetry + ?debug=1 log
     let silence: ReturnType<typeof setTimeout> | undefined;
     const waitForRoom = () => {
       clearTimeout(silence);
-      silence = setTimeout(() => setConn((s) => (s === "connecting" ? "failed" : s)), ROOM_SILENCE_MS);
+      silence = setTimeout(() => { join.conn("failed", "silence"); setConn((s) => (s === "connecting" ? "failed" : s)); }, ROOM_SILENCE_MS);
     };
     const heard = () => {
       clearTimeout(silence);
+      join.conn("connected");
       setConn((s) => (s === "connecting" ? "connected" : s));
     };
     room.onMessage((m) => {
       if (m.t === "conn") {
         const state = m.d.state as ConnState;
+        join.conn(state, m.d.reason as string | undefined);
         setConn(state);
         if (state === "connecting") waitForRoom();
         else clearTimeout(silence);
@@ -135,13 +139,15 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     });
     setConn("connecting");
     waitForRoom();
+    join.start("connect");
     room.connect();
     // retry() (when the transport has it) restarts the same connection.
     retryRef.current = room.retry
-      ? () => { setConn("connecting"); waitForRoom(); room.retry!(); }
+      ? () => { setConn("connecting"); waitForRoom(); join.start("retry"); room.retry!(); }
       : () => setRoomGen((g) => g + 1);
     return () => {
       clearTimeout(silence);
+      join.end();
       room.close();
       if (roomRef.current === room) roomRef.current = null;
     };

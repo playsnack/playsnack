@@ -5,6 +5,8 @@
 // Wire messages are the room engine's (@snack/room): inbound "state", "setVar",
 // "participants", "reaction", "actionAck"; outbound actions and reactions.
 
+import { debugEnabled, dlog, noteRoomMessage } from "./debugLog";
+
 export type RoomMessage = { t: string; d: Record<string, unknown> };
 
 /**
@@ -69,12 +71,14 @@ abstract class BaseTransport implements RoomTransport {
   /** Room messages pass through here: the first "state" means we are in. */
   protected receive(m: RoomMessage) {
     if (m.t === "state") this.setConn("connected");
+    noteRoomMessage(m); // ?debug=1 test log: phase / participant changes
     this.emit(m);
   }
 
   protected setConn(state: ConnState, reason?: string) {
     if (this.state === state) return;
     this.state = state;
+    dlog("conn", reason ? `${state} (${reason})` : state);
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (state === "connecting") {
@@ -146,7 +150,9 @@ export class ServerTransport extends BaseTransport {
   }
 
   sendAction(name: string, payload?: unknown) {
-    this.send({ t: "action", d: { name, payload, clientMsgId: crypto.randomUUID() } });
+    const id = crypto.randomUUID();
+    dlog("action", `${name} #${id.slice(-6)}`);
+    this.send({ t: "action", d: { name, payload, clientMsgId: id } });
   }
 
   sendReaction(emoji: string) {
@@ -167,7 +173,10 @@ abstract class EngineTransport extends BaseTransport {
   // Mobile browsers throttle timers in hidden tabs — a hosting device that goes
   // to the background hands the room to another player first.
   private onHidden = () => {
-    if (document.visibilityState === "hidden") this.conn?.handoff();
+    if (document.visibilityState === "hidden" && this.conn) {
+      dlog("host", "tab hidden → hand the room on if hosting");
+      this.conn.handoff();
+    }
   };
 
   /** Load the engine lazily and connect it (resolves to null if abandoned meanwhile). */
@@ -199,7 +208,9 @@ abstract class EngineTransport extends BaseTransport {
   }
 
   sendAction(name: string, payload?: unknown) {
-    this.conn?.sendAction(name, payload, crypto.randomUUID());
+    const id = crypto.randomUUID();
+    dlog("action", `${name} #${id.slice(-6)}${this.conn ? "" : " (not connected: dropped)"}`);
+    this.conn?.sendAction(name, payload, id);
   }
 
   sendReaction(emoji: string) {
@@ -248,12 +259,22 @@ export class MeshTransport extends EngineTransport {
   }
 
   protected async open(gen: number) {
-    const [{ connectMesh }, { mqttBus }] = await Promise.all([import("@snack/room/mesh-client"), import("@snack/room/mqtt-bus")]);
+    const [{ connectMesh }, { mqttBus, DEFAULT_BROKER }] = await Promise.all([import("@snack/room/mesh-client"), import("@snack/room/mqtt-bus")]);
     if (gen !== this.gen) return null;
+    if (debugEnabled()) dlog("broker", hostOf(this.brokerUrl || DEFAULT_BROKER));
+    let drops = 0;
     return connectMesh({
       createBus: mqttBus({ room: this.me.slug, url: this.brokerUrl || undefined }),
       me: this.me,
       getPack: this.getPack,
+      onRole: (isHost) => dlog("host", isHost ? "this device hosts the room" : "another player hosts"),
+      // Mesh internals for the test log: line adoption / discovery; stale-host drops only counted.
+      debug: debugEnabled()
+        ? (event: string) => {
+            if (event !== "drop") dlog("mesh", event);
+            else if (++drops <= 3 || drops % 50 === 0) dlog("mesh", `drop from a stale host (${drops})`);
+          }
+        : undefined,
       onMessage: (m) => gen === this.gen && this.receive(m as RoomMessage),
       onStatus: (s) => {
         if (gen !== this.gen) return;
@@ -261,5 +282,13 @@ export class MeshTransport extends EngineTransport {
         else if (s.state === "connected") this.setConn("connected");
       },
     });
+  }
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "(bad url)";
   }
 }

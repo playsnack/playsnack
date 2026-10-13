@@ -17,6 +17,7 @@ type Box = { x: number; y: number; w: number; h: number };
 const ZONES: Record<string, Box> = {
   invitePill: { x: 84, y: 10, w: 150, h: 44 },
   reactionFab: { x: 332, y: 62, w: 46, h: 46 },
+  debugTab: { x: 294, y: 62, w: 32, h: 32 }, // 🪲 (?debug=1 only, DebugLog.tsx)
 };
 const hit = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 

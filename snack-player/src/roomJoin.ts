@@ -1,0 +1,65 @@
+// One `room_join` telemetry event per join attempt (docs/telemetry.md §6), and the
+// same outcome in the on-device test log (?debug=1).
+//   start()  — connect() / retry() is called: the clock starts
+//   conn()   — the first "connected" (ok, ms) or "failed" (reason, ms) ends the attempt;
+//              later states (a drop after joining, a repeated "failed") are not joins.
+// Erasable TypeScript only (Node runs it directly in tests).
+import { track, type TelemetryEvent } from "./telemetry.ts";
+import { dlog, setRoomCode } from "./debugLog.ts";
+
+type JoinEvent = Extract<TelemetryEvent, { k: "room_join" }>;
+export type JoinTracker = {
+  start(kind: "connect" | "retry"): void;
+  conn(state: string, reason?: string): void;
+  /** The screen went away: an unfinished attempt is dropped (debug log only). */
+  end(): void;
+};
+
+export function joinTracker(o: {
+  slug: string;
+  /** The room id as the transport sees it (`slug` or `slug~CODE`). */
+  room: string;
+  now?: () => number;
+  send?: (ev: JoinEvent) => void;
+}): JoinTracker {
+  const now = o.now ?? (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
+  const send = o.send ?? track;
+  const app = o.slug.startsWith("tpl-") ? o.slug.slice(4) : undefined;
+  const code = o.room.includes("~") ? o.room.slice(o.room.indexOf("~") + 1) : null;
+  setRoomCode(code);
+  let t0 = 0;
+  let open = false;
+  const ms = () => Math.max(0, Math.round(now() - t0));
+  const event = (ok: boolean, reason?: string): JoinEvent => {
+    const ev: JoinEvent = { k: "room_join", ok, ms: ms() };
+    // Only the reason's code word ("refused: <broker text>" → "refused"): no free text leaves.
+    if (!ok && reason) ev.reason = reason.split(":")[0].trim().slice(0, 24);
+    if (app) ev.app = app;
+    return ev;
+  };
+  return {
+    start(kind) {
+      t0 = now();
+      open = true;
+      dlog("join", `${kind} → room ${o.room}`);
+    },
+    conn(state, reason) {
+      if (!open) return;
+      if (state === "connected") {
+        open = false;
+        const ev = event(true);
+        dlog("join", `joined in ${ev.ms} ms`);
+        send(ev);
+      } else if (state === "failed") {
+        open = false;
+        const ev = event(false, reason || "other");
+        dlog("join", `failed after ${ev.ms} ms (${reason || "other"})`);
+        send(ev);
+      }
+    },
+    end() {
+      if (open) dlog("join", `left after ${ms()} ms, before joining`);
+      open = false;
+    },
+  };
+}
