@@ -36,7 +36,7 @@ function hub(latency = 5, lose = () => false) {
 const FAST = { discoveryMs: 120, beatMs: 60, silenceMs: 250, snapshotMs: 20 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function player(h, slug, n, { timing = FAST } = {}) {
+function player(h, slug, n, { timing = FAST, getPack } = {}) {
   const shared = {};
   const statuses = [];
   let gotState = false;
@@ -44,19 +44,24 @@ function player(h, slug, n, { timing = FAST } = {}) {
     createBus: h.createBus,
     me: { slug, anonId: `a${n}`, nick: `닉${n}` },
     timing,
+    getPack,
     onStatus: (s) => statuses.push(s.state),
     onMessage: (m) => {
       if (m.t === "state") {
         gotState = true;
         Object.assign(shared, m.d.sharedState);
-      } else if (m.t === "setVar") shared[m.d.id] = m.d.value;
-      else if (m.t === "participants") shared.participants = m.d.count;
+      } else if (m.t === "setVar") {
+        shared[m.d.id] = m.d.value;
+        if (m.d.id === "sessionCountdown") countdown.push([m.d.value, Date.now()]);
+      } else if (m.t === "participants") shared.participants = m.d.count;
     },
   });
+  const countdown = []; // every sessionCountdown value shown, with when
   return {
     conn,
     shared,
     statuses,
+    countdown,
     get gotState() {
       return gotState;
     },
@@ -109,7 +114,7 @@ test("host leaves mid-game → the next player resumes with the scores", async (
   rest[1].act("tap");
   await sleep(2500);
   assert.equal(rest[0].shared.sessionPhase, "result");
-  assert.deepEqual(rest[0].shared.leaderboard, [2, 2]);
+  assert.deepEqual(rest[0].shared.raceBoard.map((x) => x.score), [2, 2]);
   assert.deepEqual(rest[0].shared.raceBoard, rest[1].shared.raceBoard);
   rest.forEach((p) => p.conn.close());
 });
@@ -243,7 +248,7 @@ test("MP-02: a queued action older than 5 s is dropped, not replayed", async () 
     skew = 6000; // the device slept through discovery
     await sleep(350);
     assert.ok(a.conn.isHost);
-    assert.equal(a.shared.sessionPhase, "lobby");
+    assert.notEqual(a.shared.sessionPhase, "countdown"); // never started (no session → no phase at all)
     a.conn.close();
   } finally {
     Date.now = realNow;
@@ -421,4 +426,78 @@ test("a peer whose heartbeat was lost is never counted anonymously (taps keep it
   assert.deepEqual(a.shared.raceBoard, [{ nick: "닉2", score: 4 }]);
   assert.deepEqual(b.shared.roster, ["닉1", "닉2"]);
   [a, b].forEach((p) => p.conn.close());
+});
+
+test("countdown runs on each device's clock: a lost '2' (and a stale state mid-count) never breaks 3·2·1·0", async () => {
+  // Jittery broker; to one player every message that carries the host's "2" (the setVar
+  // batch and the resync beats) is lost, and a resent `state` (as after a sync / hand-over)
+  // carrying a stale 3 arrives while it counts. Order is asserted; the cross-device spread
+  // is a wall-clock property and is proven deterministically in countdown.test.js.
+  let r = 3;
+  const rnd = () => ((r = (r * 16807) % 2147483647) / 2147483647);
+  let victim = null;
+  const carries2 = (m) => m.t === "batch" && m.items.some((it) => (it.t === "setVar" && it.d.id === "sessionCountdown" && it.d.value === 2) || (it.t === "resync" && it.d.sharedState?.sessionCountdown === 2));
+  const h = hub(() => 5 + rnd() * 60, (m, to) => to === victim && carries2(m));
+  const ps = [1, 2, 3].map((n) => player(h, "r", n));
+  assert.ok(await until(() => ps.every((p) => p.gotState && p.shared.participants === 3), 3000), "room formed");
+  const host = ps.find((p) => p.conn.isHost);
+  const peer = ps.find((p) => !p.conn.isHost);
+  victim = peer.conn.peerId;
+  host.act("start", { duration: 2000 });
+  assert.ok(await until(() => peer.countdown.some(([v]) => v === 2), 3000), "the peer is counting");
+  // The peer asks for the room state again (as after a lost "state"): the host resends it
+  // with its current number — that must go through the driver, never show out of order.
+  const asPeer = h.createBus(peer.conn.peerId); // publishes under the peer's id (never closed: it would unsubscribe the real peer)
+  asPeer.publish({ from: peer.conn.peerId, t: "sync", to: host.conn.peerId });
+  assert.ok(await until(() => ps.every((p) => p.shared.sessionPhase === "play"), 6000), "play");
+  for (const p of ps) assert.deepEqual(p.countdown.map(([v]) => v), [3, 2, 1, 0], `player ${p.conn.peerId} saw ${JSON.stringify(p.countdown)}`);
+  ps.forEach((p) => p.conn.close());
+});
+
+test("snapshots stay change-gated while a game only ages (play, result)", async () => {
+  const h = hub();
+  const ps = [1, 2].map((n) => player(h, "r", n));
+  await sleep(400);
+  const snaps = () => h.published.filter((m) => m.t === "snap").length;
+  ps[0].act("start", { duration: 1500 });
+  assert.ok(await until(() => ps.every((p) => p.shared.sessionPhase === "play"), 5000), "play");
+  await sleep(100);
+  const inPlay = snaps();
+  await sleep(600); // ~10 beats of nothing but time passing
+  assert.ok(snaps() - inPlay <= 1, `${snaps() - inPlay} snapshots while idle in play`);
+  assert.ok(await until(() => ps.every((p) => p.shared.sessionPhase === "result"), 5000), "result");
+  await sleep(100);
+  const inResult = snaps();
+  await sleep(600);
+  assert.ok(snaps() - inResult <= 1, `${snaps() - inResult} snapshots while idle in result`);
+  ps.forEach((p) => p.conn.close());
+});
+
+test("MP-06: a vote the old host acked but never snapshotted still counts with the new host", async () => {
+  // 눈치 배틀: votes are hidden (no broadcast). Both are acked; then every snapshot is
+  // lost and the host leaves — the new host resumes from the pre-vote snapshot.
+  let loseSnaps = false;
+  const h = hub(5, (m) => loseSnaps && m.t === "snap");
+  const getPack = async (game) => (game === "majority" ? [{ a: "민초", b: "반민초" }] : null);
+  const ps = [1, 2, 3].map((n) => player(h, "r", n, { getPack }));
+  await sleep(400);
+  const host = ps.find((p) => p.conn.isHost);
+  const [x, y] = ps.filter((p) => p !== host);
+  host.act("start", { game: "majority", mode: "guess", rounds: 1, roundMs: 2500, revealMs: 1000 });
+  assert.ok(await until(() => ps.every((p) => p.shared.sessionPhase === "play" && p.shared.roundNum === 1), 5000), "play");
+  await sleep(100); // the round's snapshot is out
+  loseSnaps = true;
+  const macks = () => h.published.filter((m) => m.t === "batch").flatMap((m) => m.items).filter((it) => it.t === "mack").length;
+  const before = macks();
+  x.act("vote", { option: "o1" });
+  y.act("vote", { option: "o1" });
+  assert.ok(await until(() => macks() >= before + 2, 1000), "both votes acked");
+  host.conn.close(); // …and the host is gone
+  assert.ok(await until(() => hosts([x, y]) === 1, 1500), "a new host");
+  assert.ok(await until(() => x.shared.roundAnswer >= 0 && y.shared.roundAnswer >= 0, 5000), "revealed");
+  assert.deepEqual(x.shared.votesByOption, { o1: 2 });
+  assert.deepEqual(y.shared.votesByOption, { o1: 2 });
+  assert.deepEqual(x.shared.raceBoard, y.shared.raceBoard);
+  assert.equal(x.shared.raceBoard.length, 2); // both scored: the hand-over lost nothing
+  [x, y].forEach((p) => p.conn.close());
 });

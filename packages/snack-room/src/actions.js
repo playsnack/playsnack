@@ -36,6 +36,22 @@ export const HOST_ACTIONS = Object.freeze({
   },
   // payload unused: tap race +1 / nunchi claim / reaction tap, by session mode
   tap: { payload: "none", description: "one tap in the running session (race · nunchi · reaction)" },
+  // Math.floor(Number(payload.count)) must be finite and ≥ 0, else dropped (no ack).
+  // Fair tap race (MP-08): the device counts, sends its running total every ~250 ms and
+  // once more at the end; the room keeps the max (≤ 15 taps/s of play — TAP_RATE_MAX).
+  taps: {
+    payload: "object",
+    fields: { count: { type: "number", required: true } },
+    description: "this player's cumulative tap count so far (tap race; send every ~250 ms and at the end — the room keeps the max)",
+  },
+  // Number(payload.ms) must be finite, else dropped (no ack).
+  // Fair reaction duel (MP-08): "green shown → tap" measured on the device; < 80 ms or
+  // before green = 부정출발 (0), after the window = not ranked, else 2000 − ms.
+  reaction: {
+    payload: "object",
+    fields: { ms: { type: "number", required: true } },
+    description: "reaction time this device measured (green → tap, ms; −1 = tapped before green)",
+  },
   // Number(payload.option) === round.answer (0-based choice index)
   answer: {
     payload: "object",

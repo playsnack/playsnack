@@ -4,6 +4,9 @@
 //      the old host keeps playing as a normal player
 //   C. the host goes silent (connected, no heartbeat) → the relay's watchdog hands over
 //   D. global stats: the host reports player points / activity, the server accepts them
+//   E. (MP-06) 눈치 배틀: hidden votes, the host leaves before the reveal → every peer
+//      reveals the SAME full tally and the same scores (the host's own vote included)
+//   F. (MP-06) best-score board: the host leaves → the same leaderboard on every peer
 // PRE: server running.   node snack-server/tools/host-handover-sim.mjs
 import { WebSocket } from "ws";
 import { runGate } from "./_gate.mjs";
@@ -109,6 +112,42 @@ const results = [];
   results.push({ id: "D host-run stats are reported", ok, detail: { sent, events: events.length, applied: r.applied } });
   c.forEach((x) => x.close());
   capture.close();
+}
+
+// E — 눈치 배틀 (hidden votes): the host leaves after everyone voted, before the reveal.
+// Every peer must reveal the full tally — the old host's vote and the votes it acked
+// after its last broadcast included — and the same board (MP-06).
+{
+  const slug = `handover-${RUN}-e`;
+  const c = [0, 1, 2].map((i) => new SimClient(slug, `${slug}-c${i}`, `E${i}`));
+  await Promise.all(c.map((x) => x.ready));
+  c[1].start({ game: "majority", mode: "guess", rounds: 1, roundMs: 5000, revealMs: 1500 });
+  await until(() => c.every((x) => x.shared.sessionPhase === "play"), 6000);
+  c[0].vote("o1"); c[1].vote("o1"); c[2].vote("o0"); // nothing is broadcast until the reveal
+  await sleep(700);
+  c[0].close(); // the host leaves mid-round
+  const done = await until(() => c[1].shared.sessionPhase === "result" && c[2].shared.sessionPhase === "result", 12000);
+  const votes = (x) => [(x.shared.votesByOption || {}).o0 ?? 0, (x.shared.votesByOption || {}).o1 ?? 0];
+  const board = (x) => (x.shared.raceBoard || []).map((e) => [e.nick, e.score]);
+  const ok = done && same(votes(c[1]), [1, 2]) && same(votes(c[2]), [1, 2]) && same(board(c[1]), board(c[2])) && same(board(c[1]), [["E0 (나감)", 100], ["E1", 100]]) && c[1].shared.roundAnswer === 1 && c[2].shared.roundAnswer === 1;
+  results.push({ id: "E hidden votes survive the host leaving", ok, detail: { done, votes1: votes(c[1]), votes2: votes(c[2]), board1: board(c[1]), board2: board(c[2]) } });
+  c.forEach((x) => x.close());
+}
+
+// F — best-score leaderboard: the host leaves, a peer scores again → same board everywhere.
+{
+  const slug = `handover-${RUN}-f`;
+  const c = [0, 1, 2].map((i) => new SimClient(slug, `${slug}-c${i}`, `F${i}`));
+  await Promise.all(c.map((x) => x.ready));
+  c[0].score(10); c[1].score(30); c[2].score(50);
+  await until(() => c.every((x) => same(x.shared.leaderboard, [50, 30, 10])), 4000);
+  await sleep(700); // let the host snapshot (200 ms debounce) land at the relay — as in A
+  c[0].close(); // host leaves
+  await sleep(1200);
+  c[1].score(40); // the new host (c1) keeps the old scores and takes new ones
+  const done = await until(() => same(c[1].shared.leaderboard, [50, 40, 10]) && same(c[2].shared.leaderboard, [50, 40, 10]), 6000);
+  results.push({ id: "F best-score board survives the host leaving", ok: done, detail: { board1: c[1].shared.leaderboard, board2: c[2].shared.leaderboard } });
+  c.forEach((x) => x.close());
 }
 
 for (const r of results) console.error(`${r.ok ? "✅" : "❌"} ${r.id}  ${JSON.stringify(r.detail)}`);

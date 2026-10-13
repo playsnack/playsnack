@@ -10,7 +10,8 @@
   "vars": {
     "coopTotal": 0,
     "goal": 300,
-    "myTaps": 0
+    "myTaps": 0,
+    "roster": []
   },
   "components": {
     "NavBar": {

@@ -5,9 +5,39 @@
 //
 // Input: join / leave / action / react from peers. Output: `broadcast(t, d)` to
 // everyone and `send(peerId, t, d)` to one peer, using the wire messages the
-// player already speaks ("state", "setVar", "participants", "reaction", "actionAck").
+// player already speaks ("state", "setVar", "participants", "reaction", "actionAck")
+// plus "countdown" {n, stepMs, endsIn}: "play starts in endsIn ms" — a client runs
+// the 3·2·1 on its own clock from it (see countdown.js).
 
-export const cleanNick = (n) => String(n ?? "").trim().slice(0, 16);
+// Nicknames are capped at NICK_MAX graphemes (one Korean syllable or one emoji = one),
+// the same cap as the player's input (snack-player/src/nick.ts) — the engine cannot
+// import player code, so the rule lives here too. Code points when there is no Segmenter.
+export const NICK_MAX = 10;
+const segmenter = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("ko", { granularity: "grapheme" }) : null;
+export const capGraphemes = (s, n) => {
+  if (n <= 0) return "";
+  if (!segmenter) return Array.from(s).slice(0, n).join("");
+  let out = "";
+  let i = 0;
+  for (const { segment } of segmenter.segment(s)) {
+    if (i++ >= n) break;
+    out += segment;
+  }
+  return out;
+};
+export const cleanNick = (n) => capGraphemes(String(n ?? "").trim(), NICK_MAX).trimEnd();
+
+// Fair judging (MP-08): devices measure their own reaction time / tap count; the host
+// only checks plausibility.
+export const TAP_RATE_MAX = 15; // taps per second a count may grow by (clamped beyond)
+const TAP_BURST = 5; // slack for a first batch that lands before the clock has run
+export const MIN_REACTION_MS = 80; // faster than this is a foul (anticipation)
+const REACTION_TOLERANCE_MS = 50; // a claim slower than the host's own measurement is clamped to it
+// A final count / reaction still lands this long after the window: two lost sends
+// (resend every 700 ms) plus the broker's worst delay (300 ms) still make it.
+const LATE_GRACE_MS = 2500;
+const COUNTDOWN_STEP_MS = 1000;
+export const LEFT_MARK = "(나감)"; // ranking mark for a player who left the room (MP-12)
 
 const roundNameFor = (n) => (n >= 16 ? "16강" : n >= 8 ? "8강" : n >= 4 ? "4강" : "결승");
 const buildMatchups = (cands) => {
@@ -99,13 +129,22 @@ export function createRoom(o) {
   // Live leaderboard: top-10 per-player scores, sorted desc (numbers only).
   const board = () => [...r.scores.values()].sort((a, b) => b - a).slice(0, 10);
   // Named race board: top-8 {nick, score} — lets results say WHO won.
+  // A player who left stays ranked, marked (MP-12) — the same on every screen.
   const raceBoard = () =>
     [...r.scores.entries()]
-      .map(([id, score]) => ({ nick: r.nicks.get(id) || r.roster.get(id) || "게스트", score }))
+      .map(([id, score]) => {
+        const nick = r.nicks.get(id) || r.roster.get(id) || "게스트";
+        return r.roster.has(id) ? { nick, score } : { nick: `${nick} ${LEFT_MARK}`, score, left: true };
+      })
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);
   const rosterArr = () => [...r.roster.values()].slice(0, 8);
   const rosterPhotosArr = () => [...r.roster.keys()].slice(0, 8).map((id) => photoUrl(id) || "");
+  // Photos go out only once there is one (most hosts have none — MP-13).
+  const setPhotos = () => {
+    const photos = rosterPhotosArr();
+    if (photos.some(Boolean) || r.vars.has("rosterPhotos")) setVar("rosterPhotos", photos);
+  };
 
   // ── session ──
   // Timers are DATA ({step, arg, at}) rather than closures, so the whole session
@@ -122,6 +161,15 @@ export function createRoom(o) {
     for (const t of S.timers) clearTimer(t.handle);
     S.timers = [];
   };
+  const cancel = (step) => {
+    for (const t of S.timers) if (t.step === step) clearTimer(t.handle);
+    S.timers = S.timers.filter((t) => t.step !== step);
+  };
+  // Only re-broadcast a generic variable this room has already shown (MP-13: a template
+  // that never declared it would get "host set undeclared variable" on every reset).
+  const setKnown = (id, value) => {
+    if (r.vars.has(id)) setVar(id, value);
+  };
   const setPhase = (phase, extra = {}) => {
     S.phase = phase;
     setVar("sessionPhase", phase);
@@ -130,7 +178,13 @@ export function createRoom(o) {
       setVar(k, v);
     }
   };
-  const toResult = () => setPhase("result", { raceBoard: raceBoard(), leaderboard: board() });
+  const toResult = () => {
+    S.lateUntil = now() + LATE_GRACE_MS; // a last tap batch / reaction may still be in flight
+    setPhase("result");
+    setKnown("raceBoard", raceBoard()); // a vote / co-op session has no board to show
+    setKnown("leaderboard", board());
+  };
+  const inWindow = () => S.phase === "play" || (S.phase === "result" && now() <= (S.lateUntil ?? 0));
 
   // Round-based (vote / content) — each round is a fresh vote.
   const startRound = (i) => {
@@ -157,7 +211,6 @@ export function createRoom(o) {
     S.accepting = false;
     setVar("roundAnswer", S.rounds[i].answer);
     setVar("raceBoard", raceBoard());
-    setVar("leaderboard", board());
     later("startQuizRound", i + 1, S.revealMs);
   };
 
@@ -198,22 +251,36 @@ export function createRoom(o) {
     if (!bk) return; // stale timer after teardown
     if (i >= bk.matchups.length) return finishBracketRound();
     bk.matchupIdx = i;
+    bk.early = -1;
     r.voters.clear();
     const [a, b] = bk.matchups[i];
-    setPhase("play", {
-      roundContent: { a, b },
-      votesByOption: tally(),
-      matchWinner: -1,
-      bracketLabel: `${roundNameFor(bk.roundCands.length)} · ${i + 1}/${bk.matchups.length}`,
-    });
-    later("resolveMatchup", i, S.matchupMs);
+    bk.label = `${roundNameFor(bk.roundCands.length)} · ${i + 1}/${bk.matchups.length}`;
+    setPhase("play", { roundContent: { a, b }, votesByOption: tally(), matchWinner: -1, bracketLabel: bk.label });
+    later("resolveMatchup", i, S.matchupMs); // per-matchup timer
+  };
+  // T-21: everyone here has voted → don't sit out the rest of the matchup timer.
+  // "Everyone here": players on the roster; a vote from someone who left still counts
+  // in the tally but is not a present voter (so a leaver can't trigger the advance).
+  const maybeAdvanceMatchup = () => {
+    const bk = S.bracket;
+    if (!bk || S.mode !== "bracket" || S.phase !== "play" || bk.early === bk.matchupIdx) return;
+    const present = [...r.roster.keys()].filter((id) => r.voters.has(id)).length;
+    if (r.roster.size === 0 || present < r.roster.size) return;
+    bk.early = bk.matchupIdx;
+    cancel("resolveMatchup");
+    later("resolveMatchup", bk.matchupIdx, 600); // the last vote's percentage is seen first
   };
   const resolveMatchup = (i) => {
     const bk = S.bracket;
     if (!bk) return;
     const t = tally();
-    const winIdx = (t.o0 || 0) >= (t.o1 || 0) ? 0 : 1;
+    const a = t.o0 || 0;
+    const b = t.o1 || 0;
+    // MP-11: a tie is called a tie and settled by a coin toss — never "the left one wins".
+    const tie = a === b;
+    const winIdx = tie ? (random() < 0.5 ? 0 : 1) : a > b ? 0 : 1;
     bk.winners.push(bk.matchups[i][winIdx]);
+    if (tie) setVar("bracketLabel", `${bk.label} · 동점 🎲`);
     setVar("matchWinner", winIdx); // brief reveal of who advances
     later("startMatchup", i + 1, 2200);
   };
@@ -237,7 +304,8 @@ export function createRoom(o) {
   };
   const revealGuessRound = (i) => {
     const t = tally();
-    const majority = (t.o0 || 0) >= (t.o1 || 0) ? 0 : 1; // tie → o0
+    // MP-11: a tie has no majority (roundAnswer 2 = "동점") and nobody scores.
+    const majority = (t.o0 || 0) === (t.o1 || 0) ? 2 : (t.o0 || 0) > (t.o1 || 0) ? 0 : 1;
     for (const [anonId, opt] of r.voters) {
       if (opt === `o${majority}`) {
         r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + 100);
@@ -247,13 +315,15 @@ export function createRoom(o) {
     setVar("votesByOption", t);
     setVar("roundAnswer", majority);
     setVar("raceBoard", raceBoard());
-    setVar("leaderboard", board());
     later("startGuessRound", i + 1, S.revealMs);
   };
 
   const STEPS = {
     countdown: (n) => setPhase("countdown", { sessionCountdown: n }),
-    play: (extra) => setPhase("play", extra),
+    play: (extra) => {
+      S.playAt = now();
+      setPhase("play", extra);
+    },
     green: () => {
       if (S.phase !== "play") return;
       S.goAt = now();
@@ -281,21 +351,28 @@ export function createRoom(o) {
     S.rounds = []; // a stale timer from a torn-down session sees [] → result
     S.bracket = null;
     const myGen = ++S.gen; // older sessions' timers/awaits become no-ops
+    S.quiz = false;
+    S.playAt = 0;
+    S.playMs = 0;
+    S.lateUntil = 0;
     r.scores.clear();
     r.coop = 0;
     r.voters.clear();
-    setVar("raceBoard", []);
-    setVar("leaderboard", []);
-    setVar("coopTotal", 0);
-    setVar("votesByOption", tally());
+    setKnown("raceBoard", []);
+    setKnown("leaderboard", []);
+    setKnown("coopTotal", 0);
+    setKnown("votesByOption", tally());
     onActivity("start", "게임 시작");
     // Fetch content first — the lobby stays up meanwhile, so every timer below is
     // scheduled from one sync point and clients stay in step.
     const pack = await getPack(opts.game, opts);
     if (r.destroyed || S.gen !== myGen) return; // room gone or superseded during the fetch
+    // "Play starts in N ms": a client runs 3·2·1 on its own clock from this (the
+    // numbers below still go out — for clients that don't, and to refine the estimate).
+    broadcast("countdown", { n: 3, stepMs: COUNTDOWN_STEP_MS, endsIn: 3 * COUNTDOWN_STEP_MS });
     setPhase("countdown", { sessionCountdown: 3 });
-    later("countdown", 2, 1000);
-    later("countdown", 1, 2000);
+    later("countdown", 2, COUNTDOWN_STEP_MS);
+    later("countdown", 1, 2 * COUNTDOWN_STEP_MS);
     if (opts.mode === "reaction") {
       // Red WAIT → green at a synced random moment; fastest tap after green wins.
       S.mode = "reaction";
@@ -304,6 +381,7 @@ export function createRoom(o) {
       setVar("reactionGo", false);
       const delay = 1500 + Math.floor(random() * 3000);
       const playWindow = 4000;
+      S.playWindow = playWindow;
       later("play", { sessionCountdown: 0, reactionGo: false }, 3000);
       later("green", null, 3000 + delay);
       later("result", null, 3000 + delay + playWindow);
@@ -347,6 +425,7 @@ export function createRoom(o) {
       // Single play window (tap race / co-op).
       const dur = Math.min(60000, Math.max(3000, Number(opts.duration) || 12000));
       S.rounds = [];
+      S.playMs = dur;
       later("play", { sessionCountdown: 0 }, 3000);
       later("result", null, 3000 + dur);
     }
@@ -355,6 +434,23 @@ export function createRoom(o) {
   // ── peers ──
   const ack = (peerId, clientMsgId, extra = { accepted: true }) => send(peerId, "actionAck", { clientMsgId, ...extra });
   const peerNick = (peer) => cleanNick(peer.nick);
+  // Tap race: adopt a count, never above TAP_RATE_MAX per second of play so far.
+  const tapCount = (peer, n) => {
+    const elapsed = Math.min(now() - S.playAt, S.playMs || Infinity);
+    const v = Math.min(n, Math.floor((TAP_RATE_MAX * elapsed) / 1000) + TAP_BURST);
+    if (v <= (r.scores.get(peer.anonId) ?? 0)) return;
+    r.scores.set(peer.anonId, v);
+    r.nicks.set(peer.anonId, peerNick(peer) || r.nicks.get(peer.anonId) || "게스트");
+    setVar("raceBoard", raceBoard());
+  };
+  // Reaction: 0 = 부정출발 (before green, or faster than a human can), null = after the
+  // window (not ranked); otherwise 2000 − ms, clamped to what the host itself measured.
+  const reactionScore = (ms) => {
+    if (!(S.goAt > 0) || ms < MIN_REACTION_MS) return 0;
+    if (ms > S.playWindow) return null;
+    const m = Math.min(ms, now() - S.goAt + REACTION_TOLERANCE_MS);
+    return Math.max(1, 2000 - Math.round(m));
+  };
 
   function action(peerId, d) {
     const peer = r.peers.get(peerId);
@@ -367,6 +463,7 @@ export function createRoom(o) {
       onPoints(anonId, nick, 1);
       // 눈치 배틀 keeps the tally hidden until the reveal.
       if (S.mode !== "guess") setVar("votesByOption", tally());
+      if (S.mode === "bracket") maybeAdvanceMatchup();
       onActivity("vote", "투표함");
       ack(peerId, d.clientMsgId);
     } else if (name === "tally") {
@@ -395,6 +492,7 @@ export function createRoom(o) {
           if (S.pending.length === 1) later("resolveNunchi", null, 350); // collision window
         }
       } else if (S.mode === "reaction") {
+        // Legacy client (no device measurement): the host's clock decides.
         if (S.phase === "play" && S.reacted && !S.reacted.has(anonId)) {
           S.reacted.add(anonId);
           r.nicks.set(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
@@ -403,10 +501,28 @@ export function createRoom(o) {
           setVar("raceBoard", raceBoard());
         }
       } else if (S.phase === "play") {
-        r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + 1);
+        tapCount(peer, (r.scores.get(anonId) ?? 0) + 1);
+      }
+      ack(peerId, d?.clientMsgId);
+    } else if (name === "taps") {
+      // MP-08: cumulative count measured on the device (sent every ~250 ms, once more at
+      // the end) — the host keeps the max, so a lost or late batch never loses taps.
+      const n = Math.floor(Number(d?.payload?.count));
+      if (!Number.isFinite(n) || n < 0) return;
+      if (S.mode === "" && S.playAt && inWindow()) tapCount(peer, n); // the single play window (tap race)
+      ack(peerId, d?.clientMsgId);
+    } else if (name === "reaction") {
+      // MP-08: "green shown → tap" measured on the device; the host checks plausibility only.
+      const ms = Number(d?.payload?.ms);
+      if (!Number.isFinite(ms)) return;
+      if (S.mode === "reaction" && S.reacted && !S.reacted.has(anonId) && inWindow()) {
+        S.reacted.add(anonId);
         r.nicks.set(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
-        setVar("raceBoard", raceBoard());
-        setVar("leaderboard", board());
+        const score = reactionScore(ms);
+        if (score !== null) {
+          r.scores.set(anonId, score);
+          setVar("raceBoard", raceBoard());
+        }
       }
       ack(peerId, d?.clientMsgId);
     } else if (name === "answer") {
@@ -430,6 +546,8 @@ export function createRoom(o) {
       ack(peerId, d?.clientMsgId);
     } else if (name === "lobby") {
       clearSessionTimers();
+      S.playAt = 0;
+      S.lateUntil = 0;
       setPhase("lobby", { sessionCountdown: 0 });
       ack(peerId, d?.clientMsgId);
     }
@@ -447,7 +565,8 @@ export function createRoom(o) {
       send(peerId, "state", this.stateFor(peerId));
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
-      setVar("rosterPhotos", rosterPhotosArr());
+      setPhotos();
+      if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard()); // back after a flap: unmarked (MP-12)
       onActivity("join", "입장");
     },
     /** A peer leaves. Returns true when the room is now empty (and torn down). */
@@ -456,10 +575,13 @@ export function createRoom(o) {
       if (!peer) return r.peers.size === 0;
       r.peers.delete(peerId);
       // A reload overlaps its old connection (same anonId): the person is still here.
-      if (![...r.peers.values()].some((p) => p.anonId === peer.anonId)) r.roster.delete(peer.anonId);
+      const gone = ![...r.peers.values()].some((p) => p.anonId === peer.anonId);
+      if (gone) r.roster.delete(peer.anonId);
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
-      setVar("rosterPhotos", rosterPhotosArr());
+      setPhotos();
+      if (gone && r.scores.has(peer.anonId)) setKnown("raceBoard", raceBoard()); // now marked as left
+      if (gone) maybeAdvanceMatchup(); // everyone still here may already have voted
       if (r.peers.size === 0) this.destroy();
       return r.peers.size === 0;
     },
@@ -469,18 +591,20 @@ export function createRoom(o) {
       const e = String(emoji ?? "").slice(0, 8);
       if (e) broadcast("reaction", { emoji: e });
     },
-    /** Shared variables: computed defaults, then every value broadcast so far. */
+    /**
+     * Shared variables: every value broadcast so far, plus the live tally / total when
+     * there is one. A variable this room never used is left out (MP-13): the app keeps
+     * its own initial value instead of a "host set undeclared variable" warning.
+     */
     sharedState() {
+      const t = tally();
+      const photos = rosterPhotosArr();
       return {
-        votesByOption: tally(),
-        coopTotal: r.coop,
-        leaderboard: board(),
-        sessionPhase: S.phase,
-        sessionCountdown: S.num,
-        raceBoard: raceBoard(),
+        ...(Object.keys(t).length ? { votesByOption: t } : {}),
+        ...(r.coop ? { coopTotal: r.coop } : {}),
         ...Object.fromEntries(r.vars), // e.g. a hidden 눈치 배틀 tally stays as last shown
         roster: rosterArr(),
-        rosterPhotos: rosterPhotosArr(),
+        ...(photos.some(Boolean) || r.vars.has("rosterPhotos") ? { rosterPhotos: photos } : {}),
       };
     },
     /** Values sent to this player only (keyed by anonId — survives a reload). */
@@ -501,7 +625,7 @@ export function createRoom(o) {
      */
     snapshot() {
       const t = now();
-      const { timers, answered, eliminated, reacted, pending, roundStart, goAt, ...rest } = S;
+      const { timers, answered, eliminated, reacted, pending, roundStart, goAt, playAt, lateUntil, ...rest } = S;
       return {
         v: 1,
         voters: [...r.voters],
@@ -518,6 +642,8 @@ export function createRoom(o) {
           pending: pending?.map(({ anonId, nick, peerId }) => ({ anonId, nick, peerId })),
           roundStartAgo: roundStart ? t - roundStart : undefined,
           goAtAgo: goAt ? t - goAt : undefined,
+          playAtAgo: playAt ? t - playAt : undefined,
+          lateLeft: lateUntil ? Math.max(0, lateUntil - t) : undefined,
         },
         timers: timers.map((x) => ({ step: x.step, arg: x.arg, remaining: Math.max(0, x.at - t) })),
       };
@@ -534,7 +660,7 @@ export function createRoom(o) {
       r.nicks = new Map(snap.nicks);
       r.vars = new Map(snap.vars ?? []);
       r.mine = new Map((snap.mine ?? []).map(([anonId, own]) => [anonId, new Map(own)]));
-      const { answered, eliminated, reacted, pending, roundStartAgo, goAtAgo, ...rest } = snap.session;
+      const { answered, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, ...rest } = snap.session;
       Object.assign(S, rest, { timers: [] });
       if (answered) S.answered = new Set(answered);
       if (eliminated) S.eliminated = new Set(eliminated);
@@ -542,6 +668,8 @@ export function createRoom(o) {
       if (pending) S.pending = pending;
       if (roundStartAgo !== undefined) S.roundStart = t - roundStartAgo - age;
       if (goAtAgo !== undefined) S.goAt = t - goAtAgo - age;
+      if (playAtAgo !== undefined) S.playAt = t - playAtAgo - age;
+      if (lateLeft !== undefined) S.lateUntil = t + Math.max(0, lateLeft - age);
       for (const x of snap.timers) later(x.step, x.arg, Math.max(0, x.remaining - age));
       return true;
     },

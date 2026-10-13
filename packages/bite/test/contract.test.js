@@ -239,7 +239,7 @@ test("T-01: {score: \"score\"} is dropped by the room; {score: \"{score}\"} reac
   assert.deepEqual(sentBad, { name: "score", payload: { score: "score" } });
   const h1 = roomHarness();
   assert.equal(h1.act(sentBad.name, sentBad.payload), false);
-  assert.deepEqual(h1.room.sharedState().leaderboard, []);
+  assert.deepEqual(h1.room.sharedState().leaderboard ?? [], []); // never scored → not even on the board
 
   const good = structuredClone(bad);
   good.phases.play.tick[0].then[0].payload.score = "{score}";
