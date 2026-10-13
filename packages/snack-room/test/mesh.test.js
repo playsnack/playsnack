@@ -428,9 +428,11 @@ test("a peer whose heartbeat was lost is never counted anonymously (taps keep it
   [a, b].forEach((p) => p.conn.close());
 });
 
-test("countdown runs on each device's clock: a lost '2' is still shown, in order, within ~100 ms of the others", async () => {
-  // Jittery broker; and to one player every message that carries the host's "2"
-  // (the setVar batch and the resync beats) is lost.
+test("countdown runs on each device's clock: a lost '2' (and a stale state mid-count) never breaks 3·2·1·0", async () => {
+  // Jittery broker; to one player every message that carries the host's "2" (the setVar
+  // batch and the resync beats) is lost, and a resent `state` (as after a sync / hand-over)
+  // carrying a stale 3 arrives while it counts. Order is asserted; the cross-device spread
+  // is a wall-clock property and is proven deterministically in countdown.test.js.
   let r = 3;
   const rnd = () => ((r = (r * 16807) % 2147483647) / 2147483647);
   let victim = null;
@@ -438,14 +440,36 @@ test("countdown runs on each device's clock: a lost '2' is still shown, in order
   const h = hub(() => 5 + rnd() * 60, (m, to) => to === victim && carries2(m));
   const ps = [1, 2, 3].map((n) => player(h, "r", n));
   assert.ok(await until(() => ps.every((p) => p.gotState && p.shared.participants === 3), 3000), "room formed");
-  victim = ps.find((p) => !p.conn.isHost).conn.peerId;
-  ps.find((p) => p.conn.isHost).act("start", { duration: 2000 });
+  const host = ps.find((p) => p.conn.isHost);
+  const peer = ps.find((p) => !p.conn.isHost);
+  victim = peer.conn.peerId;
+  host.act("start", { duration: 2000 });
+  assert.ok(await until(() => peer.countdown.some(([v]) => v === 2), 3000), "the peer is counting");
+  // The peer asks for the room state again (as after a lost "state"): the host resends it
+  // with its current number — that must go through the driver, never show out of order.
+  const asPeer = h.createBus(peer.conn.peerId); // publishes under the peer's id (never closed: it would unsubscribe the real peer)
+  asPeer.publish({ from: peer.conn.peerId, t: "sync", to: host.conn.peerId });
   assert.ok(await until(() => ps.every((p) => p.shared.sessionPhase === "play"), 6000), "play");
   for (const p of ps) assert.deepEqual(p.countdown.map(([v]) => v), [3, 2, 1, 0], `player ${p.conn.peerId} saw ${JSON.stringify(p.countdown)}`);
-  for (const k of [2, 1, 0]) {
-    const at = ps.map((p) => p.countdown.find(([v]) => v === k)[1]);
-    assert.ok(Math.max(...at) - Math.min(...at) <= 100, `"${k}" spread ${Math.max(...at) - Math.min(...at)} ms`);
-  }
+  ps.forEach((p) => p.conn.close());
+});
+
+test("snapshots stay change-gated while a game only ages (play, result)", async () => {
+  const h = hub();
+  const ps = [1, 2].map((n) => player(h, "r", n));
+  await sleep(400);
+  const snaps = () => h.published.filter((m) => m.t === "snap").length;
+  ps[0].act("start", { duration: 1500 });
+  assert.ok(await until(() => ps.every((p) => p.shared.sessionPhase === "play"), 5000), "play");
+  await sleep(100);
+  const inPlay = snaps();
+  await sleep(600); // ~10 beats of nothing but time passing
+  assert.ok(snaps() - inPlay <= 1, `${snaps() - inPlay} snapshots while idle in play`);
+  assert.ok(await until(() => ps.every((p) => p.shared.sessionPhase === "result"), 5000), "result");
+  await sleep(100);
+  const inResult = snaps();
+  await sleep(600);
+  assert.ok(snaps() - inResult <= 1, `${snaps() - inResult} snapshots while idle in result`);
   ps.forEach((p) => p.conn.close());
 });
 

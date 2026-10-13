@@ -141,6 +141,7 @@ const results = [];
   await Promise.all(c.map((x) => x.ready));
   c[0].score(10); c[1].score(30); c[2].score(50);
   await until(() => c.every((x) => same(x.shared.leaderboard, [50, 30, 10])), 4000);
+  await sleep(700); // let the host snapshot (200 ms debounce) land at the relay — as in A
   c[0].close(); // host leaves
   await sleep(1200);
   c[1].score(40); // the new host (c1) keeps the old scores and takes new ones

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRoom } from "../src/room.js";
+import { createRoom, cleanNick } from "../src/room.js";
 
 // Deterministic clock + timer queue; every broadcast/send is recorded.
 function harness({ pack = null, defaults = {}, random = () => 0.5 } = {}) {
@@ -405,10 +405,10 @@ test("MP-08: a reaction still lands in the grace after the window closes", async
   h.act(1, "start", { mode: "reaction" });
   await h.advance(3000 + 1500 + 4000); // window over → result
   assert.equal(h.v("sessionPhase"), "result");
-  await h.advance(1000);
+  await h.advance(2000);
   h.act(1, "reaction", { ms: 3900 }); // reacted inside the window, the message was slow
   assert.deepEqual(h.v("raceBoard").map((x) => [x.nick, x.score]), [["닉1", 1]]);
-  await h.advance(1000); // grace over
+  await h.advance(1000); // grace (2.5 s) over
   h.act(2, "reaction", { ms: 3950 });
   assert.equal(h.v("raceBoard").length, 1);
 });
@@ -428,11 +428,11 @@ test("MP-08: tap counts — the max of the device's cumulative batches, capped a
   assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: 20 }, { nick: "닉2", score: 2 }]);
   await h.advance(4000); // window over → result
   assert.equal(h.v("sessionPhase"), "result");
-  await h.advance(1000);
+  await h.advance(2000); // two lost sends (700 ms resend) + the worst broker delay still make it
   h.act(2, "taps", { count: 7 }); // the final batch lands inside the grace: the board agrees with the card
   assert.deepEqual(h.v("raceBoard"), [{ nick: "닉1", score: 20 }, { nick: "닉2", score: 7 }]);
   await h.advance(1000);
-  h.act(2, "taps", { count: 9 }); // too late
+  h.act(2, "taps", { count: 9 }); // too late (grace is 2.5 s)
   assert.deepEqual(h.v("raceBoard")[1], { nick: "닉2", score: 7 });
   assert.ok(h.out.some((m) => m.type === "actionAck" && m.d.clientMsgId === "m2taps"), "acked anyway");
 });
@@ -497,6 +497,56 @@ test("T-21: a matchup resolves once everyone here has voted, not after the full 
   h.act(1, "vote", { option: "o1" }); // a re-vote is not a second voter
   await h.advance(1000);
   assert.equal(h.v("matchWinner"), -1);
+});
+
+test("T-21: a leaver's vote does not count as 'everyone here voted'; a leave can complete it", async () => {
+  const pack = ["a", "b", "c", "d"].map((name) => ({ name }));
+  const h = harness({ pack, random: () => 0.99 });
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "start", { game: "worldcup", bracket: true, matchupMs: 8000 });
+  await h.advance(3000);
+  h.act(1, "vote", { option: "o1" });
+  h.room.leave("p1"); // voted, then left
+  h.act(2, "vote", { option: "o1" });
+  await h.advance(1000);
+  assert.equal(h.v("matchWinner"), -1); // 닉3 is here and has not voted: wait (voters 2 ≥ roster 2 would be wrong)
+  h.act(3, "vote", { option: "o0" });
+  await h.advance(600);
+  assert.equal(h.v("matchWinner"), 1); // 2–1 (the leaver's vote still counts in the tally)
+  await h.advance(2200);
+  assert.equal(h.v("bracketLabel"), "4강 · 2/2");
+  h.act(2, "vote", { option: "o0" });
+  await h.advance(1000);
+  assert.equal(h.v("matchWinner"), -1);
+  h.room.leave("p3"); // the only one missing leaves: everyone still here has voted
+  await h.advance(600);
+  assert.equal(h.v("matchWinner"), 0);
+});
+
+test("MP-12: a player whose connection flapped during the result is unmarked on rejoin, with no new score", async () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.act(1, "start", { duration: 3000 });
+  await h.advance(3000);
+  h.act(2, "tap");
+  await h.advance(3000);
+  assert.equal(h.v("sessionPhase"), "result");
+  h.room.leave("p2");
+  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉2 (나감)", score: 1, left: true }]);
+  h.room.join("p2b", { anonId: "a2", nick: "닉2" });
+  assert.deepEqual(h.v("raceBoard"), [{ nick: "닉2", score: 1 }]);
+  assert.deepEqual(stateTo(h, "p2b").raceBoard, [{ nick: "닉2 (나감)", score: 1, left: true }]); // the state went first …
+  assert.ok(h.out.at(-1).type !== "state"); // … and the unmarked board followed it
+});
+
+test("nicknames are capped at 10 graphemes (one syllable or one emoji = one), like the player's input", () => {
+  assert.equal(cleanNick("가나다라마바사아자차카타"), "가나다라마바사아자차");
+  assert.equal(cleanNick("  abc  "), "abc");
+  assert.equal(cleanNick("👨‍👩‍👧‍👦".repeat(12)), "👨‍👩‍👧‍👦".repeat(10)); // a ZWJ family is one grapheme (11 UTF-16 units)
+  assert.equal(cleanNick("가".repeat(10) + " "), "가".repeat(10));
+  const h = harness();
+  h.room.join("p1", { anonId: "a1", nick: "열두글자닉네임입니다요호" });
+  assert.deepEqual(h.v("roster"), ["열두글자닉네임입니다"]);
 });
 
 test("MP-11: a 눈치 배틀 tie has no majority — roundAnswer 2, nobody scores", async () => {

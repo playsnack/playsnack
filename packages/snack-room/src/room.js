@@ -9,7 +9,23 @@
 // plus "countdown" {n, stepMs, endsIn}: "play starts in endsIn ms" — a client runs
 // the 3·2·1 on its own clock from it (see countdown.js).
 
-export const cleanNick = (n) => String(n ?? "").trim().slice(0, 16);
+// Nicknames are capped at NICK_MAX graphemes (one Korean syllable or one emoji = one),
+// the same cap as the player's input (snack-player/src/nick.ts) — the engine cannot
+// import player code, so the rule lives here too. Code points when there is no Segmenter.
+export const NICK_MAX = 10;
+const segmenter = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("ko", { granularity: "grapheme" }) : null;
+export const capGraphemes = (s, n) => {
+  if (n <= 0) return "";
+  if (!segmenter) return Array.from(s).slice(0, n).join("");
+  let out = "";
+  let i = 0;
+  for (const { segment } of segmenter.segment(s)) {
+    if (i++ >= n) break;
+    out += segment;
+  }
+  return out;
+};
+export const cleanNick = (n) => capGraphemes(String(n ?? "").trim(), NICK_MAX).trimEnd();
 
 // Fair judging (MP-08): devices measure their own reaction time / tap count; the host
 // only checks plausibility.
@@ -17,7 +33,9 @@ export const TAP_RATE_MAX = 15; // taps per second a count may grow by (clamped 
 const TAP_BURST = 5; // slack for a first batch that lands before the clock has run
 export const MIN_REACTION_MS = 80; // faster than this is a foul (anticipation)
 const REACTION_TOLERANCE_MS = 50; // a claim slower than the host's own measurement is clamped to it
-const LATE_GRACE_MS = 1500; // a final count / reaction still lands this long after the window
+// A final count / reaction still lands this long after the window: two lost sends
+// (resend every 700 ms) plus the broker's worst delay (300 ms) still make it.
+const LATE_GRACE_MS = 2500;
 const COUNTDOWN_STEP_MS = 1000;
 export const LEFT_MARK = "(나감)"; // ranking mark for a player who left the room (MP-12)
 
@@ -241,10 +259,13 @@ export function createRoom(o) {
     later("resolveMatchup", i, S.matchupMs); // per-matchup timer
   };
   // T-21: everyone here has voted → don't sit out the rest of the matchup timer.
+  // "Everyone here": players on the roster; a vote from someone who left still counts
+  // in the tally but is not a present voter (so a leaver can't trigger the advance).
   const maybeAdvanceMatchup = () => {
     const bk = S.bracket;
-    if (!bk || S.phase !== "play" || bk.early === bk.matchupIdx) return;
-    if (r.voters.size < r.roster.size) return;
+    if (!bk || S.mode !== "bracket" || S.phase !== "play" || bk.early === bk.matchupIdx) return;
+    const present = [...r.roster.keys()].filter((id) => r.voters.has(id)).length;
+    if (r.roster.size === 0 || present < r.roster.size) return;
     bk.early = bk.matchupIdx;
     cancel("resolveMatchup");
     later("resolveMatchup", bk.matchupIdx, 600); // the last vote's percentage is seen first
@@ -525,6 +546,8 @@ export function createRoom(o) {
       ack(peerId, d?.clientMsgId);
     } else if (name === "lobby") {
       clearSessionTimers();
+      S.playAt = 0;
+      S.lateUntil = 0;
       setPhase("lobby", { sessionCountdown: 0 });
       ack(peerId, d?.clientMsgId);
     }
@@ -543,6 +566,7 @@ export function createRoom(o) {
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
       setPhotos();
+      if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard()); // back after a flap: unmarked (MP-12)
       onActivity("join", "입장");
     },
     /** A peer leaves. Returns true when the room is now empty (and torn down). */
@@ -557,6 +581,7 @@ export function createRoom(o) {
       setVar("roster", rosterArr());
       setPhotos();
       if (gone && r.scores.has(peer.anonId)) setKnown("raceBoard", raceBoard()); // now marked as left
+      if (gone) maybeAdvanceMatchup(); // everyone still here may already have voted
       if (r.peers.size === 0) this.destroy();
       return r.peers.size === 0;
     },

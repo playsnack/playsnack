@@ -195,6 +195,16 @@
       ]
     },
     "play": {
+      "enter": [
+        {
+          "set": "myVote",
+          "to": "''"
+        },
+        {
+          "set": "myVoteRound",
+          "to": "-2"
+        }
+      ],
       "tick": [
         {
           "if": "sessionPhase === 'lobby'",

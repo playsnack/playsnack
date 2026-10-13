@@ -196,6 +196,16 @@
       ]
     },
     "play": {
+      "enter": [
+        {
+          "set": "myAnswer",
+          "to": "-1"
+        },
+        {
+          "set": "myAnswerRound",
+          "to": "-2"
+        }
+      ],
       "tick": [
         {
           "if": "sessionPhase === 'lobby'",

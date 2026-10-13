@@ -184,6 +184,20 @@
       ]
     },
     "play": {
+      "enter": [
+        {
+          "set": "myTaps",
+          "to": "0"
+        },
+        {
+          "set": "sentTaps",
+          "to": "0"
+        },
+        {
+          "set": "sentAt",
+          "to": "0"
+        }
+      ],
       "tick": [
         {
           "if": "myTaps > sentTaps && now - sentAt >= 250",
@@ -231,6 +245,12 @@
       ]
     },
     "result": {
+      "enter": [
+        {
+          "set": "sentTaps",
+          "to": "-1"
+        }
+      ],
       "tick": [
         {
           "if": "myTaps > sentTaps",

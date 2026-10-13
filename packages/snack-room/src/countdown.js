@@ -7,7 +7,20 @@
 //
 // The driver delivers `setVar sessionCountdown` to the app itself; while it runs, the
 // host's values for that variable are swallowed (used as estimates). It stops at 0, or
-// when the host sends a non-positive value (play started / back to the lobby).
+// when the host sends a non-positive value (play started / back to the lobby). If the
+// "countdown" message itself was lost, the host's first number starts the driver.
+//
+// `countdownState(d, cd)` strips a `state` message's sessionCountdown the same way, so a
+// resent / hand-over state never shows a stale number over the driver's.
+
+/** A `state` message's sharedState with sessionCountdown routed through the driver. */
+export function countdownState(d, cd) {
+  const ss = d?.sharedState;
+  if (!ss || !("sessionCountdown" in ss) || !cd.intercept(ss.sessionCountdown)) return d;
+  const { sessionCountdown, ...rest } = ss;
+  void sessionCountdown;
+  return { ...d, sharedState: rest };
+}
 
 /**
  * @param {object} o
@@ -65,9 +78,11 @@ export function localCountdown({ deliver, now = () => Date.now(), setTimer = (fn
     /**
      * A host-sent value for sessionCountdown. Returns true when swallowed (the driver
      * shows its own numbers, or already showed this 0); false when it should be delivered.
+     * A positive value also STARTS the driver when the "countdown" message was lost.
      */
     intercept(value) {
-      if (active && typeof value === "number" && value > 0) {
+      if (typeof value === "number" && value > 0) {
+        if (!active) shown = null;
         estimate(value * stepMs); // sent `value` steps before the end
         return true;
       }

@@ -38,7 +38,7 @@
 //   (in a batch) countdown {n, stepMs, endsIn}: host → everyone, "play starts in endsIn ms";
 //                                       each peer counts 3·2·1 down on its own clock
 import { createRoom } from "./room.js";
-import { localCountdown } from "./countdown.js";
+import { localCountdown, countdownState } from "./countdown.js";
 
 const rand = () => Math.random().toString(36).slice(2, 10);
 const BATCH_MS = 60;
@@ -129,6 +129,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   const deliver = (t, d) => {
     if (t === "countdown") return cd.start(d ?? {});
     if (t === "setVar" && d?.id === "sessionCountdown" && cd.intercept(d.value)) return;
+    if (t === "state") d = countdownState(d, cd);
     pass(t, d);
   };
   // A room message from the host, inside batch `seq`: skip anything older than what is shown.
@@ -215,7 +216,8 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   let snapAt = 0;
   // Times in a snapshot are relative to when it was taken (and a peer restores it by its
   // age), so a snapshot whose only change is time passing says nothing new.
-  const timeless = (k, v) => (k === "remaining" || k === "roundStartAgo" || k === "goAtAgo" ? 0 : v);
+  const TIME_KEYS = new Set(["remaining", "roundStartAgo", "goAtAgo", "playAtAgo", "lateLeft"]);
+  const timeless = (k, v) => (TIME_KEYS.has(k) ? 0 : v);
   const pushSnapshot = () => {
     if (snapTimer || !room) return;
     snapTimer = setTimeout(() => {

@@ -190,6 +190,18 @@
         {
           "set": "goSeenAt",
           "to": "0"
+        },
+        {
+          "set": "myReacted",
+          "to": "false"
+        },
+        {
+          "set": "myResult",
+          "to": "''"
+        },
+        {
+          "set": "reactMs",
+          "to": "-1"
         }
       ],
       "tick": [

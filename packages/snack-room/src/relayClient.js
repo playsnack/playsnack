@@ -13,7 +13,7 @@
 //   → broadcast {t, d} · send {peerId, t, d} (host) ← plain {t, d} to peers
 //   → snapshot {snap} · beat · handoff     (host: resumable state, liveness, hand over)
 import { createRoom } from "./room.js";
-import { localCountdown } from "./countdown.js";
+import { localCountdown, countdownState } from "./countdown.js";
 
 const BEAT_MS = 1000; // host heartbeat (the relay hands over after 3s of silence)
 const SNAPSHOT_DEBOUNCE_MS = 200;
@@ -46,6 +46,7 @@ export function connectRelay({ url, WebSocket, me, onMessage, getPack, onRole = 
   const deliver = (t, d) => {
     if (t === "countdown") return cd.start(d ?? {});
     if (t === "setVar" && d?.id === "sessionCountdown" && cd.intercept(d.value)) return;
+    if (t === "state") d = countdownState(d, cd);
     onMessage({ t, d });
   };
 
