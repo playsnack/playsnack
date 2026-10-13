@@ -91,8 +91,11 @@ const room = (slug) => {
   if (entry) return entry;
   const sockets = new Map();
   const voters = loadVoters(slug);
+  // A friends-only room is `<app slug>~<code>` (snack-player/src/links.ts): its
+  // own tallies, the app's defaults.
+  const appSlug = slug.split("~")[0];
   const engine = createRoom({
-    defaults: () => apps[slug]?.defaults ?? {},
+    defaults: () => apps[appSlug]?.defaults ?? {},
     voters,
     onVotersChanged: () => saveVoters(slug, voters),
     getPack: (game, opts) => dynamicPack(game, opts),
