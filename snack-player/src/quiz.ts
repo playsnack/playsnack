@@ -19,7 +19,7 @@ import { capGraphemes, clampNick } from "./nick";
 export const QUIZ_APP_ID = "speed-trivia-score";
 export const QUIZ_SLUG = `tpl-${QUIZ_APP_ID}`;
 /** `?make=1` on the quiz link opens the maker (in a room: for the next round). */
-export const MAKE_PARAM = "make";
+export { MAKE_PARAM } from "./links";
 /** Window event LiveApp listens for: open the maker over the current room. */
 export const MAKE_EVENT = "snack:make-quiz";
 /**

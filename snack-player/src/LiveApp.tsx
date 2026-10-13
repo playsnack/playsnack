@@ -9,7 +9,7 @@ import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick } from "./identity";
 import type { ConnState, RoomTransport } from "./roomTransport";
 import { createRoom, hrefTo, loadRoomDoc, navigate } from "./backend";
-import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf } from "./links";
+import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
 import { pill, primaryBtn, secondaryBtn } from "./ui";
@@ -230,9 +230,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     if (params.has(MAKE_PARAM) && roomCodeOf(params)) {
       setMakerOpen(true);
       // Drop ?make=1 from the address bar so a shared or reloaded link does not reopen the maker.
-      const p = new URLSearchParams(params);
-      p.delete(MAKE_PARAM);
-      history.replaceState(history.state, "", playPath(slug, p));
+      history.replaceState(history.state, "", playPath(slug, shareableParams(params)));
     }
     addEventListener(MAKE_EVENT, open);
     return () => removeEventListener(MAKE_EVENT, open);
@@ -268,7 +266,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const code = roomParam.kind === "code" ? roomParam.code : null;
   const [invite, setInvite] = useState<"copied" | "show" | null>(null);
   const openFriendRoom = () => {
-    const p = new URLSearchParams(params);
+    const p = shareableParams(params);
     p.set("room", newRoomCode());
     navigate(playPath(slug, p));
   };

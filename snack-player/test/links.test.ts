@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_CODE_MIN,
-  appApiPath, friendLink, newRoomCode, parseRoute, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf,
+  MAKE_PARAM, appApiPath, friendLink, newRoomCode, parseRoute, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams,
 } from "../src/links.ts";
 
 const loc = (pathname: string, search = "", hash = "") => ({ pathname, search, hash });
@@ -166,4 +166,14 @@ test("friendLink: adds the code, keeps other params, replaces an old room value"
   const u = new URL(url);
   const { route } = parseRoute(u);
   assert.equal(roomIdFor(route.slug!, route.params), "tpl-tap-battle~K7MNP2QRS4");
+});
+
+test("?make=1 is device-only: never in an invite or public link built from the params", () => {
+  const params = new URLSearchParams({ room: "ABCDEFGH23", make: "1", host: "1" });
+  const invite = friendLink("https://x.example", "tpl-speed-trivia-score", params, "ABCDEFGH23");
+  assert.equal(invite, "https://x.example/p/tpl-speed-trivia-score?room=ABCDEFGH23&host=1");
+  assert.ok(!/make=/.test(invite));
+  assert.equal(publicLink("tpl-speed-trivia-score", params), "/p/tpl-speed-trivia-score?host=1");
+  assert.equal(shareableParams(params).has(MAKE_PARAM), false);
+  assert.equal(params.get("make"), "1", "the caller's params are not changed");
 });
