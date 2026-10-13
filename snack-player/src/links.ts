@@ -136,16 +136,29 @@ export function appApiPath(slug: string, params: URLSearchParams): string {
   return `/api/apps/${encodeURIComponent(slug)}${roomId === slug ? "" : `?room=${encodeURIComponent(roomId)}`}`;
 }
 
-/** The same link, in a friends-only room named by `code` (other params kept). */
-export function friendLink(origin: string, slug: string, params: URLSearchParams, code: string): string {
+/** `?make=1`: open the quiz maker (quiz.ts). Only for the device that has it —
+    never carried into a link handed to someone else. */
+export const MAKE_PARAM = "make";
+/** Params that act on this device only (dropped from every shared/derived link). */
+const DEVICE_ONLY_PARAMS = [MAKE_PARAM];
+
+/** A link's params without the device-only ones, safe to hand out. */
+export function shareableParams(params: URLSearchParams): URLSearchParams {
   const p = new URLSearchParams(params);
+  for (const k of DEVICE_ONLY_PARAMS) p.delete(k);
+  return p;
+}
+
+/** The same link, in a friends-only room named by `code` (other params kept, device-only ones dropped). */
+export function friendLink(origin: string, slug: string, params: URLSearchParams, code: string): string {
+  const p = shareableParams(params);
   p.set(ROOM_PARAM, code);
   return `${origin}${playPath(slug, p)}`;
 }
 
-/** The same link without any room param (the public room). */
+/** The same link without any room param (the public room; device-only params dropped). */
 export function publicLink(slug: string, params: URLSearchParams): string {
-  const p = new URLSearchParams(params);
+  const p = shareableParams(params);
   p.delete(ROOM_PARAM);
   return playPath(slug, p);
 }

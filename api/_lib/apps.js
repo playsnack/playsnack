@@ -26,9 +26,16 @@ export function appIds() {
   return cached;
 }
 
-/** Normalize an optional app field: undefined if absent, the id if official, else "other". */
+/**
+ * Normalize an optional app field: undefined if absent, the id if official, "custom"
+ * for a made app, else "other". A room id or play slug is reduced to the app first —
+ * `quiz-ox~CODE` / `tpl-quiz-ox` → `quiz-ox`, `app-<hash>` → `custom` — so a friends
+ * room code or a made app's hash never becomes a counter.
+ */
 export function normApp(v) {
   if (v === undefined || v === null || v === '') return undefined;
   if (typeof v !== 'string') return 'other';
-  return appIds().has(v) ? v : 'other';
+  const id = v.replace(/~.*$/s, '').replace(/^tpl-/, '');
+  if (appIds().has(id)) return id;
+  return /^app-/.test(id) || id === 'custom' ? 'custom' : 'other';
 }

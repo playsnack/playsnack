@@ -1,18 +1,21 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { currentRoute, hrefTo } from "./backend";
-import { playPath } from "./links";
+import { currentRoute, hrefTo, navigate } from "./backend";
+import { newRoomCode, playPath, roomIdFor, ROOM_PARAM } from "./links";
+import { QUIZ_SLUG, deviceQuizStore, opensMakerPage } from "./quiz";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { validate, type BiteDoc } from "@snack/bite";
 import { HOST_ACTIONS } from "@snack/room/actions";
 import { LiveApp } from "./LiveApp.tsx";
 import { Discover } from "./Discover.tsx";
 import { NicknameGate } from "./NicknameGate.tsx";
-import { getNick, setNick as saveNick, randomNick } from "./identity";
+import { getNick, isNickAuto, setNick as saveNick, randomNick } from "./identity";
 import { redirectFor } from "./catalog";
-import { LoadingScreen, MessageScreen } from "./Screens";
+import { LoadingScreen, MessageScreen, goHome } from "./Screens";
 
 // Making apps needs the AI builder (a server). The static (serverless) build
 // hides it: #/create goes home, and the builder code is not part of the build.
+// The "나 맞히기" maker, loaded only when opened (play links do not pay for it).
+const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m.QuizMaker })));
 const CreateApp = import.meta.env.VITE_SERVER_URL
   ? lazy(() => import("./CreateApp.tsx").then((m) => ({ default: m.CreateApp })))
   : null;
@@ -36,7 +39,11 @@ export function App() {
   useEffect(() => {
     if (route.name === "create" && !CreateApp) location.replace(hrefTo("/"));
   }, [route.name]);
-  const isLive = route.name === "live";
+  // The quiz maker on its own page: /p/tpl-<quiz>?make=1 with no room param at
+  // all. With a room code it opens over that room (LiveApp); with a cut/invalid
+  // code, LiveApp shows the bad-link screen (never the maker).
+  const isMaker = route.name === "live" && opensMakerPage(route.slug, route.params);
+  const isLive = route.name === "live" && !isMaker;
   // A merged template's old link moves to the app it became — decided here,
   // before the player mounts, so the old app never loads or joins a room.
   // (index.json is preloaded with the page, see index.html.)
@@ -59,12 +66,13 @@ export function App() {
   const [nick, setNick] = useState<string | null>(() => {
     const n = getNick();
     if (n) return n;
-    if (isLive) { const g = randomNick(); saveNick(g); return g; }
+    if (isLive) { const g = randomNick(); saveNick(g, { auto: true }); return g; }
     return null;
   });
   if (route.name !== "bite" && !isLive && !nick) return <NicknameGate onDone={setNick} />;
 
   if (route.name === "bite") return <BiteFilePlayer />;
+  if (isMaker) return <Suspense fallback={<LoadingScreen />}><QuizMakerPage nick={nick!} /></Suspense>;
   if (route.name === "create" && CreateApp) return <Suspense fallback={<LoadingScreen />}><CreateApp /></Suspense>;
   if (route.name === "live") {
     if (checkedSlug !== route.slug) return <LoadingScreen />;
@@ -73,6 +81,22 @@ export function App() {
     return <LiveApp key={`${route.slug}?${route.params}`} slug={route.slug!} params={route.params} />;
   }
   return <Discover />;
+}
+
+// The maker on its own page: when done, a new friends-only room is made for the
+// quiz; the questions stay on this device (never in the link) and LiveApp sends
+// them to the room as `quizPack` once this device joins.
+function QuizMakerPage({ nick }: { nick: string }) {
+  return (
+    <QuizMaker nick={nick} nickAuto={isNickAuto()} doneLabel="완료 · 친구 초대하러 가기" closeLabel="← 홈" onClose={goHome}
+      onDone={(pack) => {
+        const store = deviceQuizStore();
+        const params = new URLSearchParams({ [ROOM_PARAM]: newRoomCode() });
+        store.rememberRoomPack(roomIdFor(QUIZ_SLUG, params), pack);
+        store.clearDraft();
+        navigate(playPath(QUIZ_SLUG, params), { replace: true }); // Back goes where the maker was opened from, not into an empty maker
+      }} />
+  );
 }
 
 // Bite dev player: fetch public/bite/<name>.bite.json, validate, play locally.

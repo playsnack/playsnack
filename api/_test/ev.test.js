@@ -55,7 +55,7 @@ test('valid batch is counted, invalid events dropped, unknown fields ignored', a
   assert.match(g.headers.get('cache-control'), /max-age=30/);
   const a = await g.json();
   assert.equal(a.day, kstDay());
-  assert.equal(a.total, 8);
+  assert.equal(a.total, 12, '8 accepted + 4 known-kind events dropped by validation');
   assert.equal(a.appsKnown, 44);
   const c = a.counters;
   assert.equal(c.open.n, 2);
@@ -71,6 +71,8 @@ test('valid batch is counted, invalid events dropped, unknown fields ignored', a
   assert.deepEqual(c.err.where, { BitePlayer: 1 });
   assert.deepEqual(a.errors.top, [{ msg: 'TypeError: x is undefined', count: 1 }]);
   assert.equal(c.telemetry_of_doom, undefined);
+  // Known kinds that failed validation are visible (unknown kinds and non-objects are not).
+  assert.deepEqual(a.summary.bad, { first_tap: 1, open: 1, room_join: 1, share: 1 });
 });
 
 test('rejections: 413 oversized, 400 bad json / wrong v / >20 events, 405 method', async () => {
