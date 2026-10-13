@@ -20,7 +20,7 @@ test("ok: ms from start to the first connected; later states are not joins", () 
   j.conn("connected");
   j.conn("connected");
   j.conn("failed", "disconnected"); // a drop after joining
-  assert.deepEqual(sent, [{ k: "room_join", ok: true, ms: 1234, app: "tap-battle" }]);
+  assert.deepEqual(sent, [{ k: "room_join", ok: true, ms: 1234, room: "friend" }]);
 });
 
 test("fail: reason is the code word only; retry is a new attempt", () => {
@@ -33,12 +33,12 @@ test("fail: reason is the code word only; retry is a new attempt", () => {
   advance(900);
   j.conn("connected");
   assert.deepEqual(sent, [
-    { k: "room_join", ok: false, ms: 8000, reason: "refused", app: "tap-battle" },
-    { k: "room_join", ok: true, ms: 900, app: "tap-battle" },
+    { k: "room_join", ok: false, ms: 8000, room: "friend", reason: "refused" },
+    { k: "room_join", ok: true, ms: 900, room: "friend" },
   ]);
 });
 
-test("no outcome before leaving: nothing sent; shared apps carry no app id", () => {
+test("no outcome before leaving: nothing sent; public room; reasons map onto the reported set", () => {
   const a = setup();
   a.j.start("connect");
   a.j.end();
@@ -47,7 +47,15 @@ test("no outcome before leaving: nothing sent; shared apps carry no app id", () 
   const b = setup("app-1x2y", "app-1x2y");
   b.j.start("connect");
   b.j.conn("failed");
-  assert.deepEqual(b.sent, [{ k: "room_join", ok: false, ms: 0, reason: "other" }]);
+  b.j.start("retry");
+  b.j.conn("failed", "subscribe");
+  b.j.start("retry");
+  b.j.conn("failed", "silence");
+  assert.deepEqual(b.sent, [
+    { k: "room_join", ok: false, ms: 0, room: "public", reason: "other" },
+    { k: "room_join", ok: false, ms: 0, room: "public", reason: "subscribe" },
+    { k: "room_join", ok: false, ms: 0, room: "public", reason: "silence" },
+  ]);
 });
 
 test("debug log gets the join timeline with the room code cut", () => {

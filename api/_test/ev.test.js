@@ -55,7 +55,7 @@ test('valid batch is counted, invalid events dropped, unknown fields ignored', a
   assert.match(g.headers.get('cache-control'), /max-age=30/);
   const a = await g.json();
   assert.equal(a.day, kstDay());
-  assert.equal(a.total, 8);
+  assert.equal(a.total, 12, '8 accepted + 4 known-kind events dropped by validation');
   assert.equal(a.appsKnown, 44);
   const c = a.counters;
   assert.equal(c.open.n, 2);
@@ -71,6 +71,8 @@ test('valid batch is counted, invalid events dropped, unknown fields ignored', a
   assert.deepEqual(c.err.where, { BitePlayer: 1 });
   assert.deepEqual(a.errors.top, [{ msg: 'TypeError: x is undefined', count: 1 }]);
   assert.equal(c.telemetry_of_doom, undefined);
+  // Known kinds that failed validation are visible (unknown kinds and non-objects are not).
+  assert.deepEqual(a.summary.bad, { first_tap: 1, open: 1, room_join: 1, share: 1 });
 });
 
 test('rejections: 413 oversized, 400 bad json / wrong v / >20 events, 405 method', async () => {
@@ -210,21 +212,22 @@ test('helpers: sanitizer, buckets, KST day', () => {
   assert.ok(!isDay('2026-02-29'));
 });
 
-test('room_join failure reason: whitelisted, "refused: ..." kept as refused, others -> other, ignored on ok', async () => {
+test('room_join failure reasons from the live join tracker (subscribe, silence) are on the list; free text is not', async () => {
   const h = createHandler({ env: memEnv, limiter: createLimiter({ bucketSize: 100, dailyCap: 1e6 }) });
   await h(
     post({
       v: 1,
       events: [
-        { k: 'room_join', ok: false, ms: 15000, reason: 'timeout', app: 'tap-battle' },
-        { k: 'room_join', ok: false, ms: 900, reason: 'refused: Server unavailable' },
-        { k: 'room_join', ok: false, reason: 'K7MNP2QRS4 is my room' },
-        { k: 'room_join', ok: true, ms: 1200, reason: 'timeout' },
+        { k: 'room_join', ok: false, ms: 2385, reason: 'subscribe', room: 'friend', app: 'tap-battle' },
+        { k: 'room_join', ok: false, ms: 15000, reason: 'silence', room: 'public' },
+        { k: 'room_join', ok: false, ms: 900, reason: 'refused' },
+        { k: 'room_join', ok: false, reason: 'K7MNP2QRS4 is my room' }, // off-list -> dropped, counted as bad
       ],
     }),
   );
   const c = (await (await h(get())).json()).counters;
-  assert.deepEqual(c.room_join.reason, { other: 1, refused: 1, timeout: 1 });
+  assert.deepEqual(c.room_join.reason, { refused: 1, silence: 1, subscribe: 1 });
   assert.equal(c.room_join.fail, 3);
+  assert.equal(c.room_join.bad, 1);
   assert.deepEqual(c.room_join.app, { 'tap-battle': 1 });
 });

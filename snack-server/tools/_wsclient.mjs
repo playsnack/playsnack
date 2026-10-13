@@ -113,7 +113,10 @@ export class SimClient {
   taps(count) { this._send("action", { name: "taps", payload: { count }, clientMsgId: `${this.anonId}-taps-${count}-${Math.random()}` }); }
   /** MP-08: reaction time measured on this device (green → tap, ms). */
   reaction(ms) { this._send("action", { name: "reaction", payload: { ms }, clientMsgId: `${this.anonId}-react-${Math.random()}` }); }
-  answer(option) { this._send("action", { name: "answer", payload: { option }, clientMsgId: `${this.anonId}-ans-${Math.random()}` }); }
+  /** Quiz answer; `ms` = "question shown → tap" measured on this device (omit = a legacy client). */
+  answer(option, ms) { this._send("action", { name: "answer", payload: ms === undefined ? { option } : { option, ms }, clientMsgId: `${this.anonId}-ans-${Math.random()}` }); }
+  /** 나 맞히기: store this player's own quiz in the room (they become its subject). */
+  quizPack(payload) { this._send("action", { name: "quizPack", payload, clientMsgId: `${this.anonId}-pack-${Math.random()}` }); }
   close() { try { this.relay ? this.relay.close() : this.ws.close(); } catch { /* */ } }
 }
 

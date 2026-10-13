@@ -69,7 +69,8 @@ export default function DebugLog() {
 // Left of the 💬 slot, under the top row: no template draws text or a button there
 // (shellDocks.test.ts "debugTab" zone: x 294–326, y 62–94 on a 390-wide frame).
 const bugBtn: React.CSSProperties = {
-  position: "fixed", top: "calc(var(--snack-safe-top) + 62px)", right: 64, width: 32, height: 32, zIndex: 45,
+  // zIndex 13: under the shell's transient notices (topDock 15, result note 14), which may pass over this spot.
+  position: "fixed", top: "calc(var(--snack-safe-top) + 62px)", right: 64, width: 32, height: 32, zIndex: 13,
   padding: 0, borderRadius: R.block, border: `2px solid ${C.borderBlock}`, background: C.surface, color: C.ink,
   fontSize: 16, lineHeight: "28px", cursor: "pointer", opacity: 0.85,
 };

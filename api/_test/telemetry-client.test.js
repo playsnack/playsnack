@@ -156,7 +156,7 @@ test('fetch keepalive fallback without credentials when sendBeacon refuses', asy
   assert.equal(JSON.parse(fetches[0].init.body).events[0].route, 'room');
 });
 
-test('client sends only event fields: no ids, cookies, storage or UA', async () => {
+test('client sends only event fields: no person/device/browser-session ids, cookies, storage or UA', async () => {
   const touched = [];
   const trap = new Proxy({}, { get: (_, p) => (touched.push(String(p)), undefined) });
   globalThis.localStorage = trap;
@@ -170,4 +170,69 @@ test('client sends only event fields: no ids, cookies, storage or UA', async () 
   assert.deepEqual(touched, []);
   delete globalThis.localStorage;
   delete globalThis.sessionStorage;
+});
+
+test('free-beta helpers: typed events, room code / sid kept off the wire for ask_*, once per game', async () => {
+  const t = await fresh();
+  const SID = 'gameSid000000000001';
+  t.trackSessionDone('speed-trivia-score~QWERTYZ23456', 4, SID, { about: true, answerers: 3 });
+  t.trackSessionDone('speed-trivia-score~QWERTYZ23456', 4, SID); // same game again on this page: ignored
+  t.trackRematch('tpl-tap-battle', 3, 'gameSid000000000002');
+  t.trackRoomCreate('tap-battle');
+  t.trackGameCreated('speed-trivia-score~QWERTYZ23456', 'remake', 'packGid0000000000001');
+  t.trackGameCreated('speed-trivia-score~QWERTYZ23456', 'remake', 'packGid0000000000001'); // same pack: once
+  t.trackJoin('tap-battle~QWERTYZ23456', true, { ms: 812.6, room: 'friend' });
+  t.trackJoin('tap-battle', false, { room: 'public', reason: t.joinFailReason('refused: bad user') });
+  t.trackShare('copy', 'invite', 'tap-battle~QWERTYZ23456');
+  t.trackAskShown('app-9f8e7d', SID);
+  t.trackAskShown('app-9f8e7d', SID);
+  t.trackAskAnswer('app-9f8e7d', SID, 'no', 'laggy');
+  t.trackAskAnswer('app-9f8e7d', SID, 'yes');
+  t.flush();
+  const evs = beacons.flatMap((b) => JSON.parse(b.body).events);
+  assert.deepEqual(evs, [
+    { k: 'session_done', app: 'speed-trivia-score', p: 4, sid: SID, about: true, ans: 3 },
+    { k: 'rematch', app: 'tap-battle', p: 3, sid: 'gameSid000000000002' },
+    { k: 'room_create', app: 'tap-battle' },
+    { k: 'game_created', app: 'speed-trivia-score', source: 'remake', gid: 'packGid0000000000001' },
+    { k: 'room_join', ok: true, app: 'tap-battle', ms: 813, room: 'friend' },
+    { k: 'room_join', ok: false, app: 'tap-battle', room: 'public', reason: 'refused' },
+    { k: 'share', method: 'copy', what: 'invite', app: 'tap-battle' },
+    { k: 'ask_shown', app: 'custom' },
+    { k: 'ask_answer', app: 'custom', a: 'no', why: 'laggy' },
+  ]);
+  assert.ok(!beacons.some((b) => b.body.includes('QWERTYZ23456')), 'room code never sent');
+
+  const h = createHandler({ env: {} });
+  let accepted = 0;
+  for (const b of beacons) accepted += (await (await h(toRequest(b.body))).json()).accepted;
+  assert.equal(accepted, evs.length, 'the server accepts every helper event');
+  const a = await (await h(new Request('https://playsnack.test/api/ev'))).json();
+  assert.equal(a.summary.sessionsDone3, 1);
+  assert.equal(a.summary.gamesCreated, 1);
+  assert.equal(a.summary.gamesRemade, 1);
+  assert.equal(a.summary.sessionsAbout, 1);
+  assert.deepEqual(a.counters.room_join.reason, { refused: 1 });
+});
+
+test('joinFailReason maps transport reasons onto the reported set', async () => {
+  const t = await fresh();
+  const cases = { timeout: 'timeout', unreachable: 'unreachable', disconnected: 'disconnected', broker: 'unreachable',
+    subscribe: 'subscribe', silence: 'silence', load: 'network', 'refused: Not authorized': 'refused', whatever: 'other', '': 'other' };
+  for (const [raw, want] of Object.entries(cases)) assert.equal(t.joinFailReason(raw), want, raw);
+  assert.equal(t.joinFailReason(undefined), 'other');
+  assert.equal(t.appOf('quiz-ox~ABCDEFGH'), 'quiz-ox');
+  assert.equal(t.appOf('app-abc123'), 'custom');
+});
+
+test('game helpers DO send the random per-game id (sid / gid) — and nothing else that identifies', async () => {
+  const t = await fresh();
+  t.trackSessionDone('speed-trivia-score', 3, 'gameSid00000000000A');
+  t.trackRematch('speed-trivia-score', 3, 'gameSid00000000000B');
+  t.trackGameCreated('speed-trivia-score', 'editor', 'packGid00000000000C');
+  t.trackSessionDone('speed-trivia-score', 0, 'gameSid00000000000Z'); // nobody took part: not sent
+  t.flush();
+  const evs = beacons.flatMap((b) => JSON.parse(b.body).events);
+  assert.deepEqual(evs.map((e) => e.sid ?? e.gid), ['gameSid00000000000A', 'gameSid00000000000B', 'packGid00000000000C']);
+  for (const e of evs) assert.deepEqual(Object.keys(e).filter((f) => !['k', 'app', 'p', 'sid', 'gid', 'source'].includes(f)), []);
 });

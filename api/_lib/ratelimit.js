@@ -13,7 +13,7 @@ export const DEFAULTS = {
   bucketSize: 20, // burst of requests per client
   refillPerSec: 0.5, // 30 requests/minute sustained per client
   minuteCap: 600, // requests per instance per minute
-  dailyCap: 1500, // events per KST day (all instances) — keeps Upstash Free's monthly commands in reach (docs/telemetry.md §5)
+  dailyCap: 1500, // events per KST day (all instances) — keeps Upstash Free in reach; the hard stop is the monthly budget (docs/telemetry.md §5a)
   maxClients: 10000, // bucket map size bound
 };
 

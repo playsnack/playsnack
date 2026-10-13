@@ -7,6 +7,8 @@
 //   E. (MP-06) 눈치 배틀: hidden votes, the host leaves before the reveal → every peer
 //      reveals the SAME full tally and the same scores (the host's own vote included)
 //   F. (MP-06) best-score board: the host leaves → the same leaderboard on every peer
+//   G. 나 맞히기 퀴즈: the host leaves mid-quiz → same pack, subject, recap and device-ms
+//      scores on every peer; the pack is still there for the next game
 // PRE: server running.   node snack-server/tools/host-handover-sim.mjs
 import { WebSocket } from "ws";
 import { runGate } from "./_gate.mjs";
@@ -125,12 +127,13 @@ const results = [];
   await until(() => c.every((x) => x.shared.sessionPhase === "play"), 6000);
   c[0].vote("o1"); c[1].vote("o1"); c[2].vote("o0"); // nothing is broadcast until the reveal
   await sleep(700);
+  const hosted = c.findIndex((x) => x.relay.isHost); // who ran the room before the leave
   c[0].close(); // the host leaves mid-round
   const done = await until(() => c[1].shared.sessionPhase === "result" && c[2].shared.sessionPhase === "result", 12000);
   const votes = (x) => [(x.shared.votesByOption || {}).o0 ?? 0, (x.shared.votesByOption || {}).o1 ?? 0];
   const board = (x) => (x.shared.raceBoard || []).map((e) => [e.nick, e.score]);
-  const ok = done && same(votes(c[1]), [1, 2]) && same(votes(c[2]), [1, 2]) && same(board(c[1]), board(c[2])) && same(board(c[1]), [["E0 (나감)", 100], ["E1", 100]]) && c[1].shared.roundAnswer === 1 && c[2].shared.roundAnswer === 1;
-  results.push({ id: "E hidden votes survive the host leaving", ok, detail: { done, votes1: votes(c[1]), votes2: votes(c[2]), board1: board(c[1]), board2: board(c[2]) } });
+  const ok = done && same(votes(c[1]), [1, 2]) && same(votes(c[2]), [1, 2]) && same(board(c[1]), board(c[2])) && same(board(c[1]), [["E0 (나감)", 100], ["E1", 100]]) /* MP-11 tie order: by nickname, then join order */ && c[1].shared.roundAnswer === 1 && c[2].shared.roundAnswer === 1;
+  results.push({ id: "E hidden votes survive the host leaving", ok, detail: { hosted, done, votes1: votes(c[1]), votes2: votes(c[2]), board1: board(c[1]), board2: board(c[2]) } });
   c.forEach((x) => x.close());
 }
 
@@ -147,6 +150,54 @@ const results = [];
   c[1].score(40); // the new host (c1) keeps the old scores and takes new ones
   const done = await until(() => same(c[1].shared.leaderboard, [50, 40, 10]) && same(c[2].shared.leaderboard, [50, 40, 10]), 6000);
   results.push({ id: "F best-score board survives the host leaving", ok: done, detail: { board1: c[1].shared.leaderboard, board2: c[2].shared.leaderboard } });
+  c.forEach((x) => x.close());
+}
+
+// G — 나 맞히기 퀴즈: G1 stored its own pack (the subject); the host (G0, an answerer) leaves
+// mid-quiz after answering. Every peer must end with the same pack, subject, recap and
+// board — scores from each device's ms, the old host's answer included — and the pack must
+// still be there for the next game on the new host.
+{
+  const slug = `handover-${RUN}-g`;
+  const c = [0, 1, 2, 3].map((i) => new SimClient(slug, `${slug}-c${i}`, `G${i}`));
+  await Promise.all(c.map((x) => x.ready));
+  const ANSWER_MS = 5000;
+  const pack = {
+    title: "G1 맞히기",
+    questions: [
+      { q: "G1이 좋아하는 계절은?", options: ["봄", "여름", "가을", "겨울"], answer: 3 },
+      { q: "G1의 최애 음식은?", options: ["피자", "치킨", "떡볶이"], answer: 1 },
+    ],
+    settings: { answerMs: ANSWER_MS },
+  };
+  c[1].quizPack(pack);
+  const packed = await until(() => c.every((x) => x.shared.quizInfo?.custom === true && x.shared.quizInfo?.about === "G1"), 6000);
+  c[1].start({ game: "trivia", quiz: true, rounds: 6, answerMs: 9000, revealMs: 1500 });
+  const playing = await until(() => c.every((x) => x.shared.sessionPhase === "play" && x.shared.roundContent?.q === pack.questions[0].q), 8000);
+  const right = (x) => (x.shared.roundContent?.options ?? []).indexOf("겨울");
+  await sleep(700);
+  c[0].answer(right(c[0]), 300); // the host answers on its own engine
+  c[2].answer(right(c[2]), 600);
+  c[1].answer(right(c[1]), 10); // the subject: ignored
+  await sleep(700); // let the host snapshot land at the relay
+  c[0].close(); // host leaves mid-round
+  await sleep(1200);
+  c[3].answer(right(c[3]), 900); // answered on the new host
+  const rest = c.slice(1);
+  const done = await until(() => rest.every((x) => x.shared.sessionPhase === "result"), 20000);
+  await sleep(1000); // the last resync beats
+  const pts = (ms) => Math.max(100, 1000 - Math.round((ms / ANSWER_MS) * 800));
+  const board = (x) => (x.shared.raceBoard || []).map((e) => [e.nick, e.score]);
+  const recap = (x) => x.shared.quizRecap;
+  const picks0 = (x) => (recap(x)?.rounds?.[0]?.picks || []).map((p) => [p.nick, p.ms, p.correct]).sort();
+  const wantBoard = [["G0 (나감)", pts(300)], ["G2", pts(600)], ["G3", pts(900)]];
+  const same3 = (f) => rest.every((x) => same(f(x), f(c[1])));
+  const ok1 = packed && playing && done && same3(board) && same3(recap) && same3((x) => x.shared.quizInfo) && same(board(c[1]), wantBoard) && recap(c[1])?.subject === "G1" && same(picks0(c[1]), [["G0", 300, true], ["G2", 600, true], ["G3", 900, true]]) && recap(c[1])?.rounds?.length === 2;
+  const detail = { packed, playing, done, board1: board(c[1]), board2: board(c[2]), board3: board(c[3]), subject: recap(c[1])?.subject, picks: picks0(c[1]) };
+  // the stored pack survived the hand-over: the next game on the new host plays it again
+  c[1].start({ game: "trivia", quiz: true, rounds: 6, answerMs: 9000, revealMs: 1500 }); // the subject starts again
+  const again = await until(() => rest.every((x) => x.shared.sessionPhase === "play" && x.shared.roundContent?.q === pack.questions[0].q && x.shared.quizInfo?.about === "G1"), 8000);
+  results.push({ id: "G quiz: custom pack + device-ms scores survive the host leaving", ok: ok1 && again, detail: { ...detail, again } });
   c.forEach((x) => x.close());
 }
 

@@ -32,8 +32,9 @@ export function currentRoute(): Route {
 /** Kept for callers: links are plain paths now in both modes. */
 export const hrefTo = (path: string) => path;
 /** Move to another route without a reload (the app re-reads the route on popstate). */
-export function navigate(path: string) {
-  history.pushState(history.state, "", path);
+export function navigate(path: string, { replace = false }: { replace?: boolean } = {}) {
+  if (replace) history.replaceState(history.state, "", path);
+  else history.pushState(history.state, "", path);
   dispatchEvent(new PopStateEvent("popstate"));
 }
 

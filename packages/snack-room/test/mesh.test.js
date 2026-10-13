@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { connectMesh } from "../src/meshClient.js";
+// raceBoard rows carry a per-room `pid`; compare names and scores
+const rows = (b) => (b || []).map(({ pid, ...x }) => x);
 
 // In-memory pub/sub with latency; a "frozen" node neither sends nor receives.
 // `lose(m, to)` → true drops that delivery (a lossy public broker). `latency` may be
@@ -445,7 +447,7 @@ test("a peer whose heartbeat was lost is never counted anonymously (taps keep it
   for (let k = 0; k < 4; k++) b.act("tap");
   assert.ok(await until(() => a.shared.sessionPhase === "result", 4000));
   await sleep(200);
-  assert.deepEqual(a.shared.raceBoard, [{ nick: "닉2", score: 4 }]);
+  assert.deepEqual(rows(a.shared.raceBoard), [{ nick: "닉2", score: 4 }]);
   assert.deepEqual(b.shared.roster, ["닉1", "닉2"]);
   [a, b].forEach((p) => p.conn.close());
 });

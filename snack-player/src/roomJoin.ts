@@ -4,7 +4,7 @@
 //   conn()   — the first "connected" (ok, ms) or "failed" (reason, ms) ends the attempt;
 //              later states (a drop after joining, a repeated "failed") are not joins.
 // Erasable TypeScript only (Node runs it directly in tests).
-import { track, type TelemetryEvent } from "./telemetry.ts";
+import { joinFailReason, trackJoin, type RoomKind, type TelemetryEvent } from "./telemetry.ts";
 import { dlog, setRoomCode } from "./debugLog.ts";
 
 type JoinEvent = Extract<TelemetryEvent, { k: "room_join" }>;
@@ -20,21 +20,22 @@ export function joinTracker(o: {
   /** The room id as the transport sees it (`slug` or `slug~CODE`). */
   room: string;
   now?: () => number;
+  /** Defaults to telemetry's trackJoin (main's metrics helper). */
   send?: (ev: JoinEvent) => void;
 }): JoinTracker {
   const now = o.now ?? (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
-  const send = o.send ?? track;
-  const app = o.slug.startsWith("tpl-") ? o.slug.slice(4) : undefined;
+  const send = o.send ?? ((ev: JoinEvent) => trackJoin(o.slug, ev.ok, { ms: ev.ms, room: ev.room, reason: ev.reason }));
   const code = o.room.includes("~") ? o.room.slice(o.room.indexOf("~") + 1) : null;
+  const room: RoomKind = code ? "friend" : "public";
   setRoomCode(code);
   let t0 = 0;
   let open = false;
   const ms = () => Math.max(0, Math.round(now() - t0));
   const event = (ok: boolean, reason?: string): JoinEvent => {
-    const ev: JoinEvent = { k: "room_join", ok, ms: ms() };
-    // Only the reason's code word ("refused: <broker text>" → "refused"): no free text leaves.
-    if (!ok && reason) ev.reason = reason.split(":")[0].trim().slice(0, 24);
-    if (app) ev.app = app;
+    // trackJoin adds the app (appOf: no room code, made apps → "custom").
+    const ev: JoinEvent = { k: "room_join", ok, ms: ms(), room };
+    // Only a listed reason code ("refused: <broker text>" → "refused"): no free text leaves.
+    if (!ok) ev.reason = joinFailReason(reason);
     return ev;
   };
   return {
