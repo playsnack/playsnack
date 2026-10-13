@@ -14,6 +14,7 @@ import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
 import { pill } from "./ui";
 import { C, R } from "./tokens.gen";
+import { useResultExtras } from "./ResultExtras";
 
 // Plays one app from a link. Solo apps just play. Together apps (or any app
 // that sends events to a room, or a link that names a room) also join a room
@@ -156,12 +157,18 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     if (!rt) return;
     runtimeRef.current = rt;
     applyShared(sharedRef.current); // seed from cold-load / latest authoritative state
+    extras.attach(rt as Parameters<typeof extras.attach>[0]);
+    // Dev only (dropped from builds): the screenshot harness feeds fixture vars.
+    if (import.meta.env.DEV) Object.assign(globalThis, { __snackRuntime: rt });
     try {
       performance.mark("snack:first-scene");
     } catch {}
   };
 
-  const onHostEvent = (e: { name: string; payload?: unknown }) => roomRef.current?.sendAction(e.name, e.payload);
+  const onHostEvent = (e: { name: string; payload?: unknown }) => {
+    if (extras.handleEvent(e)) return; // a result-screen button: handled here, not a room action
+    roomRef.current?.sendAction(e.name, e.payload);
+  };
 
   // Friends-only room: the link carries a room code (?room=…). Without one,
   // the pill makes a code and moves this player into that room (no reload);
@@ -175,8 +182,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     p.set("room", newRoomCode());
     navigate(playPath(slug, p));
   };
+  // The result screen's "친구 초대" can run in the public room too: then the public link.
+  const inviteUrl = () => (code ? friendLink(location.origin, slug, params, code) : `${location.origin}${publicLink(slug, params)}`);
   const shareInvite = async () => {
-    const url = friendLink(location.origin, slug, params, code!);
+    const url = inviteUrl();
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({ url });
@@ -193,6 +202,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       setInvite("show"); // stays until ✕ — a long link needs time to long-press
     }
   };
+  // Result screen of a template with a result view (나 맞히기 퀴즈): view, image,
+  // reaction question and the result buttons' taps (ResultExtras.tsx).
+  const extras = useResultExtras({ doc, slug, params, onInvite: () => void shareInvite() });
+  const inResult = extras.inResult;
 
   if (roomParam.kind === "invalid") {
     return (
@@ -219,15 +232,16 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
           (an unlisted link — friends who have it meet there); in a coded room it
           hands the invite link out. */}
       {withRoom && conn !== "failed" && (
-        <div style={inviteDock}>
+        <div style={inResult ? resultNoteDock : inviteDock}>
           {invite === "copied" && <div style={inviteNote} role="status">초대 링크를 복사했어요</div>}
-          {invite === "show" && code && (
+          {invite === "show" && (code || inResult) && (
             <div style={inviteNote} role="status">
-              <span style={{ userSelect: "all", wordBreak: "break-all" }}>{friendLink(location.origin, slug, params, code)}</span>
+              <span style={{ userSelect: "all", wordBreak: "break-all" }}>{inviteUrl()}</span>
               <button style={closeBtn} onClick={() => setInvite(null)} aria-label="닫기">✕</button>
             </div>
           )}
-          {code
+          {/* On the result screen its own "친구 초대" button replaces the pill (MP-09). */}
+          {inResult ? null : code
             ? <button className="blk" style={pill} onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">🔗 친구 초대</button>
             : <button className="blk" style={pill} onClick={openFriendRoom} aria-label="친구끼리 하는 방 만들기">🤝 친구끼리</button>}
         </div>
@@ -241,11 +255,12 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         />
       )}
       <div ref={fxRef} style={fxOverlay} />
+      {extras.overlay}
       {/* Reactions are a "someone else is watching" feature, so the button only
           appears once another person is in the room. Solo play never shows it,
           so it can't cover the app's own bottom content. */}
       {withRoom && conn === "connected" && participants > 1 && (
-        <div style={reactionDock}>
+        <div style={inResult ? reactionDockTop : reactionDock}>
           {reactOpen && (
             <div style={reactionPop}>
               {REACTIONS.map((e) => (
@@ -284,6 +299,15 @@ const closeBtn: React.CSSProperties = {
 const reactionDock: React.CSSProperties = {
   position: "fixed", right: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)",
   display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 13,
+};
+// Result screen (MP-09): the bottom corners belong to the result buttons, so the
+// reaction button moves under the people chip (the template keeps that corner
+// free) and its emoji list opens downward; the invite note moves to the top.
+const reactionDockTop: React.CSSProperties = {
+  ...reactionDock, bottom: undefined, top: "calc(var(--snack-safe-top) + 62px)", right: 12, flexDirection: "column-reverse",
+};
+const resultNoteDock: React.CSSProperties = {
+  ...inviteDock, bottom: undefined, top: "calc(var(--snack-safe-top) + 64px)", left: 12, right: 70, maxWidth: undefined,
 };
 const reactionPop: React.CSSProperties = {
   display: "flex", flexDirection: "column", gap: 8, padding: 6,
