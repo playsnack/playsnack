@@ -7,6 +7,7 @@ import { clampNick } from "./nick";
 
 const ANON_KEY = "snack_anon";
 const NICK_KEY = "snack_nick";
+const NICK_AUTO_KEY = "snack_nick_auto"; // "1" while the nickname is the auto-assigned guest name
 const PHOTO_KEY = "snack_photo"; // "1" once a selfie has been uploaded for this anonId
 
 export function hasPhoto(): boolean {
@@ -43,9 +44,24 @@ export function getNick(): string | null {
   return n || null;
 }
 
-export function setNick(n: string): void {
+/** `auto`: the app picked this name (a guest on a share link), not the person. */
+export function setNick(n: string, { auto = false }: { auto?: boolean } = {}): void {
   const v = clampNick(n);
-  if (v) localStorage.setItem(NICK_KEY, v);
+  if (!v) return;
+  try {
+    localStorage.setItem(NICK_KEY, v);
+    if (auto) localStorage.setItem(NICK_AUTO_KEY, "1");
+    else localStorage.removeItem(NICK_AUTO_KEY);
+  } catch { /* storage blocked: the name lives for this page only (App state) */ }
+}
+
+/** The nickname was auto-assigned and never chosen (the quiz maker asks for a real name). */
+export function isNickAuto(): boolean {
+  try {
+    return localStorage.getItem(NICK_AUTO_KEY) === "1" || !localStorage.getItem(NICK_KEY);
+  } catch {
+    return true;
+  }
 }
 
 const ADJ = ["빠른", "느긋한", "용감한", "수줍은", "엉뚱한", "날쌘", "포근한", "반짝이는", "치즈맛", "번개", "라임", "심야", "귀여운", "도도한"];
