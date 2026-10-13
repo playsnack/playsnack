@@ -182,6 +182,12 @@
       ]
     },
     "play": {
+      "enter": [
+        {
+          "set": "myTaps",
+          "to": "0"
+        }
+      ],
       "tick": [
         {
           "if": "sessionPhase === 'lobby'",

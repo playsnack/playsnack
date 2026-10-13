@@ -26,19 +26,29 @@
 //                                       BATCH_MS (public brokers drop bursts). `seq`
 //                                       rises per batch: an older batch arriving late
 //                                       never rolls a variable back.
-//   snap {term, snap, seen}             host → everyone: resumable room state
+//   snap {term, n, snap, seen}          host → everyone: resumable room state, only when it
+//                                       changed (and every few seconds regardless, in case
+//                                       one was lost); `n` rises per snapshot — an older
+//                                       one arriving late is ignored
 //   sync                                peer → host: "I never got the room state" (resend)
 //   (in a batch) mack {mid}             host → one peer: action received
 //   (in a batch) resync {sharedState, participants, mine}: host → everyone, for a few
 //                                       beats after a change (shared + each player's own
 //                                       values) — a peer that lost a setVar converges anyway
+//   (in a batch) countdown {n, stepMs, endsIn}: host → everyone, "play starts in endsIn ms";
+//                                       each peer counts 3·2·1 down on its own clock
 import { createRoom } from "./room.js";
+import { localCountdown, countdownState } from "./countdown.js";
 
 const rand = () => Math.random().toString(36).slice(2, 10);
 const BATCH_MS = 60;
 const REPLAY_MAX_AGE_MS = 5000; // a queued action older than this is stale (e.g. a "start")
 const PENDING_MAX_AGE_MS = 10000; // stop resending an unacknowledged action after this
-const SEEN_MAX = 2000; // action ids a host remembers for de-duplication
+// Action ids a host remembers for de-duplication: a resend arrives within PENDING_MAX_AGE_MS,
+// so ids older than that are useless — only the recent ones ride in a snapshot.
+const SEEN_MAX = 2000;
+const SEEN_MAX_AGE_MS = PENDING_MAX_AGE_MS + 5000;
+const SNAP_REFRESH_MS = 5000; // an unchanged snapshot is republished this often (a lost one is repaired)
 
 // Within one batch only the last value of a broadcast variable matters.
 const coalesce = (items) => {
@@ -72,12 +82,15 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   let term = 0;
   let room = null; // engine while hosting
   let joined = new Set(); // peers joined into the engine
-  let lastSnap = null; // { snap, seen, at } — latest from the current host
+  let lastSnap = null; // { snap, seen, at, from?, n? } — latest from the current host
   let handedOff = null; // { line, term, snap, seen, at } — my hand-off, announced until the next host is heard
   let ready = false; // discovery finished
   let closed = false;
   const outbox = []; // { d, mid, at } — my actions before a host is known
   const pending = new Map(); // mid → { d, at, sent } — sent to a remote host, not yet acked
+  // mid → { d, at } — acked by a host recently. A new host resumes from a snapshot that may
+  // predate the ack (MP-06): these go out again and its `seen` list de-duplicates them.
+  const acked = new Map();
   const now = () => Date.now();
 
   let status = "";
@@ -101,7 +114,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   let knownCount = null;
   const fresh = (key, seq) => seq === undefined || seq >= (varSeq.get(key) ?? -Infinity);
   const mark = (key, seq) => seq !== undefined && varSeq.set(key, seq);
-  const deliver = (t, d) => {
+  const pass = (t, d) => {
     if (t === "state") {
       stateFrom = host();
       for (const [k, v] of Object.entries(d?.sharedState ?? {})) known.set(k, JSON.stringify(v));
@@ -110,6 +123,14 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     } else if (t === "setVar") known.set(d?.id, JSON.stringify(d?.value));
     else if (t === "participants") knownCount = d?.count;
     onMessage({ t, d });
+  };
+  // The 3·2·1 runs on this device's clock (countdown.js); the host's numbers refine it.
+  const cd = localCountdown({ deliver: pass });
+  const deliver = (t, d) => {
+    if (t === "countdown") return cd.start(d ?? {});
+    if (t === "setVar" && d?.id === "sessionCountdown" && cd.intercept(d.value)) return;
+    if (t === "state") d = countdownState(d, cd);
+    pass(t, d);
   };
   // A room message from the host, inside batch `seq`: skip anything older than what is shown.
   const receive = (t, d, seq) => {
@@ -165,10 +186,21 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
   let resyncLeft = 0;
   // Action ids this room already applied (carried in snapshots, so a resend after a
   // host change is not counted twice).
-  let seen = new Set();
+  let seen = new Map(); // mid → when it was applied
+  let seenN = 0; // ids remembered so far (forgetting old ones is not a change)
   const remember = (mid) => {
-    seen.add(mid);
-    if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value);
+    seen.set(mid, now());
+    seenN += 1;
+    if (seen.size > SEEN_MAX) seen.delete(seen.keys().next().value);
+  };
+  // The ids a next host still needs (recent enough to be resent) — older ones are forgotten.
+  const recentSeen = () => {
+    const cutoff = now() - SEEN_MAX_AGE_MS;
+    for (const [mid, at] of seen) {
+      if (at > cutoff) break; // insertion order = time order
+      seen.delete(mid);
+    }
+    return [...seen.keys()];
   };
   const resyncState = () => {
     const mine = {};
@@ -179,11 +211,24 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     return { sharedState: room.sharedState(), participants: joined.size, mine };
   };
   let snapTimer = null;
+  let snapN = 0;
+  let snapKey = null; // what the last published snapshot contained (time-relative fields aside)
+  let snapAt = 0;
+  // Times in a snapshot are relative to when it was taken (and a peer restores it by its
+  // age), so a snapshot whose only change is time passing says nothing new.
+  const TIME_KEYS = new Set(["remaining", "roundStartAgo", "goAtAgo", "playAtAgo", "lateLeft"]);
+  const timeless = (k, v) => (TIME_KEYS.has(k) ? 0 : v);
   const pushSnapshot = () => {
     if (snapTimer || !room) return;
     snapTimer = setTimeout(() => {
       snapTimer = null;
-      if (room) pub({ t: "snap", term, snap: room.snapshot(), seen: [...seen] });
+      if (!room) return;
+      const snap = room.snapshot();
+      const key = JSON.stringify([snap, seenN], timeless);
+      if (key === snapKey && now() - snapAt < SNAP_REFRESH_MS) return;
+      snapKey = key;
+      snapAt = now();
+      pub({ t: "snap", term, n: ++snapN, snap, seen: recentSeen() });
     }, snapshotMs);
   };
   // A peer joins the engine only once its heartbeat told us who it is.
@@ -222,7 +267,8 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     });
     joined = new Set();
     handedOff = null;
-    seen = new Set(lastSnap?.seen ?? []);
+    seen = new Map((lastSnap?.seen ?? []).map((mid) => [mid, now()]));
+    snapKey = null;
     const takeover = Boolean(lastSnap);
     if (lastSnap) room.restore(lastSnap.snap, now() - lastSnap.at);
     tidyLine();
@@ -230,10 +276,12 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     syncMembers(); // every member gets the full state ("state") from the new engine
     if (takeover) resyncLeft = RESYNC_BEATS; // …and again for a few beats: a peer may adopt the line late
     pushSnapshot();
-    // My own actions that were waiting for a host (or for an ack from the old one)
-    // happen here now — unless they are stale or the old host already applied them.
-    const mine = [...outbox.splice(0), ...[...pending].map(([mid, p]) => ({ mid, ...p }))].sort((a, b) => a.at - b.at);
+    // My own actions that were waiting for a host (or for an ack from the old one, or
+    // acked after its last snapshot) happen here now — unless they are stale or the old
+    // host already applied them.
+    const mine = [...outbox.splice(0), ...[...pending, ...acked].map(([mid, p]) => ({ mid, ...p }))].sort((a, b) => a.at - b.at);
     pending.clear();
+    acked.clear();
     for (const x of mine) {
       if (now() - x.at > REPLAY_MAX_AGE_MS || seen.has(x.mid)) continue;
       remember(x.mid);
@@ -286,6 +334,17 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       }
     }
   };
+  const forgetOldAcked = () => {
+    const cutoff = now() - SEEN_MAX_AGE_MS;
+    for (const [mid, p] of acked) if (p.at < cutoff) acked.delete(mid);
+  };
+  // A new host: what the old one acked may not be in the snapshot it resumed from —
+  // send it again (its `seen` list drops what was already counted).
+  const replayAcked = () => {
+    forgetOldAcked();
+    for (const [mid, p] of acked) pending.set(mid, { d: p.d, at: p.at, sent: 0 });
+    acked.clear();
+  };
   let ackedHost = null; // the host my pending actions were last (re)sent to
 
   // Re-evaluate who hosts; called on every relevant change and each tick.
@@ -320,6 +379,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       for (const x of outbox.splice(0)) if (now() - x.at <= REPLAY_MAX_AGE_MS) sendAct(x.mid, x.d, x.at);
       if (ackedHost !== host()) {
         ackedHost = host();
+        replayAcked();
         resendPending(true); // a new host: it may never have seen them
       }
     }
@@ -371,7 +431,9 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       return;
     }
     if (m.t === "snap") {
-      if (from === host() && m.term >= term) lastSnap = { snap: m.snap, seen: m.seen, at: now() };
+      if (from !== host() || m.term < term) return;
+      if (lastSnap?.from === from && lastSnap.n !== undefined && !(m.n > lastSnap.n)) return; // older, arriving late
+      lastSnap = { snap: m.snap, seen: m.seen, at: now(), from, n: m.n };
       return;
     }
     if (m.t === "batch") {
@@ -385,8 +447,14 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       }
       for (const it of m.items ?? []) {
         if (it.to && it.to !== myId) continue;
-        if (it.t === "mack") pending.delete(it.d?.mid);
-        else if (it.t === "resync") {
+        if (it.t === "mack") {
+          const p = pending.get(it.d?.mid);
+          if (p) {
+            pending.delete(it.d.mid);
+            acked.set(it.d.mid, { d: p.d, at: p.at });
+            if (acked.size > SEEN_MAX) acked.delete(acked.keys().next().value);
+          }
+        } else if (it.t === "resync") {
           if (stateFrom === host()) resync(it.d, m.seq);
         } else receive(it.t, it.d, m.seq);
       }
@@ -407,6 +475,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
         remember(m.mid);
       }
       room.action(from, m.d);
+      pushSnapshot(); // even a change that shows nothing yet (a hidden vote) must survive a hand-over
     }
   });
 
@@ -464,7 +533,10 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     else if (ready && host() && stateFrom !== host()) pub({ t: "sync", to: host() });
   }, beatMs);
   // Unacknowledged actions go out again (a broker may drop them).
-  const resendTick = setInterval(() => resendPending(), Math.max(20, Math.floor(resendMs / 3)));
+  const resendTick = setInterval(() => {
+    resendPending();
+    forgetOldAcked();
+  }, Math.max(20, Math.floor(resendMs / 3)));
 
   return {
     get isHost() {
@@ -479,6 +551,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       if (room) {
         remember(mid);
         room.action(myId, d);
+        pushSnapshot();
       } else if (host() && ready) sendAct(mid, d, now());
       else outbox.push({ d, mid, at: now() });
     },
@@ -492,7 +565,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       flushBatch();
       term += 1;
       line = [...line.filter((id) => id !== myId && alive().includes(id)), myId];
-      handedOff = { line: line.slice(), term, snap: room.snapshot(), seen: [...seen], at: now() };
+      handedOff = { line: line.slice(), term, snap: room.snapshot(), seen: recentSeen(), at: now() };
       stopHosting();
       beat(); // the new line + snapshot, repeated on every beat until the next host is heard
       onRole(false);
@@ -504,6 +577,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
       clearTimeout(discovery);
       clearInterval(tick);
       clearInterval(resendTick);
+      cd.stop();
       stopHosting();
       bus.close();
     },

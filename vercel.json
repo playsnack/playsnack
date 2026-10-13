@@ -3,5 +3,9 @@
   "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm player:build",
-  "outputDirectory": "snack-player/dist"
+  "outputDirectory": "snack-player/dist",
+  "rewrites": [
+    { "source": "/p/:path*", "destination": "/index.html" },
+    { "source": "/create", "destination": "/index.html" }
+  ]
 }

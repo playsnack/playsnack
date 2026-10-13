@@ -13,7 +13,9 @@
     "sessionCountdown": 0,
     "roster": [],
     "raceBoard": [],
-    "myTaps": 0
+    "myTaps": 0,
+    "sentTaps": 0,
+    "sentAt": 0
   },
   "components": {
     "NavBar": {
@@ -182,7 +184,40 @@
       ]
     },
     "play": {
+      "enter": [
+        {
+          "set": "myTaps",
+          "to": "0"
+        },
+        {
+          "set": "sentTaps",
+          "to": "0"
+        },
+        {
+          "set": "sentAt",
+          "to": "0"
+        }
+      ],
       "tick": [
+        {
+          "if": "myTaps > sentTaps && now - sentAt >= 250",
+          "then": [
+            {
+              "emit": "taps",
+              "payload": {
+                "count": "{myTaps}"
+              }
+            },
+            {
+              "set": "sentTaps",
+              "to": "myTaps"
+            },
+            {
+              "set": "sentAt",
+              "to": "now"
+            }
+          ]
+        },
         {
           "if": "sessionPhase === 'lobby'",
           "then": [
@@ -210,7 +245,28 @@
       ]
     },
     "result": {
+      "enter": [
+        {
+          "set": "sentTaps",
+          "to": "-1"
+        }
+      ],
       "tick": [
+        {
+          "if": "myTaps > sentTaps",
+          "then": [
+            {
+              "emit": "taps",
+              "payload": {
+                "count": "{myTaps}"
+              }
+            },
+            {
+              "set": "sentTaps",
+              "to": "myTaps"
+            }
+          ]
+        },
         {
           "if": "sessionPhase === 'lobby'",
           "then": [
@@ -339,6 +395,10 @@
                 "then": [
                   {
                     "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "set": "sentTaps",
                     "to": "0"
                   },
                   {
@@ -487,9 +547,6 @@
                   {
                     "set": "myTaps",
                     "to": "myTaps + 1"
-                  },
-                  {
-                    "emit": "tap"
                   }
                 ]
               }
@@ -556,7 +613,7 @@
               },
               {
                 "id": "winTitle",
-                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ('' + (raceBoard[0].nick) + ' 우승!') : '아무도 안 쳤어요') : ''}",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ((raceBoard.length > 1 && raceBoard[1].score === raceBoard[0].score) ? ('🤝 ' + (raceBoard.filter(e => e.score === raceBoard[0].score).map(e => e.nick).join(' · ')) + ' 공동 우승!') : ('' + (raceBoard[0].nick) + ' 우승!')) : '아무도 안 쳤어요') : ''}",
                 "width": 330,
                 "size": 24,
                 "font": "display",
@@ -608,7 +665,8 @@
                 "y": 17,
                 "size": 17,
                 "weight": 700,
-                "color": "#0b0c0e"
+                "color": "#0b0c0e",
+                "lines": 1
               },
               {
                 "id": "rscore0",
@@ -657,7 +715,8 @@
                 "y": 17,
                 "size": 17,
                 "weight": 700,
-                "color": "#ffffff"
+                "color": "#ffffff",
+                "lines": 1
               },
               {
                 "id": "rscore1",
@@ -706,7 +765,8 @@
                 "y": 17,
                 "size": 17,
                 "weight": 700,
-                "color": "#ffffff"
+                "color": "#ffffff",
+                "lines": 1
               },
               {
                 "id": "rscore2",
@@ -740,6 +800,10 @@
                 "then": [
                   {
                     "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "set": "sentTaps",
                     "to": "0"
                   },
                   {

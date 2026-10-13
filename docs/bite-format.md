@@ -231,7 +231,14 @@ jsep 기반의 JS 식 부분집합.
 | `answer` | 객체 | `option` number **필수** — 0부터 세는 보기 번호 |
 | `start` | 객체 **또는 숫자**(= `duration` ms) | `duration` `rounds` `roundMs` `answerMs` `revealMs` `matchupMs` number · `game` `theme` string(자유 텍스트) · `mode` `reaction`\|`nunchi`\|`guess` · `bracket` `quiz` boolean |
 | `tap` | 없음 | 보낸 페이로드는 무시 (경주 +1 · 눈치 선점 · 반응 탭, 세션 모드에 따라) |
+| `taps` | 객체 | `count` number **필수** — 이 기기의 **누적** 탭 수. 탭 배틀은 매 탭마다가 아니라 ~250ms마다, 그리고 끝나고 한 번 더 보낸다(`tick`에서 `myTaps > sentTaps && now - sentAt >= 250`). 방장은 최대값을 채택하므로 늦게 오거나 다시 온 묶음이 수를 되돌리지 않는다. 상한 초당 15탭(`TAP_RATE_MAX`, 넘치면 잘림). 결과 전환 뒤 1.5초까지 마지막 묶음을 받는다 |
+| `reaction` | 객체 | `ms` number **필수** — 이 기기가 잰 "초록 표시 → 탭" 시간(`tick`에서 `reactionGo`가 켜진 `now`를 기록 → 탭 때 `now - goSeenAt`). 초록 전 탭이면 `-1`. 방장은 범위만 본다: 80ms 미만·초록 전 = 부정출발(0점), 창(4초) 밖 = 순위 제외, 그 외 `2000 − ms`(방장이 직접 잰 시간보다 빠른 주장은 그 값으로 잘림). 점수는 **기기 측정값**이지 방장 수신 시각이 아니다(MP-08) |
 | `lobby` | 없음 | 세션 종료 → 대기실 |
+
+- 카운트다운: 방장은 `sessionCountdown: 3` 직전에 `countdown {n: 3, stepMs: 1000, endsIn: 3000}` 메시지("N ms 뒤 시작")를 보내고, 클라이언트(`@snack/room` mesh·relay 클라이언트의 `countdown.js`)가 자기 시계로 3·2·1을 `sessionCountdown`에 흘려 넣는다. 방장이 보내는 2·1은 추정치를 다듬는 데만 쓰인다(가장 빨리 도착한 메시지가 진짜에 가장 가깝다). 템플릿은 그대로 `sessionCountdown`만 읽으면 된다.
+- 동점: 월드컵 대결이 동점이면 `bracketLabel`에 `· 동점 🎲`가 붙고 동전으로 정한다(왼쪽 승 아님). 눈치 배틀 라운드가 동점이면 `roundAnswer = 2`(다수파 없음, 아무도 득점 없음). 결과 화면의 공동 우승은 템플릿이 `raceBoard[0].score === raceBoard[1].score`로 판단한다.
+- 나간 사람: `raceBoard` 항목은 `{nick, score}`이고, 방을 나간 사람은 `{nick: "닉 (나감)", score, left: true}`로 남는다(순위에서 빠지지 않고 표시만 된다).
+- 방장은 그 방이 한 번이라도 보낸 변수만 다시 보낸다(예: 투표 앱은 `raceBoard`를 받지 않는다). 모든 공식 템플릿은 `packages/snack-room/test/declared.test.js`가 "선언 안 한 변수 수신 0건"을 검사한다(MP-13).
 
 - **페이로드 문자열은 템플릿이다.** `"score"`는 글자 그대로 `score`라는 텍스트를 보내고, `"{score}"`가 변수 값을 보낸다. 변수 이름과 똑같은 리터럴은 거의 항상 버그라 검증기가 오류로 잡는다(자유 텍스트 필드 `game`·`theme`에서만 경고).
 - 필드의 타입은 보낼 값의 JSON 타입이다: 리터럴 → string(숫자 필드엔 `"3"` 같은 숫자 텍스트만 허용), `{변수}` → 그 변수 초기값의 타입, 식 → 정적으로 판정 안 함.

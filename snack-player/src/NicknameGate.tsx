@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { setNick, randomNick, uploadPhoto } from "./identity";
+import { NICK_INPUT_MAX_UNITS, NICK_MAX, capGraphemes, clampNick } from "./nick";
 import { SERVERLESS } from "./backend";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
@@ -12,7 +13,18 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
   const [photo, setPhoto] = useState<string | null>(null); // downscaled data-URL preview
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const v = value.trim();
+  const v = clampNick(value);
+  // Capped in graphemes (a Korean syllable or an emoji counts one) so the name
+  // fits the ranking rows. Never cut the value while an IME is composing a
+  // syllable (Chrome Android / Safari drop the composition): cap when the
+  // composition ends, on blur and on commit. maxLength (UTF-16 units) is only
+  // a far guard that no 10-grapheme name can hit.
+  const composing = useRef(false);
+  const typeNick = (s: string) => setValue(composing.current ? s : capGraphemes(s, NICK_MAX));
+  const endCompose = (s: string) => {
+    composing.current = false;
+    setValue(capGraphemes(s, NICK_MAX));
+  };
 
   const pickFile = async (file: File | undefined) => {
     if (!file) return;
@@ -28,7 +40,7 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
       await uploadPhoto(photo); // best-effort; enter even if it fails
       setBusy(false);
     }
-    onDone(v.slice(0, 16));
+    onDone(v);
   };
 
   return (
@@ -55,8 +67,11 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
 
         <div style={{ display: "flex", gap: S.s2 }}>
           <input
-            value={value} maxLength={16} autoFocus
-            onChange={(e) => setValue(e.target.value)}
+            value={value} maxLength={NICK_INPUT_MAX_UNITS} autoFocus
+            onChange={(e) => typeNick(e.target.value)}
+            onCompositionStart={() => { composing.current = true; }}
+            onCompositionEnd={(e) => endCompose(e.currentTarget.value)}
+            onBlur={(e) => endCompose(e.currentTarget.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void commit(); }}
             placeholder="닉네임" style={input}
           />

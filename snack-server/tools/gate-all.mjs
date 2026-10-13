@@ -83,8 +83,11 @@ results.push(run("consistency", "node", ["snack-server/tools/check-consistency.m
 // Layout + liveness (offline, always): every template validates, plays headless
 // (each tappable once) and lays out cleanly in every phase reached.
 results.push(run("verify-layout", "node", ["snack-server/tools/verify-layout.mjs"]));
-// Engine unit tests (offline, always): runtime + layout engine.
+// Engine unit tests (offline, always): runtime + layout engine + room.
 results.push(run("engine-tests", "pnpm", ["-s", "bite:test"]));
+// Player shell (links, room codes, nicknames) and server (room ids) unit tests (offline, always).
+results.push(run("player-tests", "pnpm", ["-s", "player:test"]));
+results.push(run("server-tests", "pnpm", ["-s", "server:test"]));
 // /api/ev telemetry function (offline, always): schema, limits, privacy, client.
 results.push(run("api-tests", "node", ["--test", "api/_test/"]));
 // "되는 척" 문구 검사 (offline, always): Q0 merge criterion = 0 hits (master-plan §4).
