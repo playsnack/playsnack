@@ -6,28 +6,44 @@
 //     `answer` is set by the creator's tap
 //   - validation with plain Korean messages (limits counted in graphemes)
 //   - the `quizPack` room action payload (lane A's room engine stores it)
-//   - per-device storage of the draft and of "which pack is mine in which room"
-//     — storage may throw (private mode, blocked site data): an in-memory copy
-//     keeps the in-app flow working for this page's lifetime.
+//   - per-device storage of the draft, of "which pack is mine in which room",
+//     and of the last few quizzes made here (7-day expiry) — storage may throw
+//     (private mode, blocked site data): an in-memory copy keeps the in-app
+//     flow working for this page's lifetime.
 //
 // The questions never go into a link (the answers would leak in the URL): the
 // creator's device sends them to the room as `quizPack` (see LiveApp).
 import aboutMe from "./data/about-me.json";
-import { capGraphemes, clampNick } from "./nick";
+import { capGraphemes, clampNick, NICK_MAX } from "./nick";
 
 /** The together quiz app the maker feeds (its play link is /p/tpl-<id>). */
 export const QUIZ_APP_ID = "speed-trivia-score";
 export const QUIZ_SLUG = `tpl-${QUIZ_APP_ID}`;
 /** `?make=1` on the quiz link opens the maker (in a room: for the next round). */
 export { MAKE_PARAM } from "./links";
+import { MAKE_PARAM as MAKE_PARAM_KEY, roomParamOf } from "./links";
 /** Window event LiveApp listens for: open the maker over the current room. */
 export const MAKE_EVENT = "snack:make-quiz";
+/**
+ * Host event a Bite template emits to open the maker (a template button can't
+ * call JS): `{ "emit": "makeQuiz" }`. LiveApp handles it on the device and never
+ * sends it to the room.
+ */
+export const MAKE_HOST_EVENT = "makeQuiz";
 /**
  * "나도 만들기" (for the result screen): opens the maker over the room this
  * player is in. When done, the new quiz goes to the SAME room as `quizPack`,
  * so the next round is about this player. In the public room (no room code)
  * the maker opens on its own page and makes a new friends-only room instead.
  */
+/**
+ * The maker on its own page: the quiz link with ?make=1 and NO room param.
+ * With a room code it opens over that room (LiveApp); with a cut/invalid code
+ * the link is bad (LiveApp's bad-link screen), never the maker.
+ */
+export const opensMakerPage = (slug: string | undefined, params: URLSearchParams) =>
+  slug === QUIZ_SLUG && params.has(MAKE_PARAM_KEY) && roomParamOf(params).kind === "none";
+
 export function openQuizMaker(): void {
   if (typeof dispatchEvent === "function") dispatchEvent(new Event(MAKE_EVENT));
 }
@@ -45,22 +61,35 @@ export const SUGGEST_COUNT = 10;
 /** Time to answer each question (fixed for now). */
 export const ANSWER_MS = 10_000;
 
-export type QuestionTemplate = { q: string; options: string[] };
-/** A question being made: `answer` is null until the creator taps their real answer. */
-export type DraftQuestion = { id: string; q: string; options: string[]; answer: number | null; custom?: boolean };
-export type Draft = { title: string; questions: DraftQuestion[] };
-/** The `quizPack` room action payload (lane A: room engine). */
+export type QuestionTemplate = { q: string; options: string[]; topic?: string };
+/**
+ * A question being made: `answer` is null until the creator taps their real answer.
+ * `tpl` = the suggestion it came from (its question text); `custom` = written or
+ * edited by the creator (then "다른 질문" asks before replacing it).
+ */
+export type DraftQuestion = { id: string; q: string; options: string[]; answer: number | null; custom?: boolean; tpl?: string };
+export type Draft = {
+  title: string;
+  questions: DraftQuestion[];
+  /** The name friends see ("<name> 맞히기"); starts as the device nickname. */
+  name?: string;
+  /** The nickname was auto-assigned: the creator must pick their name before 완료. */
+  nameNeeded?: boolean;
+  nameChosen?: boolean;
+};
+/** The `quizPack` room action payload (lane A: room engine). `about` = the subject's chosen name. */
 export type QuizPack = {
   title: string;
+  about?: string;
   questions: { q: string; options: string[]; answer: number }[];
   settings: { rounds: number; answerMs: number };
 };
-/** What the room publishes (no answers). `about` = the subject's nickname. */
-export type QuizInfo = { title?: string; count?: number; custom?: boolean; answerMs?: number; about?: string };
+/** What the room publishes (no answers). `about` = the subject's name. */
+export type QuizInfo = { title?: string; count?: number; custom?: boolean; answerMs?: number; about?: string | null };
 
 export const ABOUT_ME: QuestionTemplate[] = (aboutMe as { questions: QuestionTemplate[] }).questions;
 
-// ── graphemes (one Korean syllable / one emoji = one) ──
+// ── text (one Korean syllable / one emoji = one grapheme) ──
 type Segmenter = { segment(s: string): Iterable<unknown> };
 const SegmenterCtor = (Intl as unknown as { Segmenter?: new (l: string, o: { granularity: "grapheme" }) => Segmenter }).Segmenter;
 const segmenter = SegmenterCtor ? new SegmenterCtor("ko", { granularity: "grapheme" }) : null;
@@ -72,15 +101,17 @@ export function graphemeLength(s: string): number {
   }
   return Array.from(s).length;
 }
-/** Input helper: the text as typed, cut at `max` graphemes. */
-export const capText = (s: string, max: number) => capGraphemes(s, max);
+/** One line: line breaks (typed or pasted) become a space — the game shows one-line text. */
+export const oneLine = (s: string) => s.replace(/[\r\n\u2028\u2029]+/g, " ");
+/** Input helper: the text as typed on one line, cut at `max` graphemes. */
+export const capText = (s: string, max: number) => capGraphemes(oneLine(s), max);
 
-export const defaultTitle = (nick: string | null | undefined) => `${clampNick(nick ?? "") || "나"} 맞히기`;
+export const defaultTitle = (name: string | null | undefined) => `${clampNick(name ?? "") || "나"} 맞히기`;
 
 // ── making questions ──
 let seq = 0;
 const newId = () => `q${Date.now().toString(36)}${(seq++).toString(36)}`;
-export const fromTemplate = (t: QuestionTemplate): DraftQuestion => ({ id: newId(), q: t.q, options: [...t.options], answer: null });
+export const fromTemplate = (t: QuestionTemplate): DraftQuestion => ({ id: newId(), q: t.q, options: [...t.options], answer: null, tpl: t.q });
 export const blankQuestion = (): DraftQuestion => ({ id: newId(), q: "", options: ["", ""], answer: null, custom: true });
 
 /** `n` different templates, in random order. */
@@ -94,38 +125,68 @@ export function pickTemplates(pool: QuestionTemplate[], n: number, random: () =>
 }
 
 /** A fresh first screen: SUGGEST_COUNT suggested questions, none answered yet. */
-export function newDraft(nick: string | null | undefined, random: () => number = Math.random, pool: QuestionTemplate[] = ABOUT_ME): Draft {
-  return { title: defaultTitle(nick), questions: pickTemplates(pool, SUGGEST_COUNT, random).map(fromTemplate) };
+export function newDraft(
+  nick: string | null | undefined,
+  { random = Math.random, pool = ABOUT_ME, nickAuto = false }: { random?: () => number; pool?: QuestionTemplate[]; nickAuto?: boolean } = {},
+): Draft {
+  const name = clampNick(nick ?? "");
+  return {
+    title: defaultTitle(name),
+    questions: pickTemplates(pool, SUGGEST_COUNT, random).map(fromTemplate),
+    name,
+    nameNeeded: nickAuto || !name,
+    nameChosen: false,
+  };
 }
 
-/** "다른 질문": a template not already in the draft, or null when the pool is used up. */
+/** The creator picks their name; a title still on the old default follows it. */
+export function setName(d: Draft, raw: string, { composing = false }: { composing?: boolean } = {}): Draft {
+  // While an IME is composing a syllable the text is never cut (it would break the syllable).
+  const name = composing ? oneLine(raw) : capText(raw, NICK_MAX);
+  const title = d.title === defaultTitle(d.name) ? defaultTitle(name) : d.title;
+  return { ...d, name, title, nameChosen: true };
+}
+
+/** A template not already in the draft (by suggestion or text), or null when the pool is used up. */
 export function swapCandidate(draft: Draft, random: () => number = Math.random, pool: QuestionTemplate[] = ABOUT_ME): QuestionTemplate | null {
-  const used = new Set(draft.questions.map((x) => x.q.trim()));
+  const used = new Set(draft.questions.flatMap((x) => [x.q.trim(), x.tpl ?? ""]));
   const left = pool.filter((t) => !used.has(t.q.trim()));
   return left.length ? left[Math.floor(random() * left.length)] : null;
+}
+/** "다른 질문" on a question the creator wrote or edited asks first (never replaced silently). */
+export const swapNeedsConfirm = (q: DraftQuestion) => q.custom === true;
+/** "추천 질문 추가": one more suggestion at the end (none when full or the pool is used up). */
+export function addSuggested(d: Draft, random: () => number = Math.random, pool: QuestionTemplate[] = ABOUT_ME): Draft {
+  if (d.questions.length >= QUESTIONS_MAX) return d;
+  const t = swapCandidate(d, random, pool);
+  return t ? { ...d, questions: [...d.questions, fromTemplate(t)] } : d;
 }
 
 /** Tapping an option marks it as the creator's real answer (tap again: unmark). */
 export const tapAnswer = (q: DraftQuestion, i: number): DraftQuestion => ({ ...q, answer: q.answer === i ? null : i });
+/** Text edits (question or options) make a suggestion the creator's own. */
+export const editQuestion = (q: DraftQuestion, text: string): DraftQuestion => ({ ...q, q: capText(text, Q_MAX), custom: true });
+export const editOption = (q: DraftQuestion, k: number, text: string): DraftQuestion =>
+  ({ ...q, options: q.options.map((v, j) => (j === k ? capText(text, OPTION_MAX) : v)), custom: true });
 
 /** Remove option `i`, keeping the marked answer on the same option (or clearing it if removed). */
 export function removeOption(q: DraftQuestion, i: number): DraftQuestion {
   if (q.options.length <= OPTIONS_MIN) return q;
   const options = q.options.filter((_, k) => k !== i);
   const answer = q.answer === null || q.answer === i ? null : q.answer > i ? q.answer - 1 : q.answer;
-  return { ...q, options, answer };
+  return { ...q, options, answer, custom: true };
 }
 export const addOption = (q: DraftQuestion): DraftQuestion =>
-  q.options.length >= OPTIONS_MAX ? q : { ...q, options: [...q.options, ""] };
+  q.options.length >= OPTIONS_MAX ? q : { ...q, options: [...q.options, ""], custom: true };
 
 // ── validation ──
 export type QuestionProblem = { field: "q" | "options" | "answer"; message: string };
 export function questionProblems(q: DraftQuestion): QuestionProblem[] {
   const out: QuestionProblem[] = [];
-  const text = q.q.trim();
+  const text = oneLine(q.q).trim();
   if (!text) out.push({ field: "q", message: "질문을 적어 주세요" });
   else if (graphemeLength(text) > Q_MAX) out.push({ field: "q", message: `질문은 ${Q_MAX}자까지 쓸 수 있어요` });
-  const opts = q.options.map((o) => o.trim());
+  const opts = q.options.map((o) => oneLine(o).trim());
   if (opts.length < OPTIONS_MIN || opts.length > OPTIONS_MAX) out.push({ field: "options", message: `보기는 ${OPTIONS_MIN}~${OPTIONS_MAX}개로 만들어 주세요` });
   else if (opts.some((o) => !o)) out.push({ field: "options", message: "빈 보기를 채우거나 지워 주세요" });
   else if (opts.some((o) => graphemeLength(o) > OPTION_MAX)) out.push({ field: "options", message: `보기는 ${OPTION_MAX}자까지 쓸 수 있어요` });
@@ -136,10 +197,20 @@ export function questionProblems(q: DraftQuestion): QuestionProblem[] {
   return out;
 }
 
+/** The name problem, if any (only asked when the nickname was auto-assigned or missing). */
+export function nameProblem(d: Draft): string | null {
+  if (!d.nameNeeded) return null;
+  if (!clampNick(d.name ?? "")) return "친구들이 알아볼 내 이름을 적어 주세요";
+  if (!d.nameChosen) return "친구들이 알아볼 내 이름을 정해 주세요";
+  return null;
+}
+
 /** Everything that keeps "완료" disabled, in reading order (empty = ready). */
 export function draftProblems(d: Draft): string[] {
   const out: string[] = [];
-  const title = d.title.trim();
+  const name = nameProblem(d);
+  if (name) out.push(name);
+  const title = oneLine(d.title).trim();
   if (!title) out.push("퀴즈 제목을 적어 주세요");
   else if (graphemeLength(title) > TITLE_MAX) out.push(`제목은 ${TITLE_MAX}자까지 쓸 수 있어요`);
   const n = d.questions.length;
@@ -157,11 +228,13 @@ export const canFinish = (d: Draft) => draftProblems(d).length === 0;
 export function buildQuizPack(d: Draft): QuizPack {
   const problems = draftProblems(d);
   if (problems.length) throw new Error(problems[0]);
-  const questions = d.questions.map((q) => ({ q: q.q.trim(), options: q.options.map((o) => o.trim()), answer: q.answer as number }));
-  return { title: d.title.trim(), questions, settings: { rounds: questions.length, answerMs: ANSWER_MS } };
+  const line = (s: string) => oneLine(s).trim();
+  const questions = d.questions.map((q) => ({ q: line(q.q), options: q.options.map(line), answer: q.answer as number }));
+  const about = clampNick(d.name ?? "");
+  return { title: line(d.title), ...(about ? { about } : {}), questions, settings: { rounds: questions.length, answerMs: ANSWER_MS } };
 }
 
-/** A received pack is well-formed (what this device stored is still sendable). */
+/** A stored pack is well-formed (still sendable). */
 export function isQuizPack(p: unknown): p is QuizPack {
   const x = p as QuizPack;
   if (!x || typeof x.title !== "string" || !Array.isArray(x.questions)) return false;
@@ -169,12 +242,29 @@ export function isQuizPack(p: unknown): p is QuizPack {
   return canFinish(draft);
 }
 
+/** "내 퀴즈로 다시 하기": a quiz made before, back in the editor (answers kept). */
+export function draftFromPack(p: QuizPack, nick: string | null | undefined): Draft {
+  const name = clampNick(p.about ?? nick ?? "");
+  return {
+    title: p.title,
+    questions: p.questions.map((q) => ({ id: newId(), q: q.q, options: [...q.options], answer: q.answer, custom: true })),
+    name,
+    nameNeeded: false,
+    nameChosen: true,
+  };
+}
+
 // ── device storage ──
 export type KV = { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void };
 const DRAFT_KEY = "snack.quiz.draft";
 const ROOMS_KEY = "snack.quiz.rooms";
+const RECENT_KEY = "snack.quiz.recent";
 /** Rooms remembered per device (oldest dropped first). */
 const ROOMS_KEEP = 10;
+/** Quizzes made on this device, kept for "내 퀴즈로 다시 하기". */
+export const RECENT_KEEP = 3;
+/** Stored rooms and quizzes expire after this long. */
+export const QUIZ_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const defaultKV = (): KV | null => {
   try {
@@ -184,8 +274,20 @@ const defaultKV = (): KV | null => {
   }
 };
 
+/** What this device knows about its pack in one room. */
+export type RoomEntry = {
+  pack: QuizPack;
+  at: number;
+  /** The room has made this device the subject (iAmSubject) at least once. */
+  confirmed?: boolean;
+  /** Sends since the last confirmation (packAction gives up at MAX_SENDS). */
+  sends?: number;
+  /** The room refused the pack ("invalid_pack" / not the current subject's). */
+  refused?: string;
+};
+
 /** Device storage with an in-memory copy: works (for this page) when storage fails. */
-export function quizStore(kv: KV | null = defaultKV()) {
+export function quizStore(kv: KV | null = defaultKV(), clock: () => number = Date.now) {
   const mem = new Map<string, string>();
   const read = (k: string): string | null => {
     try {
@@ -214,45 +316,73 @@ export function quizStore(kv: KV | null = defaultKV()) {
       return null;
     }
   };
-  type Rooms = Record<string, { pack: QuizPack; at: number; confirmed?: boolean }>;
-  const rooms = () => parse<Rooms>(read(ROOMS_KEY)) ?? {};
+  const fresh = (at: unknown) => typeof at === "number" && clock() - at < QUIZ_TTL_MS;
+  type Rooms = Record<string, RoomEntry>;
+  const rooms = (): Rooms => {
+    const all = parse<Rooms>(read(ROOMS_KEY));
+    if (!all || typeof all !== "object" || Array.isArray(all)) return {};
+    return Object.fromEntries(Object.entries(all).filter(([, e]) => e && fresh(e.at) && isQuizPack(e.pack)));
+  };
+  const saveRooms = (all: Rooms) => {
+    const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, ROOMS_KEEP);
+    return write(ROOMS_KEY, JSON.stringify(Object.fromEntries(keep)));
+  };
+  const patchRoom = (roomId: string, f: (e: RoomEntry) => RoomEntry) => {
+    const all = rooms();
+    if (!all[roomId]) return false;
+    all[roomId] = f(all[roomId]);
+    return saveRooms(all);
+  };
+  type Recent = { pack: QuizPack; at: number }[];
+  const recent = (): Recent => {
+    const list = parse<Recent>(read(RECENT_KEY));
+    return Array.isArray(list) ? list.filter((x) => x && fresh(x.at) && isQuizPack(x.pack)) : [];
+  };
+  const sameQuiz = (a: QuizPack, b: QuizPack) => JSON.stringify([a.title, a.questions]) === JSON.stringify([b.title, b.questions]);
   return {
     loadDraft(): Draft | null {
       const d = parse<Draft>(read(DRAFT_KEY));
       if (!d || typeof d.title !== "string" || !Array.isArray(d.questions)) return null;
       const questions = d.questions
         .filter((q) => q && typeof q.q === "string" && Array.isArray(q.options))
-        .map((q) => ({ id: typeof q.id === "string" && q.id ? q.id : newId(), q: q.q, options: q.options.map(String).slice(0, OPTIONS_MAX), answer: Number.isInteger(q.answer) ? q.answer : null, ...(q.custom ? { custom: true } : {}) }));
-      return { title: d.title, questions };
+        .map((q) => ({
+          id: typeof q.id === "string" && q.id ? q.id : newId(), q: q.q, options: q.options.map(String).slice(0, OPTIONS_MAX),
+          answer: Number.isInteger(q.answer) ? q.answer : null,
+          ...(q.custom ? { custom: true } : {}), ...(typeof q.tpl === "string" ? { tpl: q.tpl } : {}),
+        }));
+      const name = typeof d.name === "string" ? d.name : undefined;
+      return { title: d.title, questions, ...(name !== undefined ? { name } : {}), nameNeeded: d.nameNeeded === true, nameChosen: d.nameChosen === true };
     },
     saveDraft: (d: Draft) => write(DRAFT_KEY, JSON.stringify(d)),
     clearDraft: () => write(DRAFT_KEY, null),
-    /** This device made `pack` for the room `roomId` (the subject's device re-sends it). */
-    rememberRoomPack(roomId: string, pack: QuizPack, now = Date.now()) {
+    /** This device made `pack` for the room `roomId` (the subject's device sends it); also kept in the recent list. */
+    rememberRoomPack(roomId: string, pack: QuizPack) {
       const all = rooms();
-      all[roomId] = { pack, at: now };
-      const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, ROOMS_KEEP);
-      return write(ROOMS_KEY, JSON.stringify(Object.fromEntries(keep)));
+      all[roomId] = { pack, at: clock() };
+      const list = [{ pack, at: clock() }, ...recent().filter((x) => !sameQuiz(x.pack, pack))].slice(0, RECENT_KEEP);
+      const a = write(RECENT_KEY, JSON.stringify(list));
+      return saveRooms(all) && a;
     },
-    roomPack(roomId: string): QuizPack | null {
-      const p = rooms()[roomId]?.pack;
-      return isQuizPack(p) ? p : null;
-    },
-    /** The room has played this device's pack (see packAction). */
-    roomPackConfirmed: (roomId: string) => rooms()[roomId]?.confirmed === true,
-    confirmRoomPack(roomId: string) {
-      const all = rooms();
-      if (!all[roomId]) return false;
-      all[roomId].confirmed = true;
-      return write(ROOMS_KEY, JSON.stringify(all));
-    },
-    /** Someone else became the subject in this room: stop re-sending this device's pack. */
+    roomEntry: (roomId: string): RoomEntry | null => rooms()[roomId] ?? null,
+    roomPack: (roomId: string): QuizPack | null => rooms()[roomId]?.pack ?? null,
+    /** The room made this device the subject: confirmed, send count reset. */
+    confirmRoomPack: (roomId: string) => patchRoom(roomId, (e) => ({ ...e, confirmed: true, sends: 0, refused: undefined })),
+    countSend: (roomId: string) => patchRoom(roomId, (e) => ({ ...e, sends: (e.sends ?? 0) + 1 })),
+    refuseRoomPack: (roomId: string, reason: string) => patchRoom(roomId, (e) => ({ ...e, refused: reason })),
+    /** "다시 보내기" after giving up: count from zero again. */
+    retryRoomPack: (roomId: string) => patchRoom(roomId, (e) => ({ ...e, sends: 0, refused: undefined })),
+    /**
+     * Someone else is the subject in this room now: stop sending this device's
+     * pack there. The quiz itself stays in the recent list ("내 퀴즈로 다시 하기").
+     */
     forgetRoomPack(roomId: string) {
       const all = rooms();
       if (!(roomId in all)) return true;
       delete all[roomId];
-      return write(ROOMS_KEY, JSON.stringify(all));
+      return saveRooms(all);
     },
+    /** Quizzes made on this device, newest first (at most RECENT_KEEP, none older than 7 days). */
+    recentPacks: (): QuizPack[] => recent().map((x) => x.pack),
   };
 }
 export type QuizStore = ReturnType<typeof quizStore>;
@@ -262,50 +392,51 @@ let shared: QuizStore | null = null;
 export const deviceQuizStore = () => (shared ??= quizStore());
 
 // ── what the subject's device does in the room ──
-/** Re-send gap: one quizPack per this long at most (the room acks or publishes quizInfo). */
+/** Re-send gap: one quizPack per this long at most. */
 export const RESEND_GAP_MS = 3000;
-/** The room is playing this device's pack (lane A publishes quizInfo.about = the sender's nick). */
-export const roomHasMyPack = (info: QuizInfo | null, myNick: string, packTitle: string) =>
-  info?.custom === true && info.about === clampNick(myNick) && info.title === packTitle;
+/** Unconfirmed sends before this device gives up and says so. */
+export const MAX_SENDS = 5;
+/** Ack reasons that mean "this pack will not be taken" (stop re-sending). */
+export const PACK_REFUSALS = new Set(["invalid_pack", "not_subject"]);
 
 export type PackState = {
-  /** The room's sessionPhase ("" before the first state). */
+  /** The room's sessionPhase ("lobby" until the room sets it). */
   phase: string;
   info: QuizInfo | null;
-  myNick: string;
-  packTitle: string;
-  /** The room has played this device's pack before (stored per room). */
-  confirmed: boolean;
+  /** The room's per-player flag (lane A): true = this device's pack is the room's quiz. Undefined until the room says. */
+  iAmSubject: boolean | undefined;
+  entry: Pick<RoomEntry, "confirmed" | "sends" | "refused">;
   lastSentAt: number;
   now: number;
 };
 /**
  * What the device holding a pack for this room does now:
- *   "confirm" — the room plays my pack (remember that, so a later replacement is recognised)
- *   "forget"  — my pack WAS confirmed and the room now plays someone else's
- *               ("나도 만들기" in the same room): stop re-sending mine
- *   "send"    — the room takes a pack (lobby / result) and does not play mine:
- *               first join, a new "나도 만들기" pack replacing the previous
- *               subject's, or the room lost it (reconnect / hand-over →
- *               quizInfo.custom false). At most once per RESEND_GAP_MS.
+ *   "confirm" — the room made me the subject (remember it; the send count resets)
+ *   "forget"  — I was the subject and the room now plays someone else's quiz:
+ *               stop sending mine to this room (the quiz stays in the recent list)
+ *   "send"    — the room takes a pack (lobby / result) and either has no custom
+ *               quiz (first join, or it lost it on a reconnect / hand-over) or
+ *               has not made me the subject yet (a new "나도 만들기" quiz).
+ *               At most once per RESEND_GAP_MS.
+ *   "failed"  — refused, or MAX_SENDS sends without the room making me the subject:
+ *               stop and say so (the screen offers to retry / remake)
  *   "wait"    — nothing to do now (mid-game: the room refuses packs)
  */
-export function packAction(s: PackState): "confirm" | "forget" | "send" | "wait" {
-  if (roomHasMyPack(s.info, s.myNick, s.packTitle)) return s.confirmed ? "wait" : "confirm";
-  if (s.confirmed && s.info?.custom === true) return "forget";
+export function packAction(s: PackState): "confirm" | "forget" | "send" | "failed" | "wait" {
+  const { confirmed = false, sends = 0, refused } = s.entry;
+  if (s.iAmSubject === true) return confirmed && !sends && !refused ? "wait" : "confirm";
+  if (confirmed && s.iAmSubject === false && s.info?.custom === true) return "forget";
+  if (refused) return "failed";
+  const wantSend = !s.info?.custom || !confirmed; // (iAmSubject is not true here)
+  if (!wantSend) return "wait";
+  if (sends >= MAX_SENDS) return "failed";
   if (s.phase !== "lobby" && s.phase !== "result") return "wait";
   return s.now - s.lastSentAt >= RESEND_GAP_MS ? "send" : "wait";
 }
 
-/** Lobby copy (shell card). */
-export function lobbyCopy(info: QuizInfo | null, isSubject: boolean, people: number): { title: string; body: string } {
-  if (isSubject) {
-    return {
-      title: "친구를 초대해서 나를 얼마나 아는지 보자!",
-      body: people > 1 ? `준비 완료 · ${people}명이 모였어요. 아래에서 시작해요` : "친구에게 초대 링크를 보내면 이 방으로 들어와요",
-    };
-  }
-  const about = info?.custom && info.about ? `${info.about} 맞히기` : info?.title || "퀴즈";
-  const count = info?.count ? ` · ${info.count}문제` : "";
-  return { title: `${about}${count} · 곧 시작해요`, body: info?.custom ? "친구가 직접 만든 퀴즈예요" : "퀴즈를 만든 친구가 들어오면 그 퀴즈로 바뀌어요" };
+/** What the screen says when the pack did not reach the room (only what happened). */
+export function packFailureMessage(refused: string | undefined): string {
+  if (refused === "invalid_pack") return "퀴즈를 방에 넘기지 못했어요. 퀴즈를 다시 만들어 주세요.";
+  if (refused === "not_subject") return "지금은 다른 친구의 퀴즈 차례라 내 퀴즈를 넘기지 못했어요. 이번 판이 끝나면 다시 해 주세요.";
+  return "퀴즈를 방에 넘기지 못했어요. 연결을 확인하고 다시 보내 주세요.";
 }
