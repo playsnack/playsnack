@@ -401,11 +401,12 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
           )}
         </div>
       )}
-      {/* Friends-only room pill (bottom-left): "친구끼리" opens a new coded room
-          (an unlisted link — friends who have it meet there); in a coded room it
-          hands the invite link out. In the quiz lobby the band button has it. */}
+      {/* Friends-only room pill (top row, right of 홈): "친구끼리" opens a new coded
+          room (an unlisted link — friends who have it meet there); in a coded room
+          it hands the invite link out. In the quiz lobby the band button has it.
+          The bottom corners belong to the templates' start / answer buttons (MP-09). */}
       {withRoom && conn !== "failed" && !quizInvite && (
-        <div style={inResult ? resultNoteDock : inviteDock}>
+        <div style={inResult ? resultNoteDock : inviteDockTop}>
           {inviteFeedback}
           {/* On the result screen its own "친구 초대" button replaces the pill (MP-09). */}
           {inResult ? null : code
@@ -434,7 +435,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
           appears once another person is in the room. Solo play never shows it,
           so it can't cover the app's own bottom content. */}
       {withRoom && conn === "connected" && participants > 1 && (
-        <div style={inResult ? reactionDockTop : reactionDock}>
+        <div style={reactionDockTop}>
           {reactOpen && (
             <div style={reactionPop}>
               {REACTIONS.map((e) => (
@@ -462,6 +463,12 @@ const inviteDock: React.CSSProperties = {
   position: "fixed", left: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)", maxWidth: "70vw",
   display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, zIndex: 13,
 };
+// Top row, between 홈 (left) and the people chip (right): never over a template's
+// bottom buttons. Column-reverse keeps the pill on the row and notes under it.
+const inviteDockTop: React.CSSProperties = {
+  position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", left: 84, maxWidth: "calc(100vw - 180px)",
+  display: "flex", flexDirection: "column-reverse", alignItems: "flex-start", gap: 8, zIndex: 13,
+};
 const inviteNote: React.CSSProperties = {
   ...pill, minHeight: 0, padding: "8px 12px", whiteSpace: "normal", wordBreak: "break-all", fontWeight: 600, alignItems: "flex-start",
 };
@@ -487,9 +494,9 @@ const reactionDock: React.CSSProperties = {
   position: "fixed", right: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)",
   display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 13,
 };
-// Result screen (MP-09): the bottom corners belong to the result buttons, so the
-// reaction button moves under the people chip (the template keeps that corner
-// free) and its emoji list opens downward; the invite note moves to the top.
+// Every screen (MP-09): the bottom corners belong to the templates' buttons, so the
+// reaction button sits under the people chip and its emoji list opens downward;
+// on the result screen the invite note moves to the top as well.
 const reactionDockTop: React.CSSProperties = {
   ...reactionDock, bottom: undefined, top: "calc(var(--snack-safe-top) + 62px)", right: 12, flexDirection: "column-reverse",
 };
