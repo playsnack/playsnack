@@ -8,9 +8,11 @@ import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick } from "./identity";
 import type { ConnState, RoomTransport } from "./roomTransport";
-import { createRoom, hrefTo, loadRoomDoc } from "./backend";
+import { createRoom, hrefTo, loadRoomDoc, navigate } from "./backend";
+import { friendLink, newRoomCode, playPath, roomCodeOf, roomIdFor } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
+import { pill } from "./ui";
 import { C, R } from "./tokens.gen";
 
 // Plays one app from a link. Solo apps just play. Together apps (or any app
@@ -92,7 +94,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // Join the room — only when the app is played together.
   useEffect(() => {
     if (!doc || !withRoom) return;
-    const room: RoomTransport = createRoom({ slug, anonId: getAnonId(), nick: getNick() ?? "" }, params);
+    // The room id is the link's: the app's public room, or `slug~CODE` for a
+    // friends-only link (links.ts). The transport passes it through unchanged.
+    const room: RoomTransport = createRoom({ slug: roomIdFor(slug, params), anonId: getAnonId(), nick: getNick() ?? "" }, params);
     roomRef.current = room;
     let silence: ReturnType<typeof setTimeout> | undefined;
     const waitForRoom = () => {
@@ -154,6 +158,31 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
 
   const onHostEvent = (e: { name: string; payload?: unknown }) => roomRef.current?.sendAction(e.name, e.payload);
 
+  // Friends-only room: the link carries a room code (?room=…). Without one,
+  // the pill makes a code and moves this player into that room (no reload);
+  // with one, it hands the link out — share sheet, else clipboard, else shown
+  // to copy by hand. Only what really happened is reported.
+  const code = roomCodeOf(params);
+  const [invite, setInvite] = useState<"copied" | "show" | null>(null);
+  const openFriendRoom = () => {
+    const p = new URLSearchParams(params);
+    p.set("room", newRoomCode());
+    navigate(playPath(slug, p));
+  };
+  const shareInvite = async () => {
+    const url = friendLink(location.origin, slug, params, code!);
+    if (typeof navigator.share === "function") {
+      try { await navigator.share({ url }); return; } catch { /* cancelled or unsupported → copy */ }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setInvite("copied");
+    } catch {
+      setInvite("show");
+    }
+    setTimeout(() => setInvite(null), 2500);
+  };
+
   if (err === "notFound") {
     return <MessageScreen icon="🔍" title="앱을 찾을 수 없어요" body="링크가 잘못됐거나 더 이상 없는 앱이에요." primary={{ label: "홈으로", onClick: goHome }} />;
   }
@@ -169,6 +198,17 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} />
       <HomeButton />
       {withRoom && conn !== "failed" && <RoomChip state={conn} people={participants} />}
+      {/* Friends-only room pill (bottom-left): "친구끼리" opens a new coded room;
+          in a coded room it hands the invite link out. */}
+      {withRoom && conn !== "failed" && (
+        <div style={inviteDock}>
+          {invite === "copied" && <div style={inviteNote} role="status">초대 링크를 복사했어요</div>}
+          {invite === "show" && code && <div style={{ ...inviteNote, userSelect: "all" }} role="status">{friendLink(location.origin, slug, params, code)}</div>}
+          {code
+            ? <button className="blk" style={pill} onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">🔗 친구 초대</button>
+            : <button className="blk" style={pill} onClick={openFriendRoom} aria-label="친구끼리 하는 방 만들기">🔒 친구끼리</button>}
+        </div>
+      )}
       {withRoom && conn === "failed" && (
         <RoomFailedSheet
           onRetry={() => retryRef.current()}
@@ -204,6 +244,14 @@ const REACTIONS = ["❤️", "🔥", "😂", "👍", "😮"];
 
 const fxOverlay: React.CSSProperties = {
   position: "fixed", inset: 0, pointerEvents: "none", zIndex: 12, overflow: "hidden",
+};
+// Bottom-left, mirroring the reaction dock; the note sits above the pill.
+const inviteDock: React.CSSProperties = {
+  position: "fixed", left: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)", maxWidth: "70vw",
+  display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, zIndex: 13,
+};
+const inviteNote: React.CSSProperties = {
+  ...pill, minHeight: 0, padding: "8px 12px", whiteSpace: "normal", wordBreak: "break-all", fontWeight: 600,
 };
 // Tucked into the very corner so it covers as little bottom content as possible.
 const reactionDock: React.CSSProperties = {
