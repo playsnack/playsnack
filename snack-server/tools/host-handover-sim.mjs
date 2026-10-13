@@ -132,7 +132,7 @@ const results = [];
   const done = await until(() => c[1].shared.sessionPhase === "result" && c[2].shared.sessionPhase === "result", 12000);
   const votes = (x) => [(x.shared.votesByOption || {}).o0 ?? 0, (x.shared.votesByOption || {}).o1 ?? 0];
   const board = (x) => (x.shared.raceBoard || []).map((e) => [e.nick, e.score]);
-  const ok = done && same(votes(c[1]), [1, 2]) && same(votes(c[2]), [1, 2]) && same(board(c[1]), board(c[2])) && same([...board(c[1])].sort(), [["E0 (나감)", 100], ["E1", 100]]) /* a 100–100 tie: seen in either order across runs (cause not pinned down; every peer agrees — checked above) */ && c[1].shared.roundAnswer === 1 && c[2].shared.roundAnswer === 1;
+  const ok = done && same(votes(c[1]), [1, 2]) && same(votes(c[2]), [1, 2]) && same(board(c[1]), board(c[2])) && same(board(c[1]), [["E0 (나감)", 100], ["E1", 100]]) /* MP-11 tie order: by nickname, then join order */ && c[1].shared.roundAnswer === 1 && c[2].shared.roundAnswer === 1;
   results.push({ id: "E hidden votes survive the host leaving", ok, detail: { hosted, done, votes1: votes(c[1]), votes2: votes(c[2]), board1: board(c[1]), board2: board(c[2]) } });
   c.forEach((x) => x.close());
 }

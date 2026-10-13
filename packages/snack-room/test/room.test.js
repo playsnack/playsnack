@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRoom, cleanNick } from "../src/room.js";
+import { readFileSync } from "node:fs";
+import { createRoom, cleanNick, sanitizeQuizPack } from "../src/room.js";
 // raceBoard rows carry a per-room `pid`; compare names and scores
 const rows = (b) => (b || []).map(({ pid, ...x }) => x);
 
@@ -1021,4 +1022,251 @@ test("pid: a per-room key on every board row and recap pick — two players with
   assert.ok(!JSON.stringify(b.v("raceBoard")).includes("a2"), "never the anonId");
   assert.equal(stateTo(b, "q1").sessionNo, 1);
   assert.equal(b.room.snapshot().session.round, 1, "sessionNo rides in the snapshot (session.round)");
+});
+
+// ── review fixes (lane A engine review) ──
+const lastQuizInfo = (h) => h.v("quizInfo");
+
+test("R1: the subject leaves the lobby → after the 30 s grace anyone may start; back in time keeps it theirs", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS });
+  assert.equal(lastQuizInfo(h).subjectHere, true);
+  h.room.leave("p1"); // the subject goes to KakaoTalk to share the invite
+  await h.advance(10000);
+  h.act(2, "start", QUIZ_START);
+  assert.equal(ackOf(h, 2, "start").reason, "not_subject", "10 s away is not gone");
+  assert.equal(lastQuizInfo(h).subjectHere, true);
+  h.room.join("p1", { anonId: "a1", nick: "닉1" }); // back in time
+  await h.advance(30000);
+  assert.equal(lastQuizInfo(h).subjectHere, true);
+  h.room.leave("p1"); // gone for good
+  await h.advance(29999);
+  assert.equal(lastQuizInfo(h).subjectHere, true);
+  await h.advance(1);
+  assert.equal(lastQuizInfo(h).subjectHere, false, "published when the grace runs out");
+  h.act(2, "start", QUIZ_START);
+  await h.advance(0);
+  assert.equal(ackOf(h, 2, "start").accepted, true);
+  assert.equal(h.v("sessionPhase"), "countdown");
+  assert.equal(h.v("quizInfo").about, "닉1", "still the subject's quiz");
+});
+
+test("R2: an aborted game closes the answer window — a lobby / countdown answer never scores or lands in the next game", async () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 1000);
+  const right = shownAnswer(h);
+  h.act(2, "lobby"); // a friend cannot end the subject's game
+  assert.equal(ackOf(h, 2, "lobby").reason, "not_subject");
+  assert.equal(h.v("sessionPhase"), "play");
+  h.act(1, "lobby"); // the subject ends it mid-round
+  assert.equal(h.v("sessionPhase"), "lobby");
+  h.act(2, "answer", { option: right, ms: 100 }); // in the lobby
+  assert.equal(h.room._state.scores.get("a2") ?? 0, 0);
+  h.act(1, "start", QUIZ_START);
+  await h.advance(1000);
+  h.act(2, "answer", { option: 0, ms: 100 }); // during the countdown
+  assert.equal(h.room._state.session.answered?.has("a2") ?? false, false);
+  await h.advance(2000 + 1000);
+  h.act(2, "answer", { option: shownAnswer(h), ms: 800 });
+  await h.advance(8000);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉2", score: pts(800) }], "one answer, scored once (not 1984)");
+});
+
+test("R3: a late resend for an earlier round / game is refused (stale_round), never scored in the current one", async () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 2) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 8000 + 2000 + 1000); // round 2 is open
+  assert.equal(h.v("roundIdx"), 1);
+  const sessionNo = h.v("sessionNo");
+  h.act(2, "answer", { option: shownAnswer(h), ms: 500, round: 0, sessionNo }); // the round-1 tap, delivered 11 s late
+  assert.deepEqual(ackOf(h, 2, "answer"), { clientMsgId: "m2answer", accepted: false, reason: "stale_round" });
+  h.act(2, "answer", { option: shownAnswer(h), ms: 500, round: 1, sessionNo: sessionNo - 1 }); // last game's
+  assert.equal(ackOf(h, 2, "answer").reason, "stale_round");
+  assert.equal(h.room._state.session.answered.has("a2"), false);
+  h.act(2, "answer", { option: shownAnswer(h), ms: 500, round: 1, sessionNo });
+  assert.equal(ackOf(h, 2, "answer").accepted, true);
+  await h.advance(8000);
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉2", score: pts(500) }]);
+});
+
+test("R4: a join / leave while a round is open does not reveal this round's points", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 2) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 8000 + 2000 + 1000); // round 2 open (the board is known since round 1's reveal)
+  const sent = h.out.length;
+  h.act(2, "answer", { option: shownAnswer(h), ms: 500 });
+  h.join(4); // board goes out (MP-12 / late joiner)
+  h.room.leave("p3");
+  const before = h.out.slice(sent).filter((m) => m.to === "*" && m.d?.id === "raceBoard").map((m) => m.d.value);
+  assert.ok(before.length >= 1, "the join / leave did publish a board");
+  assert.ok(before.every((b) => b.every((x) => x.score === 0)), JSON.stringify(before.at(-1)));
+  assert.ok(stateTo(h, "p4").raceBoard.every((x) => x.score === 0), "the late joiner's state too");
+  await h.advance(8000);
+  assert.equal(rows(h.v("raceBoard"))[0].score, pts(500), "shown at the reveal");
+});
+
+test("R5: subject grace rides in the snapshot (relative); every time-relative snapshot field is zeroed by meshClient", async () => {
+  const a = harness();
+  [1, 2].forEach(a.join);
+  a.act(1, "quizPack", { title: "나", questions: QS });
+  a.room.leave("p1");
+  await a.advance(20000);
+  const snap = JSON.parse(JSON.stringify(a.room.snapshot()));
+  assert.equal(snap.session.subjectAwayAgo, 20000);
+  assert.equal(snap.session.subjectAwayAt, undefined, "no absolute time crosses devices");
+  const b = harness();
+  await b.advance(777777);
+  b.room.restore(snap, 0);
+  b.join(2);
+  await b.advance(9999);
+  b.act(2, "start", QUIZ_START);
+  assert.equal(ackOf(b, 2, "start").reason, "not_subject");
+  await b.advance(1);
+  assert.equal(b.v("quizInfo").subjectHere, false);
+  b.act(2, "start", QUIZ_START);
+  assert.notEqual(ackOf(b, 2, "start").reason, "not_subject");
+  // meshClient's snapshot key ignores time passing: every field that changes with time alone is in TIME_KEYS
+  const src = readFileSync(new URL("../src/meshClient.js", import.meta.url), "utf8");
+  const timeKeys = new Set(JSON.parse(src.match(/TIME_KEYS = new Set\((\[[^\]]*\])\)/)[1]));
+  const c = harness();
+  [1, 2, 3].forEach(c.join);
+  c.act(1, "quizPack", { title: "나", questions: QS });
+  c.act(1, "start", QUIZ_START);
+  await c.advance(3000 + 1000);
+  c.room.leave("p1"); // subject away + a round open: every relative clock is running
+  const s1 = c.room.snapshot();
+  await c.advance(500);
+  const s2 = c.room.snapshot();
+  const changed = [];
+  const diff = (x, y, key) => {
+    if (x && typeof x === "object") return Object.keys({ ...x, ...y }).forEach((k) => diff(x[k], y?.[k], k));
+    if (x !== y) changed.push(key);
+  };
+  diff(s1, s2, "");
+  assert.ok(changed.length >= 2, `${changed}`);
+  assert.deepEqual(changed.filter((k) => !timeKeys.has(k)), [], "a time-relative field missing from meshClient TIME_KEYS");
+});
+
+test("R5: 나도 만들기 race — the first new pack in a result wins until the next start (pack_waiting)", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "닉1", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 8000 + 2000);
+  assert.equal(h.v("sessionPhase"), "result");
+  h.act(2, "quizPack", { title: "닉2", questions: QS.slice(0, 1) });
+  assert.equal(ackOf(h, 2, "quizPack").accepted, true);
+  h.act(3, "quizPack", { title: "닉3", questions: QS.slice(0, 1) });
+  assert.deepEqual(ackOf(h, 3, "quizPack"), { clientMsgId: "m3quizPack", accepted: false, reason: "pack_waiting" });
+  h.act(1, "quizPack", { title: "닉1 again", questions: QS.slice(0, 1) });
+  assert.equal(ackOf(h, 1, "quizPack").reason, "pack_waiting");
+  h.act(2, "quizPack", { title: "닉2 고침", questions: QS.slice(0, 1) }); // the maker re-sending (shell retry) is fine
+  assert.equal(ackOf(h, 2, "quizPack").accepted, true);
+  assert.equal(h.v("quizInfo").about, "닉2");
+  h.act(2, "start", QUIZ_START);
+  await h.advance(3000 + 8000 + 2000);
+  h.act(3, "quizPack", { title: "닉3", questions: QS.slice(0, 1) }); // the next result: open again
+  assert.equal(ackOf(h, 3, "quizPack").accepted, true);
+});
+
+test("R6: size bombs — a mark flood is dropped, text is capped in UTF-16 too; 20 questions × 20 players snapshot < 64 KB", async () => {
+  const zalgo = "Z" + "́".repeat(5000);
+  const h0 = harness();
+  h0.join(1);
+  h0.act(1, "quizPack", { title: zalgo, questions: [{ q: zalgo, options: ["a", "b"], answer: 0 }, { q: "ok", options: [zalgo, "b", "c"], answer: 1 }] });
+  assert.equal(ackOf(h0, 1, "quizPack").accepted, true);
+  const p0 = h0.room._state.session.quizPack;
+  assert.equal(p0.title, "");
+  assert.deepEqual(p0.questions, [{ q: "ok", options: ["b", "c"], answer: 0 }], "the flooded question / option is dropped");
+  const accents = "é".repeat(200); // 1 mark per letter: legit, but 2 units per grapheme
+  assert.ok(sanitizeQuizPack({ questions: [{ q: accents, options: ["a", "b"], answer: 0 }] }).questions[0].q.length <= 4 * 80);
+  const family = "👨‍👩‍👧‍👦".repeat(40); // 11 UTF-16 units per grapheme
+  const fq = sanitizeQuizPack({ questions: [{ q: family, options: ["a", "b"], answer: 0 }] }).questions[0].q;
+  assert.ok(fq.length <= 320 && fq.length > 0 && fq.length % 11 === 0, `${fq.length} — whole graphemes only`);
+
+  // the largest legit room: 20 questions at the caps, 20 players with real (uuid) ids, at the result
+  const h = harness();
+  const uuid = (i) => `c0ffee00-0000-4000-8000-${String(i).padStart(12, "0")}`;
+  for (let i = 1; i <= 21; i++) h.room.join(`p${i}`, { anonId: uuid(i), nick: "가".repeat(10) });
+  const cap = (n, ch) => ch.repeat(n);
+  const big = Array.from({ length: 20 }, (_, i) => ({ q: cap(79, "문") + i, options: [cap(30, "가"), cap(30, "나"), cap(30, "다"), cap(30, "라")], answer: i % 4 }));
+  h.room.action("p1", { name: "quizPack", payload: { title: cap(40, "제"), about: cap(10, "주"), questions: big }, clientMsgId: "big" });
+  h.room.action("p1", { name: "start", payload: QUIZ_START, clientMsgId: "go" });
+  await h.advance(3000);
+  for (let r = 0; r < 20; r++) {
+    await h.advance(500);
+    for (let i = 2; i <= 21; i++) h.room.action(`p${i}`, { name: "answer", payload: { option: i % 4, ms: 400 }, clientMsgId: `a${r}-${i}` });
+    await h.advance(7500 + 2000);
+  }
+  assert.equal(h.v("sessionPhase"), "result");
+  assert.equal(h.v("quizRecap").rounds.length, 20);
+  const size = JSON.stringify(h.room.snapshot()).length;
+  assert.ok(size < 64 * 1024, `snapshot ${size} chars`);
+  const snap = JSON.parse(JSON.stringify(h.room.snapshot()));
+  assert.equal(snap.vars.some(([id]) => id === "quizRecap"), false, "quizRecap is not stored twice");
+  const b = harness();
+  b.room.restore(snap, 0);
+  b.room.join("q2", { anonId: uuid(2), nick: "가".repeat(10) });
+  assert.deepEqual(stateTo(b, "q2").quizRecap, h.v("quizRecap"), "rebuilt on restore");
+});
+
+test("R7: in a room with a pack, a crafted start ({} / a number) is refused for everyone but the subject", async () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS });
+  for (const crafted of [{}, 5000, { mode: "reaction" }]) {
+    h.act(2, "start", crafted);
+    await h.advance(0);
+    assert.equal(ackOf(h, 2, "start").reason, "not_subject", JSON.stringify(crafted));
+    assert.equal(h.v("sessionPhase") ?? "lobby", "lobby");
+  }
+});
+
+test("R8: S.acted counts only accepted actions inside the play window", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(1000);
+  h.act(3, "answer", { option: 0, ms: 100 }); // countdown: not accepted
+  h.act(3, "vote", {}); // not a vote (no option)
+  await h.advance(2000 + 500);
+  h.act(2, "answer", { option: 0, ms: 100 }); // accepted
+  h.act(1, "answer", { option: 0, ms: 100 }); // the subject's answer is ignored (the subject is in by start)
+  assert.deepEqual([...h.room._state.session.acted].sort(), ["a1", "a2"]);
+});
+
+test("R9: board ties are listed by nickname, then join order — the same on every host", async () => {
+  const h = harness();
+  h.room.join("p1", { anonId: "x", nick: "나" });
+  h.room.join("p2", { anonId: "y", nick: "가" });
+  h.room.join("p3", { anonId: "z", nick: "가" });
+  h.act(1, "start", { duration: 5000 });
+  await h.advance(3000 + 1000);
+  for (const n of [1, 3, 2]) h.act(n, "tap"); // 1 tap each, in an order unlike the listing
+  assert.deepEqual(h.v("raceBoard").map((x) => [x.nick, x.pid]), [["가", "p2"], ["가", "p3"], ["나", "p1"]]);
+  h.room.leave("p3");
+  assert.deepEqual(h.v("raceBoard").map((x) => [x.nick, x.pid]), [["가", "p2"], ["가 (나감)", "p3"], ["나", "p1"]]);
+});
+
+test("R11: quizProgress counts present answerers only — a leaver's answer does not inflate it", async () => {
+  const h = harness();
+  [1, 2, 3, 4].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 500);
+  h.act(2, "answer", { option: 0, ms: 100 });
+  assert.deepEqual(h.v("quizProgress"), { answered: 1, of: 3 });
+  h.room.leave("p2");
+  assert.deepEqual(h.v("quizProgress"), { answered: 0, of: 2 });
+  h.act(3, "answer", { option: 0, ms: 100 });
+  assert.deepEqual(h.v("quizProgress"), { answered: 1, of: 2 });
 });

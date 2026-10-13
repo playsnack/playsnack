@@ -59,10 +59,11 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] }
       if (type === "state") toDevice(peerId, () => Object.entries(d.sharedState).forEach(([k, v]) => app.setVar(k, v)));
     },
   });
-  for (const [i, nick] of nicks.entries()) {
+  const boot = (i, nick) => {
     const peerId = `p${i}`;
     const app = createBite(load(id), { now: () => t + (clock[i] ?? 0), warn: (m) => assert.fail(`${nick}: ${m}`) });
     app.on("emit", (e) => {
+      if (devices.get(peerId) !== app) return; // a closed tab
       const act = () => room.action(peerId, { name: e.name, payload: e.payload, clientMsgId: `${peerId}-${++seq}` });
       if (up[i]) later(up[i], act);
       else act();
@@ -70,7 +71,17 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] }
     app.start();
     devices.set(peerId, app);
     room.join(peerId, { anonId: `a${i}`, nick });
-  }
+  };
+  nicks.forEach((nick, i) => boot(i, nick));
+  // Device i closes its tab (leaves) / reloads (a fresh app, same player).
+  const gone = (i) => {
+    devices.delete(`p${i}`);
+    room.leave(`p${i}`);
+  };
+  const reload = (i) => {
+    gone(i);
+    boot(i, nicks[i]);
+  };
   const flush = () => new Promise((r) => setImmediate(r));
   // Time passes: run due timers, and every device renders a frame every `frame` ms.
   const advance = async (ms, frame = 16) => {
@@ -92,7 +103,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] }
   // A node's text / prop as device i renders it now.
   const nodeById = (nid, n = load(id).view) => (n?.id === nid ? n : (n?.children ?? []).map((c) => nodeById(nid, c)).find(Boolean));
   const prop = (i, nid, key = "text") => app(i).value(key.split(".").reduce((o, k) => o?.[k], nodeById(nid)));
-  return { room, advance, app, prop, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
+  return { room, advance, app, prop, gone, reload, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
 }
 
 test("tap-battle: game 2 started by the OTHER device — board == 내 탭 card on the non-starter", async () => {
@@ -239,4 +250,53 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   assert.deepEqual(recap.rounds[0].picks.map((p) => [p.nick, p.ms, p.correct]), [["B", msB, true], ["C", msC, true]]);
   assert.deepEqual(recap.rounds[1].picks.map((p) => [p.nick, p.option >= 0, p.correct]), [["B", true, false], ["C", false, false]]);
   assert.equal(T.v(2, "quizRecap.rounds[1].options.length"), 3, "a 3-choice question");
+});
+
+// Review R1 + R10 on the real template.
+const QS2 = [
+  { q: "A가 좋아하는 색은?", options: ["빨강", "파랑", "초록", "노랑"], answer: 1 },
+  { q: "A의 MBTI는?", options: ["INFP", "ENTJ", "ISTJ"], answer: 2 },
+];
+const rightOf = (T, i) => {
+  const rc = T.v(i, "roundContent");
+  const src = QS2.find((x) => x.q === rc.q);
+  return rc.options.indexOf(src.options[src.answer]);
+};
+
+test("speed-trivia R1: the subject left for good → a friend gets 시작하기 and can start their quiz", async () => {
+  const T = table("speed-trivia-score", ["A", "B"]);
+  T.room.action("p0", { name: "quizPack", payload: { title: "A 맞히기", questions: QS2 }, clientMsgId: "pack" });
+  await T.advance(100);
+  assert.equal(T.tap(1, "startBtn"), false, "the subject is here: not B's to start");
+  T.gone(0); // A goes to share the invite…
+  await T.advance(10000);
+  assert.equal(T.tap(1, "startBtn"), false, "…10 s is not gone");
+  await T.advance(20100);
+  assert.equal(T.prop(1, "lobbyStatus"), "A 님이 나갔어요 · 대신 시작할 수 있어요");
+  assert.equal(T.tap(1, "startBtn"), true);
+  await T.advance(3100);
+  assert.equal(T.phase(1), "play");
+  assert.equal(T.v(1, "quizInfo.about"), "A");
+});
+
+test("speed-trivia R10: a reload mid-round restores the answer the room took — no second tap", async () => {
+  const T = table("speed-trivia-score", ["A", "B"]);
+  T.room.action("p0", { name: "quizPack", payload: { title: "A 맞히기", questions: QS2 }, clientMsgId: "pack" });
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(3000 + 200);
+  const first = rightOf(T, 1);
+  T.tap(1, `tile${first}`);
+  const ms = T.v(1, "myMs");
+  T.reload(1); // B's tab reloads mid-round
+  await T.advance(200);
+  assert.equal(T.phase(1), "play");
+  assert.equal(T.v(1, "myAnswerRound"), T.v(1, "roundIdx"), "restored from the room");
+  assert.equal(T.v(1, "myAnswer"), first);
+  assert.equal(T.v(1, "myMs"), ms);
+  assert.equal(T.prop(1, "statusText"), "선택 완료! 공개를 기다려요");
+  T.tap(1, `tile${(first + 1) % 4}`); // a second tap does nothing
+  assert.equal(T.v(1, "myAnswer"), first);
+  await T.advance(9000);
+  assert.match(T.prop(1, "statusText"), /^정답! ✓ /, "the restored pick gets its feedback");
 });
