@@ -27,7 +27,23 @@
     "roundAnswer": -1,
     "raceBoard": [],
     "myAnswer": -1,
-    "myAnswerRound": -2
+    "myAnswerRound": -2,
+    "resultView": {
+      "mode": "",
+      "kicker": "",
+      "headline": "",
+      "mine": "",
+      "ranks": [],
+      "duo": {
+        "line": "",
+        "score": "",
+        "tier": ""
+      },
+      "emptyText": "",
+      "questions": []
+    },
+    "reactionStage": "",
+    "canMake": false
   },
   "components": {
     "NavBar": {
@@ -662,7 +678,7 @@
         "height": 844,
         "x": 0,
         "y": 0,
-        "gap": 10,
+        "gap": 12,
         "pad": [
           59,
           16,
@@ -672,221 +688,662 @@
         "show": "phase == 'result'",
         "children": [
           {
-            "id": "navR",
-            "use": "NavBar",
-            "props": {
-              "title": "스피드 퀴즈",
-              "subtitle": "결과"
-            }
-          },
-          {
-            "id": "winCard",
+            "id": "resHead",
             "box": "column",
-            "width": 358,
-            "height": 140,
+            "width": 290,
+            "height": 88,
             "gap": 4,
-            "pad": 14,
-            "align": "center",
-            "justify": "center",
-            "fill": "#16181c",
             "children": [
               {
-                "id": "winEmoji",
-                "text": "🏆",
-                "size": 40,
-                "align": "center"
+                "id": "resKicker",
+                "text": "{resultView.kicker || '스피드 퀴즈 · 결과'}",
+                "size": 14,
+                "weight": 700,
+                "color": "#9aa3af",
+                "lines": 1
               },
               {
-                "id": "winTitle",
-                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ((raceBoard.length > 1 && raceBoard[1].score === raceBoard[0].score) ? ('🤝 ' + (raceBoard.filter(e => e.score === raceBoard[0].score).map(e => e.nick).join(' · ')) + ' 공동 우승!') : ('' + (raceBoard[0].nick) + ' 우승!')) : '결과') : ''}",
-                "width": 330,
+                "id": "resTitle",
+                "text": "{resultView.headline || '결과'}",
                 "size": 24,
                 "font": "display",
-                "color": "#d9ff00",
+                "color": "#ffffff",
+                "lines": 2
+              }
+            ]
+          },
+          {
+            "id": "resMine",
+            "text": "{resultView.mine}",
+            "show": "resultView.mine !== ''",
+            "size": 15,
+            "weight": 700,
+            "color": "#ffffff",
+            "lines": 1
+          },
+          {
+            "id": "resBody",
+            "box": "column",
+            "height": 1,
+            "grow": 1,
+            "scroll": true,
+            "gap": 12,
+            "children": [
+              {
+                "id": "rankList",
+                "box": "column",
+                "gap": 4,
+                "show": "resultView.mode == 'rank'",
+                "each": "resultView.ranks",
+                "children": [
+                  {
+                    "id": "rankRow",
+                    "box": "row",
+                    "height": 48,
+                    "pad": [
+                      0,
+                      12
+                    ],
+                    "gap": 8,
+                    "align": "center",
+                    "fill": "{item.top ? '#d9ff00' : '#16181c'}",
+                    "stroke": {
+                      "color": "{item.me ? '#ffffff' : (item.top ? '#d9ff00' : '#16181c')}",
+                      "width": 2
+                    },
+                    "children": [
+                      {
+                        "id": "rkRank",
+                        "text": "{item.rankLabel}",
+                        "width": 60,
+                        "size": 15,
+                        "weight": 800,
+                        "color": "{item.top ? '#0b0c0e' : '#9aa3af'}",
+                        "lines": 1
+                      },
+                      {
+                        "id": "rkNick",
+                        "text": "{item.nick}",
+                        "width": 146,
+                        "size": 16,
+                        "weight": 700,
+                        "color": "{item.top ? '#0b0c0e' : '#ffffff'}",
+                        "lines": 1
+                      },
+                      {
+                        "id": "rkLeft",
+                        "text": "나감",
+                        "show": "item.left",
+                        "width": 28,
+                        "size": 13,
+                        "weight": 700,
+                        "color": "{item.top ? '#0b0c0e' : '#9aa3af'}",
+                        "lines": 1
+                      },
+                      {
+                        "id": "rkScore",
+                        "text": "{item.scoreLabel}",
+                        "width": "fill",
+                        "size": 16,
+                        "weight": 800,
+                        "color": "{item.top ? '#0b0c0e' : '#ffffff'}",
+                        "align": "right",
+                        "lines": 1
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "duoCard",
+                "box": "column",
+                "show": "resultView.mode == 'duo'",
+                "pad": [
+                  24,
+                  16
+                ],
+                "gap": 8,
+                "align": "center",
+                "fill": "#16181c",
+                "children": [
+                  {
+                    "id": "duoScore",
+                    "text": "{resultView.duo.score}",
+                    "size": 64,
+                    "font": "display",
+                    "color": "#d9ff00",
+                    "align": "center",
+                    "lines": 1
+                  },
+                  {
+                    "id": "duoLine",
+                    "text": "{resultView.duo.line}",
+                    "width": 326,
+                    "size": 18,
+                    "weight": 700,
+                    "color": "#ffffff",
+                    "align": "center",
+                    "lines": 2
+                  },
+                  {
+                    "id": "duoTier",
+                    "text": "{resultView.duo.tier}",
+                    "show": "resultView.duo.tier !== ''",
+                    "width": 326,
+                    "size": 28,
+                    "font": "display",
+                    "color": "#ffffff",
+                    "align": "center",
+                    "lines": 1
+                  }
+                ]
+              },
+              {
+                "id": "emptyCard",
+                "box": "column",
+                "show": "resultView.mode == 'empty'",
+                "pad": 24,
+                "align": "center",
+                "fill": "#16181c",
+                "children": [
+                  {
+                    "id": "emptyText",
+                    "text": "{resultView.emptyText}",
+                    "width": 310,
+                    "size": 16,
+                    "weight": 600,
+                    "color": "#9aa3af",
+                    "align": "center",
+                    "lines": 2
+                  }
+                ]
+              },
+              {
+                "id": "fallbackList",
+                "box": "column",
+                "gap": 4,
+                "show": "resultView.mode == ''",
+                "each": "raceBoard",
+                "children": [
+                  {
+                    "id": "fbRow",
+                    "text": "{index + 1}. {item.nick} · {item.score}점",
+                    "size": 16,
+                    "weight": 700,
+                    "color": "#ffffff",
+                    "lines": 1
+                  }
+                ]
+              },
+              {
+                "id": "revealTitle",
+                "text": "문제별 정답",
+                "show": "resultView.questions.length > 0",
+                "size": 15,
+                "weight": 700,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "revealList",
+                "box": "column",
+                "gap": 8,
+                "each": "resultView.questions",
+                "children": [
+                  {
+                    "id": "rvCard",
+                    "box": "column",
+                    "pad": 12,
+                    "gap": 8,
+                    "fill": "#16181c",
+                    "children": [
+                      {
+                        "id": "rvQ",
+                        "text": "Q{item.n}. {item.q}",
+                        "size": 16,
+                        "weight": 700,
+                        "color": "#ffffff",
+                        "lines": 3
+                      },
+                      {
+                        "id": "rvAns",
+                        "text": "정답 · {item.answer}",
+                        "size": 15,
+                        "weight": 700,
+                        "color": "#22c55e",
+                        "lines": 2
+                      },
+                      {
+                        "id": "rvSum",
+                        "text": "{item.summary}",
+                        "size": 13,
+                        "weight": 600,
+                        "color": "#9aa3af",
+                        "lines": 1
+                      },
+                      {
+                        "id": "rvChips",
+                        "box": "grid",
+                        "columns": 2,
+                        "gap": 4,
+                        "show": "item.chips.length > 0",
+                        "each": "item.chips",
+                        "children": [
+                          {
+                            "id": "rvChip",
+                            "box": "column",
+                            "pad": [
+                              4,
+                              8
+                            ],
+                            "fill": "{item.state == 'ok' ? '#18351f' : (item.state == 'bad' ? '#3a171a' : '#1e2127')}",
+                            "children": [
+                              {
+                                "id": "rvChipNick",
+                                "text": "{item.nick}",
+                                "size": 14,
+                                "weight": 700,
+                                "color": "#ffffff",
+                                "lines": 1
+                              },
+                              {
+                                "id": "rvChipPick",
+                                "text": "{item.state == 'ok' ? '✓ ' : ''}{item.pick}",
+                                "size": 12,
+                                "weight": 500,
+                                "color": "#d7dce3",
+                                "lines": 1
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "reactCard",
+            "box": "column",
+            "show": "reactionStage == 'ask' || reactionStage == 'reasons' || reactionStage == 'thanks'",
+            "pad": 12,
+            "gap": 8,
+            "fill": "#1e2127",
+            "children": [
+              {
+                "id": "rqAsk",
+                "box": "row",
+                "show": "reactionStage == 'ask'",
+                "height": 44,
+                "gap": 8,
+                "align": "center",
+                "children": [
+                  {
+                    "id": "rqText",
+                    "text": "다음에도 하고 싶나요?",
+                    "width": "fill",
+                    "size": 15,
+                    "weight": 700,
+                    "color": "#ffffff",
+                    "lines": 1
+                  },
+                  {
+                    "id": "rqYes",
+                    "box": "row",
+                    "width": 44,
+                    "height": 44,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#16181c",
+                    "onTap": [
+                      {
+                        "emit": "reactionAnswer",
+                        "payload": {
+                          "answer": "yes"
+                        }
+                      }
+                    ],
+                    "children": [
+                      {
+                        "id": "rqYesTxt",
+                        "text": "👍",
+                        "size": 20,
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "rqNo",
+                    "box": "row",
+                    "width": 44,
+                    "height": 44,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#16181c",
+                    "onTap": [
+                      {
+                        "emit": "reactionAnswer",
+                        "payload": {
+                          "answer": "no"
+                        }
+                      }
+                    ],
+                    "children": [
+                      {
+                        "id": "rqNoTxt",
+                        "text": "👎",
+                        "size": 20,
+                        "align": "center"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "rqSkip",
+                    "box": "row",
+                    "width": 44,
+                    "height": 44,
+                    "align": "center",
+                    "justify": "center",
+                    "fill": "#1e2127",
+                    "onTap": [
+                      {
+                        "emit": "reactionAnswer",
+                        "payload": {
+                          "answer": "skip"
+                        }
+                      }
+                    ],
+                    "children": [
+                      {
+                        "id": "rqSkipTxt",
+                        "text": "✕",
+                        "size": 20,
+                        "align": "center"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "rqReasons",
+                "box": "column",
+                "show": "reactionStage == 'reasons'",
+                "gap": 8,
+                "children": [
+                  {
+                    "id": "rqReasonHead",
+                    "box": "row",
+                    "height": 44,
+                    "gap": 8,
+                    "align": "center",
+                    "children": [
+                      {
+                        "id": "rqReasonText",
+                        "text": "아쉬운 점을 골라 주세요 (선택)",
+                        "width": "fill",
+                        "size": 15,
+                        "weight": 700,
+                        "color": "#ffffff",
+                        "lines": 1
+                      },
+                      {
+                        "id": "rqReasonSkip",
+                        "box": "row",
+                        "width": 44,
+                        "height": 44,
+                        "align": "center",
+                        "justify": "center",
+                        "fill": "#1e2127",
+                        "onTap": [
+                          {
+                            "emit": "reactionReason",
+                            "payload": {
+                              "reason": "skip"
+                            }
+                          }
+                        ],
+                        "children": [
+                          {
+                            "id": "rqReasonSkipTxt",
+                            "text": "✕",
+                            "size": 20,
+                            "align": "center"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "rqChips",
+                    "box": "grid",
+                    "columns": 2,
+                    "gap": 8,
+                    "children": [
+                      {
+                        "id": "rq_boring",
+                        "box": "row",
+                        "height": 40,
+                        "align": "center",
+                        "justify": "center",
+                        "fill": "#16181c",
+                        "onTap": [
+                          {
+                            "emit": "reactionReason",
+                            "payload": {
+                              "reason": "boring"
+                            }
+                          }
+                        ],
+                        "children": [
+                          {
+                            "id": "rq_boringTxt",
+                            "text": "재미없어요",
+                            "size": 14,
+                            "weight": 600,
+                            "color": "#ffffff",
+                            "align": "center",
+                            "lines": 1
+                          }
+                        ]
+                      },
+                      {
+                        "id": "rq_hard",
+                        "box": "row",
+                        "height": 40,
+                        "align": "center",
+                        "justify": "center",
+                        "fill": "#16181c",
+                        "onTap": [
+                          {
+                            "emit": "reactionReason",
+                            "payload": {
+                              "reason": "hard"
+                            }
+                          }
+                        ],
+                        "children": [
+                          {
+                            "id": "rq_hardTxt",
+                            "text": "어려웠어요",
+                            "size": 14,
+                            "weight": 600,
+                            "color": "#ffffff",
+                            "align": "center",
+                            "lines": 1
+                          }
+                        ]
+                      },
+                      {
+                        "id": "rq_laggy",
+                        "box": "row",
+                        "height": 40,
+                        "align": "center",
+                        "justify": "center",
+                        "fill": "#16181c",
+                        "onTap": [
+                          {
+                            "emit": "reactionReason",
+                            "payload": {
+                              "reason": "laggy"
+                            }
+                          }
+                        ],
+                        "children": [
+                          {
+                            "id": "rq_laggyTxt",
+                            "text": "끊기거나 느렸어요",
+                            "size": 14,
+                            "weight": 600,
+                            "color": "#ffffff",
+                            "align": "center",
+                            "lines": 1
+                          }
+                        ]
+                      },
+                      {
+                        "id": "rq_few",
+                        "box": "row",
+                        "height": 40,
+                        "align": "center",
+                        "justify": "center",
+                        "fill": "#16181c",
+                        "onTap": [
+                          {
+                            "emit": "reactionReason",
+                            "payload": {
+                              "reason": "few"
+                            }
+                          }
+                        ],
+                        "children": [
+                          {
+                            "id": "rq_fewTxt",
+                            "text": "사람이 적었어요",
+                            "size": 14,
+                            "weight": 600,
+                            "color": "#ffffff",
+                            "align": "center",
+                            "lines": 1
+                          }
+                        ]
+                      },
+                      {
+                        "id": "rq_other",
+                        "box": "row",
+                        "height": 40,
+                        "align": "center",
+                        "justify": "center",
+                        "fill": "#16181c",
+                        "onTap": [
+                          {
+                            "emit": "reactionReason",
+                            "payload": {
+                              "reason": "other"
+                            }
+                          }
+                        ],
+                        "children": [
+                          {
+                            "id": "rq_otherTxt",
+                            "text": "기타",
+                            "size": 14,
+                            "weight": 600,
+                            "color": "#ffffff",
+                            "align": "center",
+                            "lines": 1
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "rqThanks",
+                "text": "답해 줘서 고마워요 🙌",
+                "show": "reactionStage == 'thanks'",
+                "size": 15,
+                "weight": 700,
+                "color": "#ffffff",
                 "align": "center"
               }
             ]
           },
           {
-            "id": "row0",
-            "box": "free",
-            "width": 358,
-            "height": 54,
-            "fill": "#16181c",
-            "show": "phase == 'result' ? (raceBoard.length > 0) : true",
-            "children": [
-              {
-                "id": "rbar0",
-                "box": "free",
-                "width": "{phase == 'result' ? (raceBoard.length > 0 ? max(6, round(raceBoard[0].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
-                "height": 54,
-                "x": 0,
-                "y": 0,
-                "fill": "#d9ff00"
-              },
-              {
-                "id": "rrank0",
-                "text": "1",
-                "x": 16,
-                "y": 17,
-                "size": 18,
-                "weight": 800,
-                "color": "#0b0c0e"
-              },
-              {
-                "id": "rnick0",
-                "text": "{phase == 'result' ? (raceBoard.length > 0 ? raceBoard[0].nick : '') : ''}",
-                "width": 200,
-                "x": 46,
-                "y": 17,
-                "size": 17,
-                "weight": 700,
-                "color": "#0b0c0e",
-                "lines": 1
-              },
-              {
-                "id": "rscore0",
-                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ('' + (raceBoard[0].score) + '점') : '') : ''}",
-                "width": 102,
-                "x": 240,
-                "y": 17,
-                "size": 17,
-                "weight": 800,
-                "color": "#0b0c0e",
-                "align": "right"
-              }
-            ]
-          },
-          {
-            "id": "row1",
-            "box": "free",
-            "width": 358,
-            "height": 54,
-            "fill": "#16181c",
-            "show": "phase == 'result' ? (raceBoard.length > 1) : true",
-            "children": [
-              {
-                "id": "rbar1",
-                "box": "free",
-                "width": "{phase == 'result' ? (raceBoard.length > 1 ? max(6, round(raceBoard[1].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
-                "height": 54,
-                "x": 0,
-                "y": 0,
-                "fill": "#2a3a10"
-              },
-              {
-                "id": "rrank1",
-                "text": "2",
-                "x": 16,
-                "y": 17,
-                "size": 18,
-                "weight": 800,
-                "color": "#9aa3af"
-              },
-              {
-                "id": "rnick1",
-                "text": "{phase == 'result' ? (raceBoard.length > 1 ? raceBoard[1].nick : '') : ''}",
-                "width": 200,
-                "x": 46,
-                "y": 17,
-                "size": 17,
-                "weight": 700,
-                "color": "#ffffff",
-                "lines": 1
-              },
-              {
-                "id": "rscore1",
-                "text": "{phase == 'result' ? (raceBoard.length > 1 ? ('' + (raceBoard[1].score) + '점') : '') : ''}",
-                "width": 102,
-                "x": 240,
-                "y": 17,
-                "size": 17,
-                "weight": 800,
-                "color": "#ffffff",
-                "align": "right"
-              }
-            ]
-          },
-          {
-            "id": "row2",
-            "box": "free",
-            "width": 358,
-            "height": 54,
-            "fill": "#16181c",
-            "show": "phase == 'result' ? (raceBoard.length > 2) : true",
-            "children": [
-              {
-                "id": "rbar2",
-                "box": "free",
-                "width": "{phase == 'result' ? (raceBoard.length > 2 ? max(6, round(raceBoard[2].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
-                "height": 54,
-                "x": 0,
-                "y": 0,
-                "fill": "#2a3a10"
-              },
-              {
-                "id": "rrank2",
-                "text": "3",
-                "x": 16,
-                "y": 17,
-                "size": 18,
-                "weight": 800,
-                "color": "#9aa3af"
-              },
-              {
-                "id": "rnick2",
-                "text": "{phase == 'result' ? (raceBoard.length > 2 ? raceBoard[2].nick : '') : ''}",
-                "width": 200,
-                "x": 46,
-                "y": 17,
-                "size": 17,
-                "weight": 700,
-                "color": "#ffffff",
-                "lines": 1
-              },
-              {
-                "id": "rscore2",
-                "text": "{phase == 'result' ? (raceBoard.length > 2 ? ('' + (raceBoard[2].score) + '점') : '') : ''}",
-                "width": 102,
-                "x": 240,
-                "y": 17,
-                "size": 17,
-                "weight": 800,
-                "color": "#ffffff",
-                "align": "right"
-              }
-            ]
-          },
-          {
-            "id": "resSpacer",
-            "box": "free",
-            "width": "fill",
-            "height": 1,
-            "grow": 1
-          },
-          {
-            "id": "againBtn",
+            "id": "makeBtn",
             "use": "PrimaryButton",
+            "show": "canMake",
             "props": {
-              "label": "다시 하기 🔁"
+              "label": "나도 만들기 ✏️"
             },
             "onTap": [
               {
-                "if": "phase == 'result'",
-                "then": [
+                "emit": "resultMake"
+              }
+            ]
+          },
+          {
+            "id": "resActions",
+            "box": "row",
+            "height": 52,
+            "gap": 8,
+            "children": [
+              {
+                "id": "shareBtn",
+                "box": "row",
+                "width": 1,
+                "grow": 1,
+                "height": 52,
+                "align": "center",
+                "justify": "center",
+                "fill": "{canMake ? '#1e2127' : '#d9ff00'}",
+                "stroke": {
+                  "color": "{canMake ? '#2a2d33' : '#d9ff00'}",
+                  "width": 1
+                },
+                "onTap": [
                   {
-                    "set": "myAnswer",
-                    "to": "-1"
-                  },
+                    "emit": "resultShare"
+                  }
+                ],
+                "children": [
                   {
-                    "emit": "start",
-                    "payload": {
-                      "game": "trivia",
-                      "quiz": true,
-                      "rounds": 6,
-                      "answerMs": 9000,
-                      "revealMs": 3000
-                    }
+                    "id": "shareTxt",
+                    "text": "결과 공유",
+                    "size": 17,
+                    "weight": 800,
+                    "color": "{canMake ? '#ffffff' : '#0b0c0e'}",
+                    "lines": 1
+                  }
+                ]
+              },
+              {
+                "id": "inviteBtn",
+                "box": "row",
+                "width": 1,
+                "grow": 1,
+                "height": 52,
+                "align": "center",
+                "justify": "center",
+                "fill": "#1e2127",
+                "stroke": {
+                  "color": "#2a2d33",
+                  "width": 1
+                },
+                "onTap": [
+                  {
+                    "emit": "resultInvite"
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "inviteTxt",
+                    "text": "친구 초대",
+                    "size": 17,
+                    "weight": 700,
+                    "color": "#ffffff",
+                    "lines": 1
                   }
                 ]
               }
