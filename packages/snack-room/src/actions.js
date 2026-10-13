@@ -10,7 +10,7 @@
 //            "object"   — a JSON object with `fields`
 //   number:  true       — a bare number is also accepted (start: duration ms)
 //   fields:  { key: { type, required?, enum?, text? } }
-//            type ∈ "string" | "number" | "boolean" | "array" | "object"; an array = any of them
+//            type ∈ "string" | "number" | "boolean"; an array = any of them
 //            text: true  — free text (a content/game id), so a string that
 //                          happens to equal a variable name only warns
 
@@ -52,30 +52,11 @@ export const HOST_ACTIONS = Object.freeze({
     fields: { ms: { type: "number", required: true } },
     description: "reaction time this device measured (green → tap, ms; −1 = tapped before green)",
   },
-  // Number(payload.option) === round.answer (0-based choice index, in the order shown).
-  // ms = "question shown → tap" measured on the device; missing / not a number / < 0 /
-  // past the window + 0.5 s → the host's own measurement; never above what the host saw
-  // + 50 ms. One answer per player per round; the quiz's subject (pack sender) is ignored.
+  // Number(payload.option) === round.answer (0-based choice index)
   answer: {
     payload: "object",
-    fields: { option: { type: "number", required: true }, ms: { type: "number" } },
-    description: "quiz answer — 0-based choice index, plus the answer time this device measured (ms)",
-  },
-  // 나 맞히기: sanitizeQuizPack(payload) — title ≤40, 1–20 questions {q ≤80, options 2–4
-  // each ≤30, answer}, settings {rounds 1–20, answerMs 3000–20000}; invalid questions are
-  // dropped, none valid → actionAck {accepted:false, reason:"invalid_pack"}. Lobby/result
-  // only (else "not_in_lobby"); in the lobby only the current subject may replace it (else
-  // "not_subject", unless that subject left). The sender becomes the subject, shown as
-  // `about` (cleaned like a nickname) or else their nickname.
-  quizPack: {
-    payload: "object",
-    fields: {
-      title: { type: "string", text: true },
-      about: { type: "string", text: true },
-      questions: { type: "array", required: true },
-      settings: { type: "object" },
-    },
-    description: "store this player's own quiz (they become its subject) — used by the next quiz start",
+    fields: { option: { type: "number", required: true } },
+    description: "quiz answer — 0-based choice index",
   },
   // startSession(payload): a bare number = { duration }; getPack(game, opts) reads theme
   start: {
