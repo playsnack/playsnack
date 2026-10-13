@@ -1,10 +1,12 @@
 // /api/ev — anonymous product telemetry (Vercel function, Web-standard handler).
 //   POST {v:1, events:[{k,...}]}  -> counts whitelisted events into per-KST-day aggregates
 //   GET  ?day=YYYY-MM-DD          -> read-only aggregates (cached 30 s; today-90 … today+1 only)
-// Never stores IP, user agent, nickname, cookies, device or session ids. See docs/telemetry.md.
-import { kstDay, isDay, daysAgo } from './_lib/day.js';
+//   GET  ?week=YYYY-Www           -> the same, summed over an ISO week's readable days (KST)
+// Never stores IP, user agent, nickname, cookies or device ids; a host-engine game id
+// (`sid` / `gid`) is kept only as a 6 h de-dup hash. See docs/telemetry.md.
+import { kstDay, isDay, daysAgo, isoWeek, weekDays } from './_lib/day.js';
 import { appIds } from './_lib/apps.js';
-import { MAX_BODY_BYTES, parseBatch } from './_lib/schema.js';
+import { MAX_BODY_BYTES, parseBatch, settleOnce, summarize } from './_lib/schema.js';
 import { createKvStore, createMemoryStore, kvConfig, StoreError, TOTAL_FIELD, TTL_SECONDS } from './_lib/store.js';
 import { createLimiter } from './_lib/ratelimit.js';
 
@@ -73,12 +75,12 @@ export function createHandler(opts = {}) {
   const getEnv = () => opts.env || process.env;
   const getFetch = () => opts.fetch || globalThis.fetch;
   const now = opts.now || Date.now;
-  const memory = opts.memoryStore || createMemoryStore();
+  const memory = opts.memoryStore || createMemoryStore({ now });
   let limiter = opts.limiter || null;
   let limiterCap = null;
   let kv = null;
   let kvId = null;
-  const getCache = new Map(); // `${store}|${day}` -> { at, body }
+  const getCache = new Map(); // `${store}|${day}` or `${store}|${week}` -> { at, body }
 
   function storeFor(env) {
     const cfg = kvConfig(env);
@@ -111,25 +113,42 @@ export function createHandler(opts = {}) {
     if (parsed.status !== 200) return json(parsed.status, { ok: false, error: parsed.error }, store.kind);
     if (lim.dailyCapReached(today)) return json(429, { ok: false, error: 'daily_cap' }, store.kind, { 'retry-after': '3600' });
     if (parsed.accepted > 0) {
-      const total = await store.apply(today, parsed.incr, parsed.errs, parsed.accepted);
+      // Host-engine events (a finished game, a rematch) count once per game id, even
+      // when two hosts report the same game across a hand-over.
+      if (parsed.once.length) settleOnce(parsed, await store.claim(parsed.once.map((o) => o.id)));
+      const total = await store.apply(today, parsed.incr, parsed.errs, parsed.accepted, parsed.all);
       lim.noteTotal(today, total);
     }
     return json(200, { ok: true, accepted: parsed.accepted, dropped: parsed.dropped }, store.kind);
   }
 
+  const readable = (day, t) => {
+    const age = daysAgo(day, t);
+    return age <= RETENTION_DAYS && age >= -FUTURE_DAYS;
+  };
+  const cached = (key, t) => {
+    const hit = getCache.get(key);
+    return hit && t - hit.at < GET_CACHE_MS ? hit.body : null;
+  };
+  const remember = (key, t, body) => {
+    if (getCache.size > 100) getCache.clear();
+    getCache.set(key, { at: t, body });
+  };
+  const ok = (body, store) => json(200, body, store.kind, { 'cache-control': 'public, max-age=30, s-maxage=30' });
+
   async function get(request, store, lim) {
     const t = now();
     if (lim.check(request, t)) return json(429, { ok: false, error: 'rate_limited' }, store.kind, { 'retry-after': '60' });
-    const q = new URL(request.url).searchParams.get('day');
+    const params = new URL(request.url).searchParams;
+    if (params.has('week')) return getWeek(params.get('week'), store, t);
+    const q = params.get('day');
     const day = q === null || q === '' ? kstDay(t) : q;
     if (!isDay(day)) return json(400, { ok: false, error: 'bad_day' }, store.kind);
-    const age = daysAgo(day, t);
-    if (age > RETENTION_DAYS || age < -FUTURE_DAYS) return json(400, { ok: false, error: 'day_out_of_range' }, store.kind);
+    if (!readable(day, t)) return json(400, { ok: false, error: 'day_out_of_range' }, store.kind);
     const cacheKey = `${store.kind}|${day}`;
-    const hit = getCache.get(cacheKey);
-    let body = hit && t - hit.at < GET_CACHE_MS ? hit.body : null;
+    let body = cached(cacheKey, t);
     if (!body) {
-      const { counts, errs } = await store.read(day);
+      const { counts, errs, all } = await store.read(day);
       const top = Object.entries(errs)
         .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
         .slice(0, TOP_ERRORS)
@@ -141,13 +160,45 @@ export function createHandler(opts = {}) {
         store: store.kind,
         appsKnown: appIds().size,
         total: counts[TOTAL_FIELD] || 0,
+        summary: summarize(counts),
         counters: nest(counts),
+        cumulative: nest(all),
         errors: { distinct: Object.keys(errs).length, top },
       };
-      if (getCache.size > 100) getCache.clear();
-      getCache.set(cacheKey, { at: t, body });
+      remember(cacheKey, t, body);
     }
-    return json(200, body, store.kind, { 'cache-control': 'public, max-age=30, s-maxage=30' });
+    return ok(body, store);
+  }
+
+  // A week = its days inside the readable window only (so ≤ 15 weeks are accepted and
+  // each read is one request of ≤ 8 HGETALLs); error samples stay per day (?day=).
+  async function getWeek(q, store, t) {
+    const week = q === '' ? isoWeek(kstDay(t)) : q;
+    const all7 = weekDays(week);
+    if (!all7) return json(400, { ok: false, error: 'bad_week' }, store.kind);
+    const days = all7.filter((d) => readable(d, t));
+    if (!days.length) return json(400, { ok: false, error: 'week_out_of_range' }, store.kind);
+    const cacheKey = `${store.kind}|${week}`;
+    let body = cached(cacheKey, t);
+    if (!body) {
+      const read = await store.readDays(days);
+      const sum = {};
+      for (const c of read.days) for (const [f, n] of Object.entries(c)) sum[f] = (sum[f] || 0) + n;
+      body = {
+        ok: true,
+        v: 1,
+        week,
+        days,
+        store: store.kind,
+        appsKnown: appIds().size,
+        total: sum[TOTAL_FIELD] || 0,
+        summary: summarize(sum),
+        counters: nest(sum),
+        cumulative: nest(read.all),
+      };
+      remember(cacheKey, t, body);
+    }
+    return ok(body, store);
   }
 
   return async function handler(request) {
