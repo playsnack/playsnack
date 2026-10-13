@@ -174,12 +174,13 @@ function roomHarness() {
   const act = (name, payload) => {
     const clientMsgId = `m${++seq}`;
     room.action("p1", payload === undefined ? { name, clientMsgId } : { name, payload, clientMsgId });
-    return out.some((m) => m.to === "p1" && m.type === "actionAck" && m.d.clientMsgId === clientMsgId);
+    // accepted:false (e.g. a quizPack with no playable question) is a refusal, not an ack
+    return out.some((m) => m.to === "p1" && m.type === "actionAck" && m.d.clientMsgId === clientMsgId && m.d.accepted !== false);
   };
   const v = (id) => [...out].reverse().find((m) => m.type === "setVar" && m.d.id === id)?.d.value;
   return { room, act, v, out };
 }
-const SAMPLE = { string: "o0", number: 1, boolean: true };
+const SAMPLE = { string: "o0", number: 1, boolean: true, array: [{ q: "1+1?", options: ["1", "2"], answer: 1 }], object: {} };
 const samplePayload = (spec) => {
   if (spec.payload === "none") return undefined;
   const p = {};
