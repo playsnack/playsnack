@@ -156,9 +156,10 @@ export function buildResultView(input: ResultInput): ResultView {
   const recap = input.quizRecap ?? {};
   const rounds = Array.isArray(recap.rounds) ? recap.rounds.filter((r) => r && typeof r.q === "string") : [];
   const subject = (typeof recap.about === "string" && recap.about) || (typeof recap.subject === "string" && recap.subject) || null;
-  const iAmSubject = input.iAmSubject === true;
+  // A default quiz has no subject: nobody is "나" there, whatever the flag says.
+  const iAmSubject = input.iAmSubject === true && subject !== null;
   const board = Array.isArray(input.raceBoard) ? input.raceBoard : [];
-  const next = nextStep({ quizRecap: recap, quizInfo: input.quizInfo, iAmSubjectNow: input.iAmSubjectNow ?? iAmSubject, roster: input.roster });
+  const next = nextStep({ quizRecap: recap, quizInfo: input.quizInfo, iAmSubjectNow: input.iAmSubjectNow ?? input.iAmSubject === true, roster: input.roster });
   const sharePrimary = !(next.next === "startMine" || next.next === "again" || (next.next === "make" && input.canMake));
 
   // Answerers: everyone in any round's picks (the engine lists each answerer in

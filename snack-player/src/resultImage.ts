@@ -114,7 +114,7 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
     y = para(view.duo.line, y, { font: "body", weight: 700, size: 44 }, COL.ink, 2, "center");
     if (view.duo.tier) {
       y += 20;
-      const tier = { font: "display" as const, weight: 700, size: 60 };
+      const tier = { font: "body" as const, weight: 800, size: 52 }; // a label, not a score: body face
       text(view.duo.tier, IMG_W / 2, y, tier, COL.ink, "center");
       y += lineH(tier);
     }

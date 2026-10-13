@@ -13,7 +13,7 @@ const BASE = (process.argv[2] || "http://localhost:5323/").replace(/\/?$/, "/");
 const OUT = process.argv[3] || "/tmp/snack-result-shots";
 mkdirSync(OUT, { recursive: true });
 const ROOM = "QZRESXLT" + String(Date.now() % 100).padStart(2, "2").replace(/[01]/g, "2"); // room code alphabet: no 0/1/I/O
-const ENGINE_VARS = { quizRecap: { subject: null, rounds: [] }, quizInfo: { title: "", count: 0, custom: false, about: null, answerMs: 9000 }, iAmSubject: false };
+const ENGINE_VARS = { quizRecap: { subject: null, about: null, title: "", packId: null, rounds: [] }, quizInfo: { title: "", count: 0, custom: false, about: null, answerMs: 9000, packId: null }, iAmSubject: false, myPid: "", sessionNo: 0 };
 
 const browser = await chromium.launch();
 async function device(nick) {
@@ -48,8 +48,8 @@ const b = await device("민수");
 await a.page.waitForTimeout(4000); // both in the room → the 💬 button shows
 
 // 1:1 — 지은 (the one answerer) and 민수 (the subject)
-await feed(a, result(duo, { iAmSubject: false }));
-await feed(b, result(duo, { iAmSubject: true }));
+await feed(a, result(duo, { iAmSubject: false, myPid: "pid-지은", sessionNo: 1 }));
+await feed(b, result(duo, { iAmSubject: true, sessionNo: 1 }));
 await a.page.waitForTimeout(400);
 await shot(a, "1-duo-friend-before-question");
 await a.page.waitForTimeout(1800); // the question appears after the result lands
@@ -85,8 +85,8 @@ await a.ctx.close();
 // Group — a fresh device for the long nick (its question has not been asked yet)
 const c = await device(LONG_NICK);
 await c.page.waitForTimeout(3000);
-await feed(c, result(group, { iAmSubject: false }));
-await feed(b, result(group, { iAmSubject: true }));
+await feed(c, result(group, { iAmSubject: false, myPid: `pid-${LONG_NICK}`, sessionNo: 1 }));
+await feed(b, result(group, { iAmSubject: true, sessionNo: 1 }));
 await c.page.waitForTimeout(2200);
 await shot(c, "8-group-me-long-nick-question");
 await shot(b, "9-group-subject-same-session-question");
@@ -104,10 +104,14 @@ for (let i = 1; i <= 10; i++) await c.page.mouse.move(195, 640 - i * 45);
 await c.page.mouse.up();
 await c.page.waitForTimeout(500);
 await shot(c, "12-group-reveal-scrolled");
-// 나도 만들기 layout (as when lane B wires the entry)
-await feed(c, { canMake: true });
-await c.page.waitForTimeout(300);
-await shot(c, "13-group-with-make-button");
+// Next game: this device sends a new quiz during the result → its subject sees
+// 내 퀴즈 시작하기 (the finished results keep their labels), others the banner.
+const NEW_QUIZ = { title: `${LONG_NICK} 맞히기`, count: 6, custom: true, about: LONG_NICK, answerMs: 9000, packId: "pack-new-0000000000000000000000000" };
+await feed(c, { iAmSubject: true, quizInfo: NEW_QUIZ });
+await feed(b, { iAmSubject: false, quizInfo: NEW_QUIZ });
+await c.page.waitForTimeout(400);
+await shot(c, "13-next-start-mine");
+await shot(b, "14-next-waiting-banner");
 await tap(c, 104, 784);
 await c.page.waitForSelector('img[alt="결과 이미지"]', { timeout: 15000 });
 const png2 = await c.page.evaluate(async () => {
@@ -119,6 +123,12 @@ const png2 = await c.page.evaluate(async () => {
   return btoa(s);
 });
 writeFileSync(`${OUT}/result-group.png`, Buffer.from(png2, "base64"));
+
+// A default quiz (no subject) finished: anyone plays again.
+const cold = { ...group, quizRecap: { ...group.quizRecap, subject: null, about: null, title: "", packId: null }, quizInfo: { title: "상식", count: 6, custom: false, about: null, answerMs: 9000, packId: null } };
+await feed(b, result(cold, { iAmSubject: false }));
+await b.page.waitForTimeout(400);
+await shot(b, "15-next-again-default-quiz");
 
 await browser.close();
 console.log(`shots → ${OUT}`);

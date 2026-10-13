@@ -221,6 +221,13 @@ test("default quiz (no subject): generic headline, no tier, 다시 하기", () =
   assert.equal(v.next, "again");
 });
 
+test("default quiz on a device that was the previous quiz's subject: no '나' (no subject this time)", () => {
+  const cold = { ...group.quizRecap!, subject: null, about: null, title: "" };
+  const v = buildResultView({ ...group, quizRecap: cold, iAmSubject: true, quizInfo: { custom: false } });
+  assert.equal(v.headline, "누가 제일 잘 맞혔을까?");
+  assert.equal(v.next, "again");
+});
+
 // ── particles ──
 test("을/를 · 은/는 by the final consonant; combined form for Latin/emoji", () => {
   assert.equal(eulReul("민수"), "민수를");
