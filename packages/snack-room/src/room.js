@@ -136,7 +136,7 @@ export function createRoom(o) {
     scores: new Map(), // anonId → score
     roster: new Map(), // anonId → nick (live participants, insertion order)
     nicks: new Map(), // anonId → nick (score owner names)
-    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null, sid: "", done: 0, subject: "", answerers: undefined },
+    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null, sid: "", done: 0, subject: "", answerers: undefined, acted: undefined },
     destroyed: false,
     // Variable stores — what a (re)joining player needs to see the room as it is:
     vars: new Map(), // shared: id → latest broadcast value (round content too)
@@ -455,6 +455,7 @@ export function createRoom(o) {
     opts = opts || {};
     S.sid = idOf(clientMsgId);
     S.answerers = new Set(); // quiz: who answered at least once (the subject never does)
+    S.acted = new Set(); // who took part in this session (telemetry: "판을 끝낸 인원")
     clearSessionTimers();
     S.round += 1;
     S.mode = "";
@@ -538,6 +539,7 @@ export function createRoom(o) {
       S.revealMs = Math.min(8000, Math.max(1500, Number(opts.revealMs) || 3000));
       S.quiz = true;
       S.quizSubject = custom ? { ...custom.subject } : null;
+      if (S.quizSubject) S.acted.add(S.quizSubject.anonId); // the subject takes part by being guessed
       for (const [id, n] of r.roster) addQuizPlayer(id, n);
       S.picks = S.rounds.map(() => ({}));
       setVar("quizInfo", custom ? quizInfo(S.rounds.length, S.answerMs) : { title: packTitle || "상식", count: S.rounds.length, custom: false, about: null, answerMs: S.answerMs });
@@ -580,11 +582,13 @@ export function createRoom(o) {
     return Math.max(1, 2000 - Math.round(m));
   };
 
+  const PLAY_ACTIONS = new Set(["vote", "tally", "score", "tap", "taps", "reaction", "answer"]);
   function action(peerId, d) {
     const peer = r.peers.get(peerId);
     if (!peer) return;
     const { anonId, nick } = peer;
     const name = d?.name;
+    if (S.acted && S.phase !== "lobby" && PLAY_ACTIONS.has(name)) S.acted.add(anonId); // took part in this session
     if (name === "vote" && d?.payload?.option != null) {
       r.voters.set(anonId, String(d.payload.option)); // one vote per person, re-vote allowed
       onVotersChanged();
@@ -777,7 +781,7 @@ export function createRoom(o) {
      */
     snapshot() {
       const t = now();
-      const { timers, answered, answerers, eliminated, reacted, pending, roundStart, goAt, playAt, lateUntil, ...rest } = S;
+      const { timers, answered, answerers, acted, eliminated, reacted, pending, roundStart, goAt, playAt, lateUntil, ...rest } = S;
       return {
         v: 1,
         voters: [...r.voters],
@@ -790,6 +794,7 @@ export function createRoom(o) {
           ...rest,
           answered: answered ? [...answered] : undefined,
           answerers: answerers ? [...answerers] : undefined,
+          acted: acted ? [...acted] : undefined,
           eliminated: eliminated ? [...eliminated] : undefined,
           reacted: reacted ? [...reacted] : undefined,
           pending: pending?.map(({ anonId, nick, peerId }) => ({ anonId, nick, peerId })),
@@ -813,10 +818,11 @@ export function createRoom(o) {
       r.nicks = new Map(snap.nicks);
       r.vars = new Map(snap.vars ?? []);
       r.mine = new Map((snap.mine ?? []).map(([anonId, own]) => [anonId, new Map(own)]));
-      const { answered, answerers, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, ...rest } = snap.session;
+      const { answered, answerers, acted, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, ...rest } = snap.session;
       Object.assign(S, rest, { timers: [] });
       if (answered) S.answered = new Set(answered);
       if (answerers) S.answerers = new Set(answerers);
+      if (acted) S.acted = new Set(acted);
       if (eliminated) S.eliminated = new Set(eliminated);
       if (reacted) S.reacted = new Set(reacted);
       if (pending) S.pending = pending;
