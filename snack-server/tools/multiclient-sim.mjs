@@ -71,7 +71,7 @@ async function simOne(id, n) {
   // isolated throwaway room per (id, clientCount) — tests the same room LOGIC
   // (sync/tally/participants) without touching the canonical tpl-<id> room.
   const slug = `${SLUG_PREFIX}${id}-${n}`;
-  const clients = Array.from({ length: n }, (_, i) => new SimClient(slug, `${slug}-c${i}`));
+  const clients = Array.from({ length: n }, (_, i) => new SimClient(slug, `${slug}-c${i}`, `c${i}`));
   await Promise.all(clients.map((c) => c.ready));
   await sleep(SETTLE_MS);
   for (let w = 0; MESH && w < 6000 && !clients.every((c) => c.participants === n); w += 200) await sleep(200);
@@ -85,6 +85,7 @@ async function simOne(id, n) {
     const sv = varNames(doc);
     const sp = startPayload(doc) || {};
     const sub = sv.includes("nunchiNum") ? "nunchi" : sv.includes("reactionGo") ? "reaction" : sp.mode === "guess" ? "guess" : sv.includes("roundAnswer") ? "quiz" : sv.includes("coopTotal") ? "tally" : sv.includes("votesByOption") ? "vote" : "tap";
+    const device = sub === "reaction" ? Boolean(findEmit(doc, "reaction")) : sub === "tap" ? Boolean(findEmit(doc, "taps")) : undefined; // MP-08: device-measured
     const ACT = 4;
     // Every client must be SHOWN each phase, in order: a start that never happened (or a
     // session that never finished) cannot pass on convergence alone.
@@ -119,10 +120,22 @@ async function simOne(id, n) {
       clients[0].start(sp.mode ? sp : { mode: "reaction" });
       await reachedPlay;
       await until(() => first(clients[0]).reactionGo === true, 7000); // green
-      await sleep(90); // react
-      clients.forEach((c) => c.tap());
-      view = (c) => c.shared.raceBoard || []; exact = false; // reaction ms vary → convergence + everyone on the board, after green
-      check = (v) => v.length === n && v.every((e) => e.score > 0) ? null : `reaction: board=${JSON.stringify(v)}`;
+      if (findEmit(doc, "reaction")) {
+        // MP-08 proof: each device reports the reaction time IT measured. The fastest
+        // claim is sent LAST (a slow network), so the host hears the slowest one first —
+        // host-arrival scoring would rank them backwards. Score must be 2000 − device ms.
+        const claim = (i) => 120 + 60 * i; // c0 fastest … c(n−1) slowest, all inside the window
+        const sendAt = (i) => claim(i) + (n - 1 - i) * 80; // leaves after the reaction, later for faster claims
+        await Promise.all(clients.map((c, i) => sleep(sendAt(i)).then(() => c.reaction(claim(i)))));
+        const want = clients.map((c, i) => [c.nick, 2000 - claim(i)]); // ranked by claimed ms, c0 first
+        view = (c) => (c.shared.raceBoard || []).map((e) => [e.nick, e.score]); exact = false;
+        check = (v) => JSON.stringify(v) === JSON.stringify(want) ? null : `reaction (device ms): board=${JSON.stringify(v)} want=${JSON.stringify(want)}`;
+      } else {
+        await sleep(90); // react
+        clients.forEach((c) => c.tap());
+        view = (c) => c.shared.raceBoard || []; exact = false; // reaction ms vary → convergence + everyone on the board, after green
+        check = (v) => v.length === n && v.every((e) => e.score > 0) ? null : `reaction: board=${JSON.stringify(v)}`;
+      }
     } else if (sub === "quiz") {
       // the app's real start (game/quiz params), one short round → reveal → result
       clients[0].start({ ...sp, answerMs: 3000, revealMs: 1500, rounds: 1 });
@@ -141,6 +154,18 @@ async function simOne(id, n) {
         const opt = voteKeys(doc)[0] || "o0";
         clients.forEach((c) => c.vote(opt));
         view = (c) => (c.shared.votesByOption || {})[opt] ?? 0; expected = n;
+      } else if (findEmit(doc, "taps")) {
+        // MP-08: each device sends its running total in batches (plus one stale resend);
+        // every device's card must equal its row on the board — exactly.
+        const finalOf = (i) => 3 + i;
+        for (let k = 1; k <= 3 + n; k++) {
+          clients.forEach((c, i) => k <= finalOf(i) && c.taps(k));
+          await sleep(60);
+        }
+        clients[0].taps(1); // an old batch arriving late: never rolls the count back
+        const want = clients.map((c, i) => [c.nick, finalOf(i)]).sort((a, b) => b[1] - a[1]);
+        view = (c) => (c.shared.raceBoard || []).map((e) => [e.nick, e.score]); exact = false;
+        check = (v) => JSON.stringify(v) === JSON.stringify(want) ? null : `taps (device counts): board=${JSON.stringify(v)} want=${JSON.stringify(want)}`;
       } else {
         for (let k = 0; k < ACT; k++) { clients.forEach((c) => c.tap()); await sleep(40); }
         view = (c) => c.shared.raceBoard || []; expected = n * ACT;
@@ -169,8 +194,9 @@ async function simOne(id, n) {
     await sleep(60);
     const ok = converged && desyncEvents === 0 && tallyError === 0 && !failure && playSeen && resultSeen !== false && participantsAccurate && phaseSynced && outAccurate;
     return {
-      id, kind: `session:${sub}`, clients: n, ok, converged, desyncEvents, tallyError, participantsAccurate, phaseSynced,
+      id, kind: `session:${sub}${device ? ":device-measured" : ""}`, clients: n, ok, converged, desyncEvents, tallyError, participantsAccurate, phaseSynced,
       reachedPlay: playSeen, reachedResult: resultSeen, phases: [...new Set(phases)],
+      ...(device ? { deviceMeasured: true, board: view(clients[0]) } : {}),
       ...(failure ? { failure } : {}), ...(sub === "nunchi" ? { outAccurate } : {}),
     };
   }

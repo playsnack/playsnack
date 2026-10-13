@@ -15,7 +15,9 @@
     "reactionGo": false,
     "raceBoard": [],
     "myReacted": false,
-    "myResult": ""
+    "myResult": "",
+    "goSeenAt": 0,
+    "reactMs": -1
   },
   "components": {
     "NavBar": {
@@ -184,7 +186,22 @@
       ]
     },
     "play": {
+      "enter": [
+        {
+          "set": "goSeenAt",
+          "to": "0"
+        }
+      ],
       "tick": [
+        {
+          "if": "reactionGo && goSeenAt == 0",
+          "then": [
+            {
+              "set": "goSeenAt",
+              "to": "now"
+            }
+          ]
+        },
         {
           "if": "sessionPhase === 'lobby'",
           "then": [
@@ -462,7 +479,14 @@
                     "to": "reactionGo ? 'ok' : 'foul'"
                   },
                   {
-                    "emit": "tap"
+                    "set": "reactMs",
+                    "to": "reactionGo && goSeenAt > 0 ? now - goSeenAt : -1"
+                  },
+                  {
+                    "emit": "reaction",
+                    "payload": {
+                      "ms": "{reactMs}"
+                    }
                   }
                 ]
               }
@@ -530,7 +554,7 @@
               },
               {
                 "id": "winTitle",
-                "text": "{phase == 'result' ? (raceBoard.length > 0 ? (raceBoard[0].score > 0 ? ('' + (raceBoard[0].nick) + ' · ' + (2000 - raceBoard[0].score) + 'ms ⚡') : '모두 부정출발 😱') : '아무도 안 눌렀어요') : ''}",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? (raceBoard[0].score > 0 ? ((raceBoard.length > 1 && raceBoard[1].score === raceBoard[0].score) ? ('🤝 공동 1위 · ' + (2000 - raceBoard[0].score) + 'ms') : ('' + (raceBoard[0].nick) + ' · ' + (2000 - raceBoard[0].score) + 'ms ⚡')) : '모두 부정출발 😱') : '아무도 안 눌렀어요') : ''}",
                 "width": 330,
                 "size": 23,
                 "font": "display",

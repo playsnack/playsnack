@@ -88,7 +88,7 @@ export class SimClient {
       return;
     }
     this.ws = new WebSocket(WS_URL);
-    this.ws.on("open", () => this._send("hello", { slug, anonId }));
+    this.ws.on("open", () => this._send("hello", { slug, anonId, nick: this.nick ?? "" }));
     this.ws.on("message", (buf) => {
       let m; try { m = JSON.parse(buf.toString()); } catch { return; }
       onMessage(m);
@@ -109,6 +109,10 @@ export class SimClient {
   score(score) { this._send("action", { name: "score", payload: { score }, clientMsgId: `${this.anonId}-s` }); }
   start(opts = 3000) { const payload = typeof opts === "number" ? { duration: opts } : opts; this._send("action", { name: "start", payload, clientMsgId: `${this.anonId}-go` }); }
   tap() { this._send("action", { name: "tap", clientMsgId: `${this.anonId}-tap-${Math.random()}` }); }
+  /** MP-08: this device's running tap total (the room keeps the max). */
+  taps(count) { this._send("action", { name: "taps", payload: { count }, clientMsgId: `${this.anonId}-taps-${count}-${Math.random()}` }); }
+  /** MP-08: reaction time measured on this device (green → tap, ms). */
+  reaction(ms) { this._send("action", { name: "reaction", payload: { ms }, clientMsgId: `${this.anonId}-react-${Math.random()}` }); }
   answer(option) { this._send("action", { name: "answer", payload: { option }, clientMsgId: `${this.anonId}-ans-${Math.random()}` }); }
   close() { try { this.relay ? this.relay.close() : this.ws.close(); } catch { /* */ } }
 }

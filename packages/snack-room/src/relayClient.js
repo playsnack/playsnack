@@ -13,6 +13,7 @@
 //   → broadcast {t, d} · send {peerId, t, d} (host) ← plain {t, d} to peers
 //   → snapshot {snap} · beat · handoff     (host: resumable state, liveness, hand over)
 import { createRoom } from "./room.js";
+import { localCountdown } from "./countdown.js";
 
 const BEAT_MS = 1000; // host heartbeat (the relay hands over after 3s of silence)
 const SNAPSHOT_DEBOUNCE_MS = 200;
@@ -40,7 +41,13 @@ export function connectRelay({ url, WebSocket, me, onMessage, getPack, onRole = 
     if (ws.readyState === 1) ws.send(JSON.stringify({ t, d }));
     else queue.push({ t, d });
   };
-  const deliver = (t, d) => onMessage({ t, d });
+  // The 3·2·1 runs on this device's clock (countdown.js); the host's numbers refine it.
+  const cd = localCountdown({ deliver: (t, d) => onMessage({ t, d }) });
+  const deliver = (t, d) => {
+    if (t === "countdown") return cd.start(d ?? {});
+    if (t === "setVar" && d?.id === "sessionCountdown" && cd.intercept(d.value)) return;
+    onMessage({ t, d });
+  };
 
   // While hosting: push a snapshot shortly after every change and beat steadily,
   // so the relay can resume the room elsewhere if this device goes away.
@@ -133,13 +140,15 @@ export function connectRelay({ url, WebSocket, me, onMessage, getPack, onRole = 
       room?.leave(d.peerId);
     } else if (t === "from") {
       if (!room) return;
-      if (d.kind === "react") room.react(d.d?.emoji);
-      else room.action(d.peerId, d.d);
+      if (d.kind === "react") return room.react(d.d?.emoji);
+      room.action(d.peerId, d.d);
+      pushSnapshot(); // even a change that shows nothing yet (a hidden vote) must survive a hand-over
     } else {
       deliver(t, d); // a room message relayed from the host
     }
   };
   ws.onclose = () => {
+    cd.stop();
     stopHosting();
     if (!closed) deliver("disconnected", {});
   };
@@ -150,8 +159,10 @@ export function connectRelay({ url, WebSocket, me, onMessage, getPack, onRole = 
     },
     sendAction(name, payload, clientMsgId) {
       const d = { name, payload, clientMsgId };
-      if (room) room.action(myId, d);
-      else raw("action", d);
+      if (room) {
+        room.action(myId, d);
+        pushSnapshot();
+      } else raw("action", d);
     },
     sendReaction(emoji) {
       if (room) room.react(emoji);
@@ -163,6 +174,7 @@ export function connectRelay({ url, WebSocket, me, onMessage, getPack, onRole = 
     },
     close() {
       closed = true;
+      cd.stop();
       stopHosting();
       try {
         ws.close();

@@ -13,7 +13,9 @@
     "sessionCountdown": 0,
     "roster": [],
     "raceBoard": [],
-    "myTaps": 0
+    "myTaps": 0,
+    "sentTaps": 0,
+    "sentAt": 0
   },
   "components": {
     "NavBar": {
@@ -184,6 +186,25 @@
     "play": {
       "tick": [
         {
+          "if": "myTaps > sentTaps && now - sentAt >= 250",
+          "then": [
+            {
+              "emit": "taps",
+              "payload": {
+                "count": "{myTaps}"
+              }
+            },
+            {
+              "set": "sentTaps",
+              "to": "myTaps"
+            },
+            {
+              "set": "sentAt",
+              "to": "now"
+            }
+          ]
+        },
+        {
           "if": "sessionPhase === 'lobby'",
           "then": [
             {
@@ -211,6 +232,21 @@
     },
     "result": {
       "tick": [
+        {
+          "if": "myTaps > sentTaps",
+          "then": [
+            {
+              "emit": "taps",
+              "payload": {
+                "count": "{myTaps}"
+              }
+            },
+            {
+              "set": "sentTaps",
+              "to": "myTaps"
+            }
+          ]
+        },
         {
           "if": "sessionPhase === 'lobby'",
           "then": [
@@ -339,6 +375,10 @@
                 "then": [
                   {
                     "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "set": "sentTaps",
                     "to": "0"
                   },
                   {
@@ -487,9 +527,6 @@
                   {
                     "set": "myTaps",
                     "to": "myTaps + 1"
-                  },
-                  {
-                    "emit": "tap"
                   }
                 ]
               }
@@ -556,7 +593,7 @@
               },
               {
                 "id": "winTitle",
-                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ('' + (raceBoard[0].nick) + ' 우승!') : '아무도 안 쳤어요') : ''}",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ((raceBoard.length > 1 && raceBoard[1].score === raceBoard[0].score) ? ('🤝 ' + (raceBoard.filter(e => e.score === raceBoard[0].score).map(e => e.nick).join(' · ')) + ' 공동 우승!') : ('' + (raceBoard[0].nick) + ' 우승!')) : '아무도 안 쳤어요') : ''}",
                 "width": 330,
                 "size": 24,
                 "font": "display",
@@ -740,6 +777,10 @@
                 "then": [
                   {
                     "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "set": "sentTaps",
                     "to": "0"
                   },
                   {

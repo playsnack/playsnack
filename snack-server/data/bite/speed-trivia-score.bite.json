@@ -688,7 +688,7 @@
               },
               {
                 "id": "winTitle",
-                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ('' + (raceBoard[0].nick) + ' 우승!') : '결과') : ''}",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ((raceBoard.length > 1 && raceBoard[1].score === raceBoard[0].score) ? ('🤝 ' + (raceBoard.filter(e => e.score === raceBoard[0].score).map(e => e.nick).join(' · ')) + ' 공동 우승!') : ('' + (raceBoard[0].nick) + ' 우승!')) : '결과') : ''}",
                 "width": 330,
                 "size": 24,
                 "font": "display",

@@ -458,11 +458,11 @@
           },
           {
             "id": "statusText",
-            "text": "{phase == 'play' ? (roundAnswer < 0 ? (myVoteRound === roundIdx ? '예측 완료! 다른 사람들 기다리는 중…' : '이 방의 다수파를 예측해서 골라요 👀') : (myVoteRound === roundIdx ? (myVote === ('o' + roundAnswer) ? '🎯 적중! 방의 다수파를 맞혔어요 +100' : '❌ 빗나감! 방심했네요') : '⏱ 예측을 못 했어요')) : '이 방의 다수파를 예측해서 골라요 👀'}",
+            "text": "{phase == 'play' ? (roundAnswer < 0 ? (myVoteRound === roundIdx ? '예측 완료! 다른 사람들 기다리는 중…' : '이 방의 다수파를 예측해서 골라요 👀') : (roundAnswer === 2 ? '🤝 동점! 다수파가 없어요' : (myVoteRound === roundIdx ? (myVote === ('o' + roundAnswer) ? '🎯 적중! 방의 다수파를 맞혔어요 +100' : '❌ 빗나감! 방심했네요') : '⏱ 예측을 못 했어요'))) : '이 방의 다수파를 예측해서 골라요 👀'}",
             "width": 350,
             "size": 16,
             "weight": 700,
-            "color": "{phase == 'play' ? (roundAnswer < 0 ? '#d9ff00' : (myVoteRound === roundIdx && myVote === ('o' + roundAnswer) ? '#22c55e' : '#FF5A5F')) : '#d9ff00'}",
+            "color": "{phase == 'play' ? (roundAnswer < 0 || roundAnswer === 2 ? '#d9ff00' : (myVoteRound === roundIdx && myVote === ('o' + roundAnswer) ? '#22c55e' : '#FF5A5F')) : '#d9ff00'}",
             "align": "center"
           },
           {
@@ -645,7 +645,7 @@
               },
               {
                 "id": "winTitle",
-                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ('' + (raceBoard[0].nick) + ' 눈치왕! 🧠') : '결과') : ''}",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ((raceBoard.length > 1 && raceBoard[1].score === raceBoard[0].score) ? ('🤝 ' + (raceBoard.filter(e => e.score === raceBoard[0].score).map(e => e.nick).join(' · ')) + ' 공동 눈치왕!') : ('' + (raceBoard[0].nick) + ' 눈치왕! 🧠')) : '결과') : ''}",
                 "width": 330,
                 "size": 24,
                 "font": "display",
