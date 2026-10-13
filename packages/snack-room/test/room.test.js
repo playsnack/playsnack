@@ -64,6 +64,19 @@ test("join sends full state to the newcomer and the roster to everyone", () => {
   assert.equal(h.room.leave("p2"), true);
 });
 
+test("a reload overlapping the old connection keeps the player on the roster", () => {
+  const h = harness();
+  h.join(1);
+  h.join(2);
+  h.room.join("p2b", { anonId: "a2", nick: "닉2" }); // the reloaded tab, before the old one is gone
+  assert.deepEqual(h.v("roster"), ["닉1", "닉2"]);
+  assert.equal(h.room.leave("p2"), false); // the old connection drops
+  assert.deepEqual(h.v("roster"), ["닉1", "닉2"]);
+  assert.equal(h.room.stateFor("p1").sharedState.roster.length, 2);
+  h.room.leave("p2b");
+  assert.deepEqual(h.v("roster"), ["닉1"]);
+});
+
 test("votes: one per person, re-vote moves it, tally broadcast + ack", () => {
   const h = harness({ defaults: { A: 0, B: 0 } });
   h.join(1);
@@ -149,6 +162,27 @@ test("nunchi: a solo tap claims the number, simultaneous taps knock both out", a
   assert.ok(h.out.some((m) => m.to === "p2" && m.d?.id === "iAmOut" && m.d.value === true));
   assert.ok(!h.out.some((m) => m.to === "p1" && m.d?.id === "iAmOut" && m.d.value === true));
   assert.equal(h.v("sessionPhase"), "play");
+});
+
+test("nunchi: an eliminated player leaving does not end the game early", async () => {
+  const h = harness();
+  [1, 2, 3, 4].forEach(h.join);
+  h.act(1, "start", { mode: "nunchi" });
+  await h.advance(3000);
+  h.act(2, "tap");
+  h.act(3, "tap");
+  await h.advance(400);
+  assert.equal(h.v("eliminatedCount"), 2);
+  h.room.leave("p2"); // knocked out, closes the tab
+  h.act(1, "tap"); // a solo claim: 1 and 4 are still in
+  await h.advance(400);
+  assert.equal(h.v("nunchiNum"), 2);
+  assert.equal(h.v("sessionPhase"), "play");
+  h.room.leave("p4"); // a survivor leaves: now 1 is the last one
+  h.act(1, "tap");
+  await h.advance(400);
+  assert.equal(h.v("sessionPhase"), "result");
+  assert.match(h.v("nunchiWinner"), /닉1 최후의 1인/);
 });
 
 test("bracket: matchups advance by room vote down to a champion", async () => {

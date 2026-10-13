@@ -1,6 +1,6 @@
 // "되는 척" 문구 검사 (master-plan §4 Q0 merge criterion: 0 hits). Scans the
-// user-facing surfaces — player sources, index.html, the official templates and a
-// built dist when present — for phrases that claim something the product does
+// user-facing surfaces — player sources, index.html and the official templates —
+// for phrases that claim something the product does
 // not do (a LIVE badge, "N명 접속 중", "저장되었어요", "서버", 📸, ★ without
 // ratings data …). Comments are stripped before matching; legitimate uses are
 // listed in ALLOW with a reason. Exit 1 on any hit, printing file:line.
@@ -17,7 +17,8 @@ const TARGETS = [
   { dir: "snack-player/src", ext: [".ts", ".tsx", ".css"] },
   { file: "snack-player/index.html" },
   { dir: "snack-server/data/bite", ext: [".bite.json"] },
-  { dir: "snack-player/dist", ext: [".js", ".html"], optional: true },
+  // Not the built dist: it is derived from these sources, and ALLOW is keyed by
+  // source file:line, so the minified bundle would re-flag every allowed use.
 ];
 
 // Each rule: id, regex (tested per line of comment-stripped source), what it fakes.

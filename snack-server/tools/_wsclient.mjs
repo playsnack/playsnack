@@ -42,6 +42,7 @@ export class SimClient {
     this.slug = slug; this.anonId = anonId; this.nick = nick;
     this.shared = { votesByOption: null, coopTotal: null, leaderboard: null, sessionPhase: null, raceBoard: null };
     this.participants = 0;
+    this.phases = []; // every sessionPhase this client was shown, in order (evidence a session really ran)
     // Never hang a gate: give up waiting after 15s (the scenario then fails on its checks).
     this.ready = new Promise((res) => {
       this._onReady = res;
@@ -52,9 +53,11 @@ export class SimClient {
         this.gotState = true;
         Object.assign(this.shared, m.d.sharedState || {});
         this.participants = m.d.participants ?? this.participants;
+        if (m.d.sharedState?.sessionPhase) this._phase(m.d.sharedState.sessionPhase);
         this._onReady();
       } else if (m.t === "setVar") {
         this.shared[m.d.id] = m.d.value;
+        if (m.d.id === "sessionPhase") this._phase(m.d.value);
       } else if (m.t === "participants") {
         this.participants = m.d.count;
       }
@@ -91,6 +94,9 @@ export class SimClient {
       onMessage(m);
     });
   }
+  _phase(p) { if (this.phases.at(-1) !== p) this.phases.push(p); }
+  /** Saw `a`, and later `b` (phases arrive in order per client). */
+  sawInOrder(a, b) { const i = this.phases.indexOf(a); return i >= 0 && this.phases.indexOf(b, i + 1) > i; }
   _send(t, d) {
     if (this.relay) {
       if (t === "action") this.relay.sendAction(d.name, d.payload, d.clientMsgId);
