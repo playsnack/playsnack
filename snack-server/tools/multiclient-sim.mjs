@@ -93,7 +93,7 @@ async function simOne(id, n) {
     const everyPhase = (ph) => everyClient((c) => c.phases.includes(ph));
     const first = (c) => c.shared;
     const reachedPlay = until(() => everyPhase("play"), 8000); // polling from before the start
-    let view, expected, exact = true, expectResult = true, check = null;
+    let view, expected, exact = true, expectResult = true, check = null, quizCheck = null;
     if (sub === "guess") {
       // 눈치 배틀, one round: everyone predicts o0 → o0 IS the majority → the reveal says 0
       // and every player scores +100. Then the result screen.
@@ -137,13 +137,30 @@ async function simOne(id, n) {
         check = (v) => v.length === n && v.every((e) => e.score > 0) ? null : `reaction: board=${JSON.stringify(v)}`;
       }
     } else if (sub === "quiz") {
-      // the app's real start (game/quiz params), one short round → reveal → result
-      clients[0].start({ ...sp, answerMs: 3000, revealMs: 1500, rounds: 1 });
+      // 나 맞히기: c0 sends its own one-question pack (the subject); everyone else answers with
+      // the time THEIR device measured. The fastest claim is sent LAST (host-arrival order is
+      // backwards); the subject's own answer must be ignored. Score = f(device ms), not arrival.
+      const ANSWER_MS = 4000;
+      const pack = { title: "sim 퀴즈", questions: [{ q: "c0가 좋아하는 숫자는?", options: ["하나", "둘", "셋", "넷"], answer: 2 }], settings: { rounds: 1, answerMs: ANSWER_MS } };
+      clients[0].quizPack(pack);
+      await until(() => everyClient((c) => c.shared.quizInfo?.custom === true && c.shared.quizInfo?.about === clients[0].nick), 8000);
+      clients[0].start({ ...sp, revealMs: 1500 });
       await reachedPlay;
-      clients.forEach((c) => c.answer(0)); // all pick option 0: the reveal says whether that scored
+      await until(() => everyClient((c) => c.shared.roundContent?.q === pack.questions[0].q), 4000);
+      const right = (clients[1].shared.roundContent?.options ?? []).indexOf("셋");
+      const answerers = clients.slice(1);
+      const claim = (i) => 200 + 150 * i; // c1 fastest … slowest, all inside the window
+      const sendAt = (i) => claim(i) + (answerers.length - 1 - i) * 80; // after the tap; later for faster claims
+      clients[0].answer(right, 10); // the subject: ignored
+      await Promise.all(answerers.map((c, i) => sleep(sendAt(i)).then(() => c.answer(right, claim(i)))));
       await until(() => (first(clients[0]).roundAnswer ?? -1) >= 0, 6000);
-      view = (c) => ({ ans: c.shared.roundAnswer, board: c.shared.raceBoard }); exact = false;
-      check = (v) => v.ans >= 0 && (v.board || []).length === (v.ans === 0 ? n : 0) && (v.board || []).every((e) => e.score >= 100) ? null : `quiz: ans=${v.ans} board=${JSON.stringify(v.board)}`;
+      const pts = (ms) => Math.max(100, 1000 - Math.round((ms / ANSWER_MS) * 800));
+      const want = answerers.map((c, i) => [c.nick, pts(claim(i))]).slice(0, 8);
+      view = (c) => ({ ans: c.shared.roundAnswer, board: (c.shared.raceBoard || []).map((e) => [e.nick, e.score]) }); exact = false;
+      check = (v) => v.ans === right && JSON.stringify(v.board) === JSON.stringify(want) ? null : `quiz (device ms): ans=${v.ans}/${right} board=${JSON.stringify(v.board)} want=${JSON.stringify(want)}`;
+      // …and the recap reaches everyone: subject c0, each answerer's own ms (picks in roster order)
+      const recapOk = () => everyClient((c) => c.shared.quizRecap?.subject === clients[0].nick && JSON.stringify((c.shared.quizRecap.rounds?.[0]?.picks || []).map((p) => [p.nick, p.ms, p.correct]).sort()) === JSON.stringify(answerers.map((a, i) => [a.nick, claim(i), true])));
+      quizCheck = async () => ((await until(recapOk, SETTLE_MS + 3000)) ? null : `quizRecap: ${JSON.stringify(clients[1].shared.quizRecap)}`);
     } else {
       clients[0].start(3000); // single play window
       await reachedPlay;
@@ -182,6 +199,7 @@ async function simOne(id, n) {
     const samePhase = () => everyClient((c) => c.shared.sessionPhase === clients[0].shared.sessionPhase);
     for (let w = 0; MESH && !samePhase() && w < SETTLE_MS; w += 100) await sleep(100);
     const phaseSynced = samePhase();
+    const recapFailure = quizCheck ? await quizCheck() : null;
     const participantsAccurate = everyClient((c) => c.participants === n);
     // MP-07: exactly the eliminated players see iAmOut — still true after the resync beats.
     let outAccurate = true;
@@ -192,12 +210,13 @@ async function simOne(id, n) {
     const phases = clients.map((c) => c.phases.join(">"));
     clients.forEach((c) => c.close());
     await sleep(60);
-    const ok = converged && desyncEvents === 0 && tallyError === 0 && !failure && playSeen && resultSeen !== false && participantsAccurate && phaseSynced && outAccurate;
+    const ok = converged && desyncEvents === 0 && tallyError === 0 && !failure && !recapFailure && playSeen && resultSeen !== false && participantsAccurate && phaseSynced && outAccurate;
     return {
       id, kind: `session:${sub}${device ? ":device-measured" : ""}`, clients: n, ok, converged, desyncEvents, tallyError, participantsAccurate, phaseSynced,
       reachedPlay: playSeen, reachedResult: resultSeen, phases: [...new Set(phases)],
       ...(device ? { deviceMeasured: true, board: view(clients[0]) } : {}),
-      ...(failure ? { failure } : {}), ...(sub === "nunchi" ? { outAccurate } : {}),
+      ...(failure ? { failure } : {}), ...(recapFailure ? { recapFailure } : {}), ...(sub === "nunchi" ? { outAccurate } : {}),
+      ...(sub === "quiz" ? { deviceMeasured: true, customPack: true, board: view(clients[0]).board } : {}),
     };
   }
 
