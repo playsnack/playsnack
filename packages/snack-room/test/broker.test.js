@@ -30,6 +30,40 @@ test("broker: an MQTT packet split across WebSocket frames still gets through", 
   await b.close();
 });
 
+// A PUBLISH and a SUBSCRIBE back to back — what mqtt.js sends when it flushes a QoS 0
+// message queued while offline right before subscribing (a slow page: the mesh beat
+// fired before CONNACK). One WebSocket frame (the browser coalesces them) or two.
+for (const frames of [1, 2]) {
+  test(`broker: PUBLISH then SUBSCRIBE in ${frames} frame(s) → SUBACK, and the connection stays usable`, async () => {
+    const b = await startLocalBroker();
+    const errors = [];
+    b.aedes.on("clientError", (_c, e) => errors.push(e.message));
+    const ws = new WebSocket(b.url, "mqtt");
+    await new Promise((r) => ws.once("open", r));
+    const packets = [];
+    const parser = mqttPacket.parser();
+    parser.on("packet", (p) => packets.push(p));
+    ws.on("message", (d) => parser.parse(d));
+    const gen = (p) => mqttPacket.generate(p, { protocolVersion: 4 });
+    ws.send(gen({ cmd: "connect", protocolId: "MQTT", protocolVersion: 4, clean: true, clientId: `pubsub${frames}`, keepalive: 10 }));
+    assert.ok(await until(() => packets.some((p) => p.cmd === "connack"), 2000));
+    const pub = gen({ cmd: "publish", topic: "t/room", payload: Buffer.from(JSON.stringify({ t: "here", nick: "심야 펭귄" })), qos: 0 });
+    const sub = gen({ cmd: "subscribe", messageId: 7, subscriptions: [{ topic: "t/room", qos: 0 }] });
+    if (frames === 1) ws.send(Buffer.concat([pub, sub]));
+    else {
+      ws.send(pub);
+      ws.send(sub);
+    }
+    assert.ok(await until(() => packets.some((p) => p.cmd === "suback" && p.messageId === 7), 2000), "no SUBACK");
+    ws.send(gen({ cmd: "publish", topic: "t/room", payload: Buffer.from("{}"), qos: 0 })); // the next beat
+    assert.ok(await until(() => packets.some((p) => p.cmd === "publish"), 2000), "subscribed: own publish comes back");
+    assert.deepEqual(errors, []);
+    assert.equal(ws.readyState, WebSocket.OPEN);
+    ws.close();
+    await b.close();
+  });
+}
+
 test("broker: lossy mode drops ~5% and reorders; switchable at runtime", async () => {
   const b = await startLocalBroker({ lossy: true });
   const got = [];
@@ -78,6 +112,64 @@ test("mqttBus: a broker that refuses the connection → failed at once", async (
   await sleep(1500); // no reconnect attempts after giving up
   assert.equal(statuses.length, 1);
   bus.close();
+  await b.close();
+});
+
+test("mqttBus: the connection drops before SUBACK → reconnects and subscribes (no permanent 'subscribe' failure)", async () => {
+  const b = await startLocalBroker({ cutOnSubscribe: 1 });
+  const statuses = [];
+  const bus = mqttBus({ url: b.url, room: "cut", failAfterMs: 6000 })("cutp");
+  bus.onStatus((s) => statuses.push(s));
+  let ready = false;
+  bus.ready.then(() => (ready = true));
+  assert.ok(await until(() => ready || statuses.length > 0, 6000), "neither ready nor failed");
+  assert.equal(b.stats.cut, 1, "the broker cut the first SUBSCRIBE");
+  assert.deepEqual(statuses, []);
+  assert.ok(ready, "subscribed after the drop");
+  // and it really is subscribed: a message on the room topic arrives
+  const got = [];
+  bus.onMessage((m) => got.push(m));
+  const other = mqttBus({ url: b.url, room: "cut" })("cutq");
+  await other.ready;
+  other.publish({ hi: 1 });
+  assert.ok(await until(() => got.length > 0, 2000), "no message after resubscribe");
+  bus.close();
+  other.close();
+  await sleep(100);
+  await b.close();
+});
+
+test("mqttBus: the connection keeps dropping before SUBACK → failed 'subscribe' after a bounded number of tries", async () => {
+  const b = await startLocalBroker({ cutOnSubscribe: 100 });
+  const statuses = [];
+  const t0 = Date.now();
+  const bus = mqttBus({ url: b.url, room: "cut2", failAfterMs: 8000 })("cutr");
+  bus.onStatus((s) => statuses.push(s));
+  assert.ok(await until(() => statuses.length > 0, 9000));
+  assert.deepEqual(statuses, [{ state: "failed", reason: "subscribe" }]);
+  assert.ok(b.stats.cut >= 3, `tried ${b.stats.cut}×`);
+  assert.ok(Date.now() - t0 < 7000, `gave up after ${Date.now() - t0} ms`);
+  const cuts = b.stats.cut;
+  await sleep(1500); // no more attempts after giving up
+  assert.equal(b.stats.cut, cuts);
+  bus.close();
+  await b.close();
+});
+
+test("mqttBus: a refused subscription (SUBACK 0x80) is tried again on the same connection", async () => {
+  const b = await startLocalBroker();
+  let refusals = 1;
+  b.aedes.authorizeSubscribe = (_client, sub, cb) => (refusals-- > 0 ? cb(null, null) : cb(null, sub)); // null → granted 0x80
+  const statuses = [];
+  const bus = mqttBus({ url: b.url, room: "refused" })("refp");
+  bus.onStatus((s) => statuses.push(s));
+  let ready = false;
+  bus.ready.then(() => (ready = true));
+  assert.ok(await until(() => ready || statuses.length > 0, 4000));
+  assert.ok(ready, JSON.stringify(statuses));
+  assert.equal(refusals, -1, "subscribed on the 2nd try");
+  bus.close();
+  await sleep(100);
   await b.close();
 });
 
