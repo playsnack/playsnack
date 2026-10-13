@@ -3,6 +3,8 @@
 // is collected once on first visit (see NicknameGate) and sent on every live
 // connection so the server can attribute scores to a name (user leaderboard).
 
+import { clampNick } from "./nick";
+
 const ANON_KEY = "snack_anon";
 const NICK_KEY = "snack_nick";
 const PHOTO_KEY = "snack_photo"; // "1" once a selfie has been uploaded for this anonId
@@ -34,13 +36,15 @@ export function getAnonId(): string {
   return id;
 }
 
+// Capped at NICK_MAX graphemes (nick.ts) so it fits the ranking rows — also on
+// read, so a longer name stored by an older build is capped the same way.
 export function getNick(): string | null {
-  const n = localStorage.getItem(NICK_KEY);
-  return n && n.trim() ? n : null;
+  const n = clampNick(localStorage.getItem(NICK_KEY) ?? "");
+  return n || null;
 }
 
 export function setNick(n: string): void {
-  const v = n.trim().slice(0, 16);
+  const v = clampNick(n);
   if (v) localStorage.setItem(NICK_KEY, v);
 }
 

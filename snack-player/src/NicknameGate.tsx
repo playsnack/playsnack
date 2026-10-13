@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { setNick, randomNick, uploadPhoto } from "./identity";
+import { NICK_MAX, capGraphemes, clampNick } from "./nick";
 import { SERVERLESS } from "./backend";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
@@ -12,7 +13,10 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
   const [photo, setPhoto] = useState<string | null>(null); // downscaled data-URL preview
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const v = value.trim();
+  const v = clampNick(value);
+  // Capped in graphemes (a Korean syllable or an emoji counts one) so the name
+  // fits the ranking rows; maxLength (UTF-16 units) is only a coarse guard.
+  const typeNick = (s: string) => setValue(capGraphemes(s, NICK_MAX));
 
   const pickFile = async (file: File | undefined) => {
     if (!file) return;
@@ -28,7 +32,7 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
       await uploadPhoto(photo); // best-effort; enter even if it fails
       setBusy(false);
     }
-    onDone(v.slice(0, 16));
+    onDone(v);
   };
 
   return (
@@ -55,8 +59,8 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
 
         <div style={{ display: "flex", gap: S.s2 }}>
           <input
-            value={value} maxLength={16} autoFocus
-            onChange={(e) => setValue(e.target.value)}
+            value={value} maxLength={NICK_MAX * 2} autoFocus
+            onChange={(e) => typeNick(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void commit(); }}
             placeholder="닉네임" style={input}
           />
