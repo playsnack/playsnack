@@ -93,11 +93,11 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
   };
 
   // Footer first: it is pinned to the bottom and everything else stops above it.
-  const footTop = IMG_H - PAD - 120;
+  const footTop = IMG_H - PAD - 100;
   ops.push({ kind: "rect", x: PAD, y: footTop, w: INNER, h: 4, color: COL.hairline });
-  text(opts.appName ?? "PlaySnack", PAD, footTop + 36, { font: "display", weight: 700, size: 44 }, COL.accent);
-  if (opts.link) text(opts.link, PAD, footTop + 96, { font: "body", weight: 500, size: 30 }, COL.muted);
-  const limit = footTop - 40;
+  text(opts.appName ?? "PlaySnack", PAD, footTop + 28, { font: "display", weight: 700, size: 44 }, COL.accent);
+  if (opts.link) text(opts.link, PAD, footTop + 84, { font: "body", weight: 500, size: 30 }, COL.muted);
+  const limit = footTop - 32;
 
   let y = PAD + 8;
   text(view.subject ? "나 맞히기 퀴즈 결과" : "퀴즈 결과", PAD, y, { font: "body", weight: 700, size: 32 }, COL.muted);
@@ -108,7 +108,7 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
   y += 36;
 
   if (view.mode === "duo") {
-    const big = { font: "display" as const, weight: 700, size: 168 };
+    const big = { font: "display" as const, weight: 700, size: 144 };
     text(view.duo.score, IMG_W / 2, y, big, COL.accent, "center");
     y += lineH(big) + 8;
     y = para(view.duo.line, y, { font: "body", weight: 700, size: 44 }, COL.ink, 2, "center");
@@ -120,18 +120,18 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
     }
     y += 40;
   } else if (view.mode === "rank") {
-    const rowH = 96;
+    const rowH = 84;
     const maxRows = 5;
     const rows = view.ranks.slice(0, maxRows);
     for (const r of rows) {
       const top = r.top;
-      ops.push({ kind: "rect", x: PAD, y, w: INNER, h: rowH - 12, color: top ? COL.accent : COL.surface });
+      ops.push({ kind: "rect", x: PAD, y, w: INNER, h: rowH - 10, color: top ? COL.accent : COL.surface });
       const ink = top ? COL.accentInk : COL.ink;
       const sub = top ? COL.accentInk : COL.muted;
       const rankStyle = { font: "body" as const, weight: 800, size: 34 };
       const nickStyle = { font: "body" as const, weight: 700, size: 40 };
       const scoreStyle = { font: "display" as const, weight: 700, size: 40 };
-      const ty = y + (rowH - 12 - lineH(nickStyle)) / 2;
+      const ty = y + (rowH - 10 - lineH(nickStyle)) / 2;
       text(r.rankLabel, PAD + 28, ty + 4, rankStyle, sub, "left", 170);
       const scoreW = Math.min(300, measure(r.scoreLabel, scoreStyle));
       text(r.scoreLabel, PAD + INNER - 28, ty, scoreStyle, ink, "right", 300);
@@ -151,29 +151,33 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
   }
 
   // Highlighted questions, as many as fit above the footer (at most 3).
-  const qStyle = { font: "body" as const, weight: 700, size: 34 };
-  const aStyle = { font: "body" as const, weight: 700, size: 32 };
+  // Each: the question, then "정답 · X" (green) and who got it (muted) on one line.
+  const qStyle = { font: "body" as const, weight: 700, size: 32 };
+  const aStyle = { font: "body" as const, weight: 700, size: 30 };
   const sStyle = { font: "body" as const, weight: 500, size: 28 };
   const picks = highlightQuestions(view, 3);
+  const cardW = INNER - 48;
   if (picks.length && y + 60 < limit) {
     text("이런 문제였어요", PAD, y, { font: "body", weight: 700, size: 30 }, COL.muted);
-    y += 56;
+    y += 52;
     for (const q of picks) {
-      const qLines = wrapText(`Q${q.n}. ${q.q}`, INNER - 48, qStyle, measure, 2);
-      const h = 24 + qLines.length * lineH(qStyle) + 8 + lineH(aStyle) + 6 + lineH(sStyle) + 24;
+      const qLines = wrapText(`Q${q.n}. ${q.q}`, cardW, qStyle, measure, 2);
+      const h = 20 + qLines.length * lineH(qStyle) + 6 + lineH(aStyle) + 20;
       if (y + h > limit) break;
       ops.push({ kind: "rect", x: PAD, y, w: INNER, h, color: COL.surface });
-      let cy = y + 24;
+      let cy = y + 20;
       for (const l of qLines) {
-        text(l, PAD + 24, cy, qStyle, COL.ink, "left", INNER - 48);
+        text(l, PAD + 24, cy, qStyle, COL.ink, "left", cardW);
         cy += lineH(qStyle);
       }
-      cy += 8;
-      text(`정답 · ${q.answer}`, PAD + 24, cy, aStyle, COL.ok, "left", INNER - 48);
-      cy += lineH(aStyle) + 6;
+      cy += 6;
+      const answer = ellipsize(`정답 · ${q.answer}`, cardW * 0.6, aStyle, measure);
+      text(answer, PAD + 24, cy, aStyle, COL.ok, "left", cardW * 0.6);
       const who = q.chips.filter((c) => c.state === "ok").map((c) => c.nick);
-      text(who.length ? `맞힌 친구 · ${who.join(" · ")}` : q.summary, PAD + 24, cy, sStyle, COL.muted, "left", INNER - 48);
-      y += h + 16;
+      const restX = PAD + 24 + measure(answer, aStyle) + 16;
+      const restW = PAD + 24 + cardW - restX;
+      text(who.length ? `맞힌 친구 ${who.join(" · ")}` : q.summary, restX, cy + (lineH(aStyle) - lineH(sStyle)) / 2, sStyle, COL.muted, "left", restW);
+      y += h + 12;
     }
   }
   return ops;

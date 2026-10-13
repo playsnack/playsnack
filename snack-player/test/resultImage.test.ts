@@ -32,7 +32,7 @@ test("1:1 picture: title, N/M, the line, the tier, highlights, app name + link",
   for (const want of ["민수 맞히기", "4/6", "지은은 민수를 4/6 맞혔어요", "꽤 친함 🙂", "PlaySnack", "playsnack.vercel.app/p/tpl-speed-trivia-score"]) {
     assert.ok(all.includes(want), `missing "${want}" in ${JSON.stringify(all)}`);
   }
-  assert.ok(all.some((t) => t.startsWith("정답 · ")), "a highlighted question with the real answer");
+  assert.ok(all.filter((t) => t.startsWith("정답 · ")).length >= 2, "2–3 highlighted questions with the real answer");
   assertInside(ops);
 });
 
@@ -44,7 +44,7 @@ test("group picture: ranking with honest ties and the leaver marked; ≤ 3 highl
   assert.ok(all.includes("서준 (나감)"));
   assert.ok(all.includes(LONG_NICK), "a 10-grapheme nickname fits whole");
   const qs = all.filter((t) => /^Q\d+\./.test(t));
-  assert.ok(qs.length >= 1 && qs.length <= 3, `highlights: ${qs.length}`);
+  assert.ok(qs.length >= 2 && qs.length <= 3, `highlights: ${qs.length}`);
   const foot = texts(ops).find((o) => o.text === "PlaySnack")!;
   for (const o of texts(ops)) if (o !== foot && o.text !== "playsnack.vercel.app/p/x") assert.ok(o.y < foot.y - 40, `"${o.text}" runs into the footer`);
   assertInside(ops);

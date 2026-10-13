@@ -15,14 +15,17 @@ import { BLOCK_CSS, pill, primaryBtn, secondaryBtn } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
 /** Taps from the result screen that the shell handles (the room never sees them). */
-export const RESULT_EVENTS = new Set(["resultShare", "resultInvite", "resultMake", "reactionAnswer", "reactionReason"]);
+export const RESULT_EVENTS = new Set(["resultShare", "resultInvite", "makeQuiz", "reactionAnswer", "reactionReason"]);
 const RESULT_KEYS = ["sessionPhase", "quizRecap", "raceBoard", "roster", "quizInfo", "iAmSubject"];
 
 type MakeEntry = (ctx: { slug: string; params: URLSearchParams }) => void;
 /**
- * "나도 만들기" entry — lane B (question editor) fills `makeQuiz` with the call
- * that opens the editor and sends the new pack into this room. While it is
- * null the button is not shown (no button that does nothing).
+ * "나도 만들기" (the template's host event `makeQuiz`) — lane B's
+ * openQuizMaker() (snack-player/src/quiz.ts on claude/g1-b) opens the maker over
+ * this room and sends the new pack into it. At merge: `resultHooks.makeQuiz =
+ * () => openQuizMaker(…)` (or let LiveApp's bridge handle `makeQuiz` and set
+ * canMake). While it is null the button is hidden (no button that does
+ * nothing) and `makeQuiz` is left to any other handler.
  */
 export const resultHooks: { makeQuiz: MakeEntry | null } = { makeQuiz: null };
 
@@ -68,6 +71,10 @@ export function useResultExtras({ doc, slug, params, onInvite }: {
   const [inResult, setInResult] = useState(false);
   const [note, setNote] = useState<Note>(null);
   const [preview, setPreview] = useState<string | null>(null); // object URL of the picture to save
+  // The tap on "결과 공유" happens on the canvas; its trailing compatibility
+  // click lands on whatever the sheet put under the finger ("닫기"). The sheet
+  // only takes clicks after a pointerdown inside it.
+  const armed = useRef(false);
 
   const later = (fn: () => void, ms: number) => timers.current.push(setTimeout(fn, ms));
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
@@ -163,22 +170,24 @@ export function useResultExtras({ doc, slug, params, onInvite }: {
     }
     const outcome = await shareResultImage(blob, { fileName: "playsnack-result.png", title: view.title, text: view.headline });
     reportResultEvent({ k: "result_share", outcome });
-    if (outcome === "preview") setPreview(URL.createObjectURL(blob));
+    if (outcome === "preview") {
+      armed.current = false;
+      setPreview(URL.createObjectURL(blob));
+    }
   };
 
   /** True when the event was a result-screen tap (handled here, not for the room). */
   const handleEvent = (e: { name: string; payload?: unknown }): boolean => {
     if (!active || !RESULT_EVENTS.has(e.name)) return false;
+    if (e.name === "makeQuiz" && !resultHooks.makeQuiz) return false;
     const p = (e.payload ?? {}) as { answer?: string; reason?: string };
     if (e.name === "resultShare") void share();
     else if (e.name === "resultInvite") {
       reportResultEvent({ k: "result_invite" });
       onInvite();
-    } else if (e.name === "resultMake") {
-      if (resultHooks.makeQuiz) {
-        reportResultEvent({ k: "result_make" });
-        resultHooks.makeQuiz({ slug, params });
-      }
+    } else if (e.name === "makeQuiz") {
+      reportResultEvent({ k: "result_make" });
+      resultHooks.makeQuiz!({ slug, params });
     } else if (e.name === "reactionAnswer") {
       if (p.answer === "yes" || p.answer === "no" || p.answer === "skip") react({ t: "answer", answer: p.answer });
     } else if (e.name === "reactionReason") {
@@ -195,7 +204,10 @@ export function useResultExtras({ doc, slug, params, onInvite }: {
         </div>
       )}
       {preview && (
-        <div style={dim} onClick={() => setPreview(null)}>
+        <div style={dim}
+          onPointerDownCapture={() => { armed.current = true; }}
+          onClickCapture={(e) => { if (!armed.current) { e.preventDefault(); e.stopPropagation(); } }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPreview(null); }}>
           <div style={sheet} role="dialog" aria-label="결과 이미지" onClick={(e) => e.stopPropagation()}>
             <style>{BLOCK_CSS}</style>
             <img src={preview} alt="결과 이미지" style={previewImg} />
