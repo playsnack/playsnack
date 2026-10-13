@@ -7,7 +7,7 @@
 import type { BiteDoc } from "@snack/bite";
 import { contentFor, parseContentUrl, type ContentData } from "@snack/content";
 import { MeshTransport, RelayTransport, ServerTransport, type Identity, type RoomTransport } from "./roomTransport";
-import { parseRoute, playPath, type Route } from "./links";
+import { appApiPath, parseRoute, playPath, type Route } from "./links";
 
 const SERVER_ENV = (import.meta.env.VITE_SERVER_URL as string | undefined) || "";
 export const SERVERLESS = !SERVER_ENV;
@@ -107,9 +107,10 @@ export async function shareApp(doc: BiteDoc): Promise<string> {
   return `${location.origin}${playPath(`app-${shortHash(data)}`, new URLSearchParams({ d: data }))}`;
 }
 
-/** The app a live room plays: a template, a link-carried app, or (server) a saved app. */
+/** The app a live room plays: a template, a link-carried app, or (server) a saved app.
+    Server mode names the room (`?room=`), so the state that comes back is that room's. */
 export async function loadRoomDoc(slug: string, params: URLSearchParams): Promise<{ doc: BiteDoc; sharedState?: Record<string, unknown> }> {
-  if (!SERVERLESS) return json(`${SERVER_URL}/api/apps/${slug}`);
+  if (!SERVERLESS) return json(`${SERVER_URL}${appApiPath(slug, params)}`);
   if (slug.startsWith("tpl-")) return { doc: await getTemplateDoc(slug.slice(4)) };
   const d = params.get("d");
   if (slug.startsWith("app-") && d) return { doc: await decodeDoc(d) };

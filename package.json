@@ -16,6 +16,7 @@
     "player:dev": "pnpm --filter @snack/player dev",
     "player:build": "pnpm --filter @snack/player build",
     "player:test": "pnpm --filter @snack/player test",
+    "server:test": "pnpm --filter @snack/server test",
     "server:dev": "pnpm --filter @snack/server dev",
     "bite:test": "pnpm -r --filter \"./packages/*\" --if-present test",
     "bite:check": "node snack-server/tools/bite-browser-check.mjs"

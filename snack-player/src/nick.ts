@@ -9,6 +9,9 @@
 // only names, 20px each). The result-card title fits a 10-syllable winner in
 // tap-battle and speed-trivia; see docs/audit T-22.
 export const NICK_MAX = 10;
+/** The input's maxLength (UTF-16 units): a far guard only — a ZWJ emoji is up to
+    11 units, so NICK_MAX of them still fit; the real cap is capGraphemes. */
+export const NICK_INPUT_MAX_UNITS = NICK_MAX * 11;
 
 // Intl.Segmenter (Safari 14.1+, Chrome 87+; typed from ES2022, the player
 // targets ES2020) — without it, code points are the fallback unit.

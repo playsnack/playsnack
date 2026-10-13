@@ -9,7 +9,7 @@ import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick } from "./identity";
 import type { ConnState, RoomTransport } from "./roomTransport";
 import { createRoom, hrefTo, loadRoomDoc, navigate } from "./backend";
-import { friendLink, newRoomCode, playPath, roomCodeOf, roomIdFor } from "./links";
+import { friendLink, newRoomCode, playPath, publicLink, roomIdFor, roomParamOf } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
 import { pill } from "./ui";
@@ -47,6 +47,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const retryRef = useRef<() => void>(() => {});
   const [reactOpen, setReactOpen] = useState(false);
   const withRoom = doc ? needsRoom(doc, params) : false;
+  // A present-but-invalid ?room= (a code cut by a chat app) must never land in
+  // the public room: nothing loads or joins, the screen says the link is bad.
+  const roomParam = roomParamOf(params);
+  const invalidRoom = roomParam.kind === "invalid";
 
   // Floating emoji reaction that rises and fades (DOM overlay above the canvas).
   const spawnReaction = (emoji: string) => {
@@ -75,6 +79,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
 
   // Load the app (a merged template's old link was already redirected by App).
   useEffect(() => {
+    if (invalidRoom) return;
     let closed = false;
     setErr(null);
     loadRoomDoc(slug, params)
@@ -93,7 +98,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
 
   // Join the room — only when the app is played together.
   useEffect(() => {
-    if (!doc || !withRoom) return;
+    if (!doc || !withRoom || invalidRoom) return;
     // The room id is the link's: the app's public room, or `slug~CODE` for a
     // friends-only link (links.ts). The transport passes it through unchanged.
     const room: RoomTransport = createRoom({ slug: roomIdFor(slug, params), anonId: getAnonId(), nick: getNick() ?? "" }, params);
@@ -161,8 +166,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // Friends-only room: the link carries a room code (?room=…). Without one,
   // the pill makes a code and moves this player into that room (no reload);
   // with one, it hands the link out — share sheet, else clipboard, else shown
-  // to copy by hand. Only what really happened is reported.
-  const code = roomCodeOf(params);
+  // to copy by hand (kept until dismissed). Only what really happened is
+  // reported. A present-but-invalid code never falls back to the public room.
+  const code = roomParam.kind === "code" ? roomParam.code : null;
   const [invite, setInvite] = useState<"copied" | "show" | null>(null);
   const openFriendRoom = () => {
     const p = new URLSearchParams(params);
@@ -172,17 +178,28 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const shareInvite = async () => {
     const url = friendLink(location.origin, slug, params, code!);
     if (typeof navigator.share === "function") {
-      try { await navigator.share({ url }); return; } catch { /* cancelled or unsupported → copy */ }
+      try {
+        await navigator.share({ url });
+        return;
+      } catch (e) {
+        if ((e as { name?: string })?.name === "AbortError") return; // the person closed the sheet: nothing happened
+      }
     }
     try {
       await navigator.clipboard.writeText(url);
       setInvite("copied");
+      setTimeout(() => setInvite((s) => (s === "copied" ? null : s)), 2500);
     } catch {
-      setInvite("show");
+      setInvite("show"); // stays until ✕ — a long link needs time to long-press
     }
-    setTimeout(() => setInvite(null), 2500);
   };
 
+  if (roomParam.kind === "invalid") {
+    return (
+      <MessageScreen icon="🔗" title="초대 링크가 잘못됐어요" body="링크를 다시 받아 주세요. 방 코드가 잘리거나 바뀐 것 같아요." withHome
+        primary={{ label: "공개 방에서 하기", onClick: () => navigate(publicLink(slug, params)) }} />
+    );
+  }
   if (err === "notFound") {
     return <MessageScreen icon="🔍" title="앱을 찾을 수 없어요" body="링크가 잘못됐거나 더 이상 없는 앱이에요." primary={{ label: "홈으로", onClick: goHome }} />;
   }
@@ -198,15 +215,21 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} />
       <HomeButton />
       {withRoom && conn !== "failed" && <RoomChip state={conn} people={participants} />}
-      {/* Friends-only room pill (bottom-left): "친구끼리" opens a new coded room;
-          in a coded room it hands the invite link out. */}
+      {/* Friends-only room pill (bottom-left): "친구끼리" opens a new coded room
+          (an unlisted link — friends who have it meet there); in a coded room it
+          hands the invite link out. */}
       {withRoom && conn !== "failed" && (
         <div style={inviteDock}>
           {invite === "copied" && <div style={inviteNote} role="status">초대 링크를 복사했어요</div>}
-          {invite === "show" && code && <div style={{ ...inviteNote, userSelect: "all" }} role="status">{friendLink(location.origin, slug, params, code)}</div>}
+          {invite === "show" && code && (
+            <div style={inviteNote} role="status">
+              <span style={{ userSelect: "all", wordBreak: "break-all" }}>{friendLink(location.origin, slug, params, code)}</span>
+              <button style={closeBtn} onClick={() => setInvite(null)} aria-label="닫기">✕</button>
+            </div>
+          )}
           {code
             ? <button className="blk" style={pill} onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">🔗 친구 초대</button>
-            : <button className="blk" style={pill} onClick={openFriendRoom} aria-label="친구끼리 하는 방 만들기">🔒 친구끼리</button>}
+            : <button className="blk" style={pill} onClick={openFriendRoom} aria-label="친구끼리 하는 방 만들기">🤝 친구끼리</button>}
         </div>
       )}
       {withRoom && conn === "failed" && (
@@ -251,7 +274,11 @@ const inviteDock: React.CSSProperties = {
   display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, zIndex: 13,
 };
 const inviteNote: React.CSSProperties = {
-  ...pill, minHeight: 0, padding: "8px 12px", whiteSpace: "normal", wordBreak: "break-all", fontWeight: 600,
+  ...pill, minHeight: 0, padding: "8px 12px", whiteSpace: "normal", wordBreak: "break-all", fontWeight: 600, alignItems: "flex-start",
+};
+const closeBtn: React.CSSProperties = {
+  flex: "none", width: 32, height: 32, margin: "-4px -6px -4px 0", padding: 0, border: "none", background: "transparent",
+  color: C.ink, fontSize: 16, cursor: "pointer",
 };
 // Tucked into the very corner so it covers as little bottom content as possible.
 const reactionDock: React.CSSProperties = {

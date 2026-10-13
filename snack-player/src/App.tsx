@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { currentRoute, hrefTo } from "./backend";
+import { playPath } from "./links";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { validate, type BiteDoc } from "@snack/bite";
 import { HOST_ACTIONS } from "@snack/room/actions";
@@ -47,8 +48,7 @@ export function App() {
     redirectFor(slug).then((to) => {
       if (!on) return;
       if (!to) return setCheckedSlug(slug);
-      const q = route.params.toString();
-      location.replace(hrefTo(`/p/${to}${q ? `?${q}` : ""}`));
+      location.replace(playPath(to, route.params));
     });
     return () => { on = false; };
   }, [isLive, route.slug]);

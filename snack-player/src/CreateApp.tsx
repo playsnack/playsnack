@@ -62,6 +62,7 @@ export function CreateApp() {
   const [elapsed, setElapsed] = useState(0);
   const [msgIdx, setMsgIdx] = useState(0);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false); // only true after the clipboard write resolved
   const [sharing, setSharing] = useState(false);
   const [refinePrompt, setRefinePrompt] = useState("");
   const [refining, setRefining] = useState(false);
@@ -182,7 +183,8 @@ export function CreateApp() {
     try {
       const url = await shareApp(doc);
       setShareUrl(url);
-      try { await navigator.clipboard.writeText(url); } catch { /* ignore */ }
+      // The link is shown below either way; "복사됨" only when the write really happened.
+      try { await navigator.clipboard.writeText(url); setCopied(true); } catch { setCopied(false); }
     } catch { /* ignore */ } finally { setSharing(false); }
   };
 
@@ -230,13 +232,13 @@ export function CreateApp() {
           onSelectText={(s) => { setTextSel(s); setEditDraft(s?.text ?? ""); }}
           onEditableRects={setEditRects} />
         <div style={topBar}>
-          <button style={pill} onClick={() => { setVersions([]); setCurrentIdx(-1); setShareUrl(null); setShowHistory(false); resetEdit(); setPhase("input"); }}>← 새로</button>
+          <button style={pill} onClick={() => { setVersions([]); setCurrentIdx(-1); setShareUrl(null); setCopied(false); setShowHistory(false); resetEdit(); setPhase("input"); }}>← 새로</button>
           <button style={{ ...pill, background: multiplayer ? "rgba(108,99,255,0.85)" : "rgba(0,0,0,0.6)" }}
             onClick={() => setConfirmSwitch(true)} disabled={refining || editMode} title="혼자 ↔ 같이 전환">
             {multiplayer ? "👥 같이 참여" : "👤 나만"}
           </button>
           <button style={{ ...pill, background: "#D9FF00", color: "#0B0C0E", fontWeight: 800 }} onClick={share} disabled={sharing}>
-            {sharing ? "공유 중…" : shareUrl ? "✓ 링크 복사됨" : "🔗 공유"}
+            {sharing ? "공유 중…" : shareUrl ? (copied ? "✓ 링크 복사됨" : "🔗 링크 아래에") : "🔗 공유"}
           </button>
         </div>
         {editMode && sceneStates.length > 1 && (
