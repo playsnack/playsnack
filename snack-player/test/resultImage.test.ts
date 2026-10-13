@@ -27,9 +27,9 @@ function assertInside(ops: Op[]) {
 
 test("1:1 picture: title, N/M, the line, the tier, highlights, app name + link", () => {
   const v = buildResultView({ ...duo, myNick: "지은" });
-  const ops = planResultImage(v, measure, { appName: "PlaySnack", link: "playsnack.vercel.app/p/tpl-speed-trivia-score" });
+  const ops = planResultImage(v, measure, { appName: "PlaySnack", link: "playsnack.vercel.app · 나도 만들어 보기" });
   const all = texts(ops).map((o) => o.text);
-  for (const want of ["민수 맞히기", "4/6", "지은은 민수를 4/6 맞혔어요", "꽤 친함 🙂", "PlaySnack", "playsnack.vercel.app/p/tpl-speed-trivia-score"]) {
+  for (const want of ["민수 맞히기", "4/6", "지은은 민수를 4/6 맞혔어요", "꽤 친함 🙂", "PlaySnack", "playsnack.vercel.app · 나도 만들어 보기"]) {
     assert.ok(all.includes(want), `missing "${want}" in ${JSON.stringify(all)}`);
   }
   assert.ok(all.filter((t) => t.startsWith("정답 · ")).length >= 2, "2–3 highlighted questions with the real answer");

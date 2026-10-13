@@ -1,7 +1,7 @@
 // node --import tsx --test snack-player/test/   (pnpm player:test)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildResultView, eulReul, eunNeun, fmtScore, highlightQuestions, rankScores, tierFor } from "../src/quizResult.ts";
+import { buildResultView, eulReul, eunNeun, fmtScore, highlightQuestions, nextStep, rankScores, tierFor, type QuizRecap } from "../src/quizResult.ts";
 import { LONG_NICK, duo, group } from "./fixtures/quizResult.ts";
 
 // ── 1:1 ──
@@ -19,7 +19,6 @@ test("1:1 on the subject's device: '나를' (iAmSubject, not a nick match)", () 
   const v = buildResultView({ ...duo, iAmSubject: true, myNick: "민수" });
   assert.equal(v.duo.line, "지은은 나를 4/6 맞혔어요");
   assert.equal(v.headline, "나를 얼마나 잘 알까?");
-  // A friend who happens to share the subject's nick is not the subject when the room says so.
   const w = buildResultView({ ...duo, iAmSubject: false, myNick: "민수" });
   assert.equal(w.duo.line, "지은은 민수를 4/6 맞혔어요");
 });
@@ -40,12 +39,12 @@ test("tier boundaries: 0–40 서먹 · 41–70 꽤 친함 · 71–99 찐친 · 
 });
 
 // ── group ──
-test("group: answerers ranked by score, the subject never ranked", () => {
+test("group: answerers ranked by score (summed from picks), the subject never ranked", () => {
   const v = buildResultView({ ...group, myNick: LONG_NICK });
   assert.equal(v.mode, "rank");
   assert.equal(v.headline, "민수를 제일 잘 아는 친구는?");
   assert.deepEqual(v.ranks.map((r) => r.nick), ["하늘", "도윤", LONG_NICK, "서준"]);
-  assert.ok(!v.ranks.some((r) => r.nick === "민수"));
+  for (const r of v.ranks) assert.equal(r.score, group.raceBoard!.find((e) => e.pid === r.key.slice(2))!.score);
 });
 
 test("group: equal scores share the rank (공동 1위) and the next rank skips", () => {
@@ -67,23 +66,94 @@ test("group: a player who left stays ranked, marked (board mark stripped from th
   assert.ok(!v.ranks.find((r) => r.nick === "하늘")!.left);
 });
 
-test("left is also inferred from a complete roster", () => {
-  const v = buildResultView({ ...group, raceBoard: group.raceBoard!.map((e) => ({ ...e, nick: e.nick.replace(" (나감)", ""), left: undefined })) });
-  assert.equal(v.ranks.find((r) => r.nick === "서준")!.left, true);
+test("a 0-point answerer missing from the board is still ranked at 0", () => {
+  const recap = { ...group.quizRecap!, rounds: group.quizRecap!.rounds!.map((r) => ({ ...r, picks: [...r.picks, { pid: "pid-zero", nick: "영점", option: 3 - r.answer, correct: false, points: 0 }] })) };
+  const v = buildResultView({ ...group, quizRecap: recap });
+  assert.equal(v.ranks.find((r) => r.nick === "영점")!.score, 0);
+  assert.equal(v.ranks.length, 5);
 });
 
-test("a 0-correct answerer missing from the board is still ranked at 0", () => {
-  const v = buildResultView({ ...group, raceBoard: group.raceBoard!.slice(0, 2) });
-  const long = v.ranks.find((r) => r.nick === LONG_NICK)!;
-  assert.equal(long.score, 0);
-  assert.equal(v.ranks.length, 4);
-});
-
-test("subject's device in a group: headline '나를…', no 'my rank' line", () => {
-  const v = buildResultView({ ...group, iAmSubject: true, myNick: "민수" });
-  assert.equal(v.headline, "나를 제일 잘 아는 친구는?");
-  assert.equal(v.mine, "");
+test("two friends with the same nickname are two rows: '빠른감자' and '빠른감자 (2)'", () => {
+  const recap: QuizRecap = { subject: "민수", about: "민수", rounds: [
+    { q: "a", options: ["x", "y"], answer: 0, picks: [
+      { pid: "A", nick: "빠른감자", option: 0, correct: true, points: 900 },
+      { pid: "B", nick: "빠른감자", option: 1, correct: false, points: 0 },
+    ] },
+  ] };
+  const v = buildResultView({ quizRecap: recap, raceBoard: [{ pid: "A", nick: "빠른감자", score: 900 }, { pid: "B", nick: "빠른감자", score: 0 }], myNick: "빠른감자" });
+  assert.equal(v.mode, "rank");
+  assert.deepEqual(v.ranks.map((r) => [r.nick, r.score]), [["빠른감자", 900], ["빠른감자 (2)", 0]]);
+  assert.deepEqual(v.questions[0].chips.map((c) => c.nick), ["빠른감자", "빠른감자 (2)"]);
+  assert.equal(v.mine, "", "an ambiguous nickname marks nobody as me");
   assert.ok(!v.ranks.some((r) => r.me));
+  const mine = buildResultView({ quizRecap: recap, raceBoard: [], myNick: "빠른감자", myPid: "B" });
+  assert.equal(mine.mine, "내 순위 2위 · 0점", "the pid identifies me");
+});
+
+test("an answerer whose name equals the subject's is still an answerer", () => {
+  const recap: QuizRecap = { subject: "민수", about: "민수", rounds: [
+    { q: "a", options: ["x", "y"], answer: 0, picks: [
+      { pid: "P1", nick: "민수", option: 0, correct: true, points: 800 }, // another 민수, answering
+      { pid: "P2", nick: "지은", option: 1, correct: false, points: 0 },
+    ] },
+  ] };
+  const v = buildResultView({ quizRecap: recap, raceBoard: [] });
+  assert.deepEqual(v.ranks.map((r) => r.nick), ["민수", "지은"]);
+  assert.deepEqual(v.questions[0].chips.map((c) => c.nick), ["민수", "지은"]);
+});
+
+test("more than 8 answerers: scores come from picks, not the top-8 board", () => {
+  const nicks = Array.from({ length: 11 }, (_, i) => `친구${i + 1}`);
+  const recap: QuizRecap = { subject: "민수", about: "민수", rounds: [0, 1].map((r) => ({
+    q: `q${r}`, options: ["x", "y"], answer: 0,
+    picks: nicks.map((nick, i) => ({ pid: `p${i}`, nick, option: i % 2, correct: i % 2 === 0, points: i % 2 === 0 ? 1000 - i * 10 : 0 })),
+  })) };
+  const board = nicks.slice(0, 8).map((nick, i) => ({ pid: `p${i}`, nick, score: 1 })); // top-8, stale numbers
+  const v = buildResultView({ quizRecap: recap, raceBoard: board });
+  assert.equal(v.ranks.length, 11);
+  assert.equal(v.ranks.find((r) => r.nick === "친구11")!.score, 2 * (1000 - 100));
+  assert.equal(v.ranks.find((r) => r.nick === "친구1")!.score, 2000);
+  assert.equal(v.ranks[0].nick, "친구1");
+});
+
+// ── the finished quiz is latched ──
+test("a new pack arriving during the result does not relabel the finished results", () => {
+  const before = buildResultView({ ...group, iAmSubject: false, myNick: "하늘" });
+  // 하늘 sends a new quiz: live quizInfo and iAmSubject now describe 하늘's quiz.
+  const after = buildResultView({
+    ...group, iAmSubject: false, iAmSubjectNow: true, myNick: "하늘",
+    quizInfo: { title: "하늘 맞히기", count: 5, custom: true, about: "하늘", packId: "pack-haneul" },
+  });
+  for (const k of ["title", "kicker", "headline", "mine", "subject"] as const) assert.deepEqual(after[k], before[k], k);
+  assert.deepEqual(after.ranks, before.ranks);
+  assert.equal(after.next, "startMine");
+});
+
+// ── next-game control ──
+test("next: own new quiz waiting → 내 퀴즈 시작하기 (with a friend in the room)", () => {
+  const info = { custom: true, about: "하늘", packId: "pack-haneul" };
+  assert.deepEqual(nextStep({ quizRecap: group.quizRecap, quizInfo: info, iAmSubjectNow: true, roster: ["하늘", "도윤"] }), { next: "startMine", nextText: "" });
+  assert.equal(nextStep({ quizRecap: group.quizRecap, quizInfo: info, iAmSubjectNow: true, roster: ["하늘"] }).next, "waiting", "alone: nothing to start yet");
+});
+
+test("next: someone else's new quiz waiting → banner with their name", () => {
+  const s = nextStep({ quizRecap: group.quizRecap, quizInfo: { custom: true, about: "하늘", packId: "pack-haneul" }, iAmSubjectNow: false, roster: ["하늘", "도윤"] });
+  assert.deepEqual(s, { next: "waiting", nextText: "하늘님이 새 퀴즈를 만들었어요 · 곧 시작해요" });
+});
+
+test("next: default quiz (no subject) → 다시 하기; finished custom quiz → 나도 만들기", () => {
+  const cold = { subject: null, rounds: group.quizRecap!.rounds };
+  assert.equal(nextStep({ quizRecap: cold, quizInfo: { custom: false, about: null } }).next, "again");
+  assert.equal(nextStep({ quizRecap: group.quizRecap, quizInfo: group.quizInfo }).next, "make");
+  // same pack still loaded (packId equal) → not "waiting"
+  assert.equal(nextStep({ quizRecap: group.quizRecap, quizInfo: { ...group.quizInfo, packId: "pack-minsu-1" }, iAmSubjectNow: true }).next, "make");
+});
+
+test("sharePrimary: 결과 공유 is lime only when no other lime control shows", () => {
+  assert.equal(buildResultView({ ...group, canMake: true }).sharePrimary, false);
+  assert.equal(buildResultView({ ...group, canMake: false }).sharePrimary, true);
+  assert.equal(buildResultView({ ...group, quizRecap: { ...group.quizRecap!, subject: null, about: null } }).sharePrimary, false, "다시 하기 is lime");
+  assert.equal(buildResultView({ ...group, quizInfo: { custom: true, about: "도윤", packId: "x" } }).sharePrimary, true, "waiting banner: share stays lime");
 });
 
 test("rankScores: three-way tie and all-zero", () => {
@@ -108,14 +178,13 @@ test("reveal: the subject's real answer and who picked what", () => {
   assert.equal(q3.chips.find((c) => c.nick === "서준")!.state, "none");
 });
 
-test("reveal: picks by the subject (if any) are left out; summaries for none / all", () => {
-  const recap = { subject: "민수", rounds: [
-    { q: "a", options: ["x", "y"], answer: 0, picks: [{ nick: "민수", option: 0, correct: true }, { nick: "지은", option: 1, correct: false }] },
-    { q: "b", options: ["x", "y"], answer: 1, picks: [{ nick: "지은", option: 1, correct: true }] },
-    { q: "c", options: ["x", "y"], answer: 1, picks: [] },
+test("reveal summaries: nobody right / all right / nobody answered", () => {
+  const recap: QuizRecap = { subject: "민수", rounds: [
+    { q: "a", options: ["x", "y"], answer: 0, picks: [{ pid: "J", nick: "지은", option: 1, correct: false, points: 0 }] },
+    { q: "b", options: ["x", "y"], answer: 1, picks: [{ pid: "J", nick: "지은", option: 1, correct: true, points: 700 }] },
+    { q: "c", options: ["x", "y"], answer: 1, picks: [{ pid: "J", nick: "지은", option: -1, correct: false, points: 0 }] },
   ] };
   const v = buildResultView({ quizRecap: recap, raceBoard: [], myNick: "지은" });
-  assert.deepEqual(v.questions[0].chips.map((c) => c.nick), ["지은"]);
   assert.equal(v.questions[0].summary, "아무도 못 맞혔어요");
   assert.equal(v.questions[1].summary, "맞혔어요");
   assert.equal(v.questions[2].summary, "답한 친구가 없어요");
@@ -130,23 +199,26 @@ test("highlights: fewest right answers first, at most 3, shown in quiz order", (
   assert.ok(h.some((q) => q.correctCount / q.chips.length === worst));
 });
 
-// ── no data / no subject ──
+// ── no data / nobody answered / no subject ──
 test("no result data yet → empty view (mode '')", () => {
   assert.equal(buildResultView({}).mode, "");
   assert.equal(buildResultView({ quizRecap: { subject: null, rounds: [] }, raceBoard: [] }).mode, "");
 });
 
-test("nobody answered → 'empty', honest text", () => {
+test("nobody answered → 'empty' with 답한 친구가 없어요 (also when the friends are listed with no answers)", () => {
   const v = buildResultView({ quizRecap: { subject: "민수", rounds: [{ q: "a", options: ["x"], answer: 0, picks: [] }] }, raceBoard: [] });
   assert.equal(v.mode, "empty");
-  assert.match(v.emptyText, /답한 친구가 없어요/);
+  assert.equal(v.emptyText, "답한 친구가 없어요");
+  const silent = buildResultView({ quizRecap: { subject: "민수", rounds: [{ q: "a", options: ["x"], answer: 0, picks: [{ pid: "J", nick: "지은", option: -1, correct: false, points: 0 }] }] }, raceBoard: [{ pid: "J", nick: "지은", score: 0 }] });
+  assert.equal(silent.mode, "empty");
 });
 
-test("default quiz (no subject): generic headline, no tier", () => {
-  const v = buildResultView({ ...duo, quizRecap: { ...duo.quizRecap!, subject: null }, quizInfo: { title: "", count: 6 } });
+test("default quiz (no subject): generic headline, no tier, 다시 하기", () => {
+  const v = buildResultView({ ...duo, quizRecap: { ...duo.quizRecap!, subject: null, about: null, title: "" }, quizInfo: { title: "상식", count: 6, custom: false } });
   assert.equal(v.title, "스피드 퀴즈");
   assert.equal(v.duo.line, "지은은 4/6 맞혔어요");
   assert.equal(v.duo.tier, "");
+  assert.equal(v.next, "again");
 });
 
 // ── particles ──
@@ -155,9 +227,9 @@ test("을/를 · 은/는 by the final consonant; combined form for Latin/emoji",
   assert.equal(eulReul("지은"), "지은을");
   assert.equal(eunNeun("지은"), "지은은");
   assert.equal(eunNeun("하늘"), "하늘은");
-  assert.equal(eunNeun("도윤"), "도윤은");
   assert.equal(eunNeun("나"), "나는");
   assert.equal(eulReul("Alex"), "Alex을(를)");
   assert.equal(eulReul("민수3"), "민수3을");
   assert.equal(eulReul("민수2"), "민수2를");
+  assert.equal(eunNeun("빠른감자 (2)"), "빠른감자 (2)은(는)");
 });

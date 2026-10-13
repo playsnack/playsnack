@@ -14,7 +14,7 @@ import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
 import { pill } from "./ui";
 import { C, R } from "./tokens.gen";
-import { useResultExtras } from "./ResultExtras";
+import { makerLink, useResultExtras } from "./ResultExtras";
 
 // Plays one app from a link. Solo apps just play. Together apps (or any app
 // that sends events to a room, or a link that names a room) also join a room
@@ -182,8 +182,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     p.set("room", newRoomCode());
     navigate(playPath(slug, p));
   };
-  // The result screen's "친구 초대" can run in the public room too: then the public link.
-  const inviteUrl = () => (code ? friendLink(location.origin, slug, params, code) : `${location.origin}${publicLink(slug, params)}`);
+  // The result screen's "친구 초대" can run in the public room too: there it hands out the
+  // maker link ("나도 만들어 보기"), not the busy public room.
+  const inviteUrl = () => (code ? friendLink(location.origin, slug, params, code) : makerLink(location.origin));
   const shareInvite = async () => {
     const url = inviteUrl();
     if (typeof navigator.share === "function") {

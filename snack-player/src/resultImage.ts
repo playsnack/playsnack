@@ -269,12 +269,12 @@ export type ShareOutcome = "shared" | "cancelled" | "preview";
  * share files, otherwise "preview" (the caller shows the image to save by long
  * press / a download link). Only "shared" means the sheet completed.
  */
-export async function shareResultImage(blob: Blob, opts: { fileName: string; title: string; text?: string; nav?: Navigator }): Promise<ShareOutcome> {
+export async function shareResultImage(blob: Blob, opts: { fileName: string; title: string; text?: string; url?: string; nav?: Navigator }): Promise<ShareOutcome> {
   const nav = opts.nav ?? (typeof navigator !== "undefined" ? navigator : undefined);
   const file = typeof File !== "undefined" ? new File([blob], opts.fileName, { type: "image/png" }) : null;
   if (file && nav && typeof nav.share === "function" && typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
     try {
-      await nav.share({ files: [file], title: opts.title, text: opts.text });
+      await nav.share({ files: [file], title: opts.title, text: opts.text, ...(opts.url ? { url: opts.url } : {}) });
       return "shared";
     } catch (e) {
       if ((e as { name?: string })?.name === "AbortError") return "cancelled";

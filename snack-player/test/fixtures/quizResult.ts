@@ -18,12 +18,15 @@ const round = (i: number, answers: Ans[]) => {
   return {
     ...Q[i],
     picks: answers.map(([nick, option, ms]) => ({
-      nick, option, ms, correct: option === answer,
+      pid: `pid-${nick}`, nick, option, ms, correct: option === answer,
       points: option === answer ? Math.max(100, 1000 - Math.round((ms / 9000) * 800)) : 0,
     })),
   };
 };
-const recapOf = (subject: string | null, rows: Ans[][]): QuizRecap => ({ subject, rounds: rows.map((answers, i) => round(i, answers)) });
+const recapOf = (subject: string | null, rows: Ans[][]): QuizRecap => ({
+  subject, about: subject, title: subject ? `${subject} 맞히기` : "", packId: subject ? "pack-minsu-1" : null,
+  rounds: rows.map((answers, i) => round(i, answers)),
+});
 export const scoreOf = (recap: QuizRecap, nick: string) =>
   recap.rounds.reduce((s, r) => s + (r.picks.find((p) => p.nick === nick)?.points ?? 0), 0);
 
@@ -38,9 +41,9 @@ export const duoRecap = recapOf("민수", [
 ]);
 export const duo: ResultInput = {
   quizRecap: duoRecap,
-  raceBoard: [{ nick: "지은", score: scoreOf(duoRecap, "지은") }],
+  raceBoard: [{ pid: "pid-지은", nick: "지은", score: scoreOf(duoRecap, "지은") }],
   roster: ["민수", "지은"],
-  quizInfo: { title: "민수 맞히기", count: 6, custom: true, about: "민수" },
+  quizInfo: { title: "민수 맞히기", count: 6, custom: true, about: "민수", packId: "pack-minsu-1" },
 };
 
 /** Group — 4 answerers + the subject: 하늘 and 도윤 tie for 1st, 서준 left
@@ -57,11 +60,11 @@ export const groupRecap = recapOf("민수", [
 export const group: ResultInput = {
   quizRecap: groupRecap,
   raceBoard: [
-    { nick: "하늘", score: scoreOf(groupRecap, "하늘") },
-    { nick: "도윤", score: scoreOf(groupRecap, "도윤") },
-    { nick: LONG_NICK, score: scoreOf(groupRecap, LONG_NICK) },
-    { nick: "서준 (나감)", score: scoreOf(groupRecap, "서준"), left: true },
+    { pid: "pid-하늘", nick: "하늘", score: scoreOf(groupRecap, "하늘") },
+    { pid: "pid-도윤", nick: "도윤", score: scoreOf(groupRecap, "도윤") },
+    { pid: `pid-${LONG_NICK}`, nick: LONG_NICK, score: scoreOf(groupRecap, LONG_NICK) },
+    { pid: "pid-서준", nick: "서준 (나감)", score: scoreOf(groupRecap, "서준"), left: true },
   ],
   roster: ["민수", "하늘", "도윤", LONG_NICK],
-  quizInfo: { title: "민수 맞히기", count: 6, custom: true, about: "민수" },
+  quizInfo: { title: "민수 맞히기", count: 6, custom: true, about: "민수", packId: "pack-minsu-1" },
 };
