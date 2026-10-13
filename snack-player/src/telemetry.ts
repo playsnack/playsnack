@@ -1,5 +1,7 @@
 // Anonymous telemetry client for POST /api/ev (see docs/telemetry.md).
-// - No cookies, localStorage, device/session ids, nicknames or user agents are sent.
+// - No cookies, localStorage, nicknames, user agents or person / device / browser-session
+//   ids are sent. The free-beta game events carry a random per-game id (`sid` / `gid`,
+//   made by the host engine); the server keeps only its hash, for 6 h (docs/telemetry.md §9).
 // - Off in dev, with VITE_TELEMETRY=off, or when Do Not Track / Global Privacy Control is set.
 // - Batches every 5 s / 20 events / when the page is hidden; sendBeacon, fetch keepalive fallback.
 // Not wired into the app yet; callers use track()/installErrorBeacon() and the
@@ -24,7 +26,7 @@ export type TelemetryEvent =
   | { k: 'room_join'; ok: boolean; ms?: number; app?: string; room?: RoomKind; reason?: JoinFailReason }
   | { k: 'err'; msg: string; where?: string; build?: string }
   /**
-   * A game reached its result — sent by the host engine only; `p` = players present,
+   * A game reached its result — sent by the host engine only; `p` = players who took part (acted this game; a quiz subject counts),
    * `sid` = the engine's game id. Quiz only: `about` = a made quiz about a person,
    * `ans` = players other than that person who answered (1 = the 1:1 case).
    */
@@ -241,10 +243,10 @@ function firstTime(key: string): boolean {
 
 const players = (n: number) => Math.max(1, Math.floor(Number(n) || 0));
 
-/** Host engine only: a game reached its result. Counted once per `sid` (here and on the receiving end). */
-export function trackSessionDone(app: string, playerCount: number, sid: string, quiz?: { about: boolean; answerers: number }): void {
-  if (!firstTime(`session_done|${sid}`)) return;
-  const ev: Extract<TelemetryEvent, { k: 'session_done' }> = { k: 'session_done', app: appOf(app), p: players(playerCount), sid };
+/** Host engine only: a game reached its result; `tookPart` = players who acted this game. Counted once per `sid`. */
+export function trackSessionDone(app: string, tookPart: number, sid: string, quiz?: { about: boolean; answerers: number }): void {
+  if (!(tookPart >= 1) || !firstTime(`session_done|${sid}`)) return; // nobody took part: not a played game
+  const ev: Extract<TelemetryEvent, { k: 'session_done' }> = { k: 'session_done', app: appOf(app), p: players(tookPart), sid };
   if (quiz) {
     ev.about = quiz.about;
     ev.ans = Math.max(0, Math.floor(Number(quiz.answerers) || 0));

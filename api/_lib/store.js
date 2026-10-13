@@ -84,6 +84,10 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       const out = await pipeline(ids.map((id) => ['SET', onceKey(id), '1', 'NX', 'EX', ttl]));
       return out.map((r) => r === 'OK');
     },
+    /** Undo claims whose counts could not be written (so another host's report still counts). */
+    async release(ids) {
+      if (ids.length) await pipeline(ids.map((id) => ['DEL', onceKey(id)]));
+    },
     async read(day) {
       const [counts, errSamples, all] = await pipeline([
         ['HGETALL', dayKey(day)],
@@ -139,6 +143,9 @@ export function createMemoryStore({ now = Date.now } = {}) {
         once.set(k, t + ttl * 1000);
         return true;
       });
+    },
+    async release(ids) {
+      for (const id of ids) once.delete(onceKey(id));
     },
     async read(day) {
       return {

@@ -27,6 +27,12 @@ export const GAME_SOURCES = new Set(['editor', 'remake']);
 export const ASK_ANSWERS = new Set(['yes', 'no', 'skip']);
 export const ASK_REASONS = new Set(['boring', 'hard', 'laggy', 'few', 'other']);
 export const MAX_PLAYERS = 1000;
+/**
+ * Flip to true in the commit that makes the app send the free-beta kinds (§9.5), so a
+ * reader of GET /api/ev never takes "0 games" for a measurement while nothing is wired.
+ */
+export const WIRED = false;
+const KNOWN = new Set(KINDS);
 /** A host-engine id (`sid` game, `gid` made quiz): 16–32 URL-safe chars (docs/telemetry.md §9). */
 export const SID_RE = /^[A-Za-z0-9_-]{16,32}$/;
 
@@ -106,8 +112,10 @@ export function sanitizeErr(msg) {
  * `all` = all-time counters; `once` = de-dup id — such an event is counted only after
  * settleOnce() confirms it is the first with that id (host hand-over, resends).
  */
-export function normalizeEvent(ev) {
-  if (!ev || typeof ev !== 'object' || Array.isArray(ev)) return null;
+export function normalizeEvent(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  // A null field is the same as an absent one (JSON clients often send null).
+  const ev = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== null));
   const k = ev.k;
   const fields = [];
   const all = []; // all-time counters (ev:all)
@@ -154,17 +162,22 @@ export function normalizeEvent(ev) {
     }
     case 'session_done':
     case 'rematch': {
+      // session_done: p = players who took part (acted at least once this game; a quiz's
+      // subject counts). rematch: p = players present when the new game starts.
       if (!validPlayers(ev.p) || !validId(ev.sid)) return null;
       // Quiz games only: about = a made quiz about a person (else the default quiz);
       // ans = players other than that person who answered (1 = the 1:1 case).
       if (ev.about !== undefined && typeof ev.about !== 'boolean') return null;
       if (ev.ans !== undefined && !validPlayers(ev.ans, 0)) return null;
+      // Answerers are among the players; the subject is a player but never an answerer.
+      if (ev.ans !== undefined && ev.ans > ev.p - (ev.about === true ? 1 : 0)) return null;
       fields.push(`${k}|p|${playerBucket(ev.p)}`);
       if (ev.about !== undefined) fields.push(`${k}|about|${ev.about}`);
       if (ev.ans !== undefined) fields.push(`${k}|ans|${ev.ans === 0 ? '0' : playerBucket(ev.ans)}`);
       withApp();
       all.push(`${k}|n`);
-      if (k === 'session_done' && ev.p >= 3) {
+      // The headline: 3+ players took part — and, for a quiz, somebody answered.
+      if (k === 'session_done' && ev.p >= 3 && ev.ans !== 0) {
         fields.push('session_done|p3');
         const app = normApp(ev.app);
         if (app) fields.push(`session_done|app3|${app}`);
@@ -219,7 +232,9 @@ const add = (m, f, n = 1) => m.set(f, (m.get(f) || 0) + n);
 /**
  * Parse a raw body string. Returns { status, error } on rejection, or
  * { status: 200, incr: Map<field,count>, errs: Map<sample,count>, all: Map<field,count>,
- *   once: [{id, kind, fields, all}], accepted, dropped }.
+ *   once: [{id, kind, fields, all}], accepted, badCount, dropped }.
+ * badCount = events of a known kind dropped by validation; they are counted as
+ * `<kind>|bad` (in incr) so a wiring bug is visible instead of a silent 0.
  * `once` events are not in incr/all yet: the caller claims their ids, then settleOnce().
  */
 export function parseBatch(text) {
@@ -237,10 +252,15 @@ export function parseBatch(text) {
   const all = new Map();
   const once = [];
   const onceSeen = new Set();
+  const bad = new Map(); // known kind, dropped by validation -> count (a wiring bug shows up)
   let accepted = 0;
   for (const ev of body.events) {
     const n = normalizeEvent(ev);
-    if (!n) continue;
+    if (!n) {
+      const k = ev && typeof ev === 'object' ? ev.k : undefined;
+      if (typeof k === 'string' && KNOWN.has(k)) add(bad, `${k}|bad`);
+      continue;
+    }
     accepted++;
     if (n.once) {
       if (onceSeen.has(n.once)) add(incr, `${n.kind}|dup`); // same game twice in one batch
@@ -254,7 +274,9 @@ export function parseBatch(text) {
     for (const f of n.all) add(all, f);
     if (n.err) add(errs, n.err);
   }
-  return { status: 200, incr, errs, all, once, accepted, dropped: body.events.length - accepted };
+  const badCount = [...bad.values()].reduce((a, b) => a + b, 0);
+  for (const [f, c] of bad) add(incr, f, c);
+  return { status: 200, incr, errs, all, once, accepted, badCount, dropped: body.events.length - accepted };
 }
 
 /** Count each `once` event whose id was claimed for the first time (fresh[i]); the rest become `<kind>|dup`. */
@@ -286,5 +308,11 @@ export function summarize(c) {
     askYes: n('ask_answer|a|yes'),
     askNo: n('ask_answer|a|no'),
     askSkip: n('ask_answer|a|skip'),
+    bad: Object.fromEntries(
+      Object.entries(c)
+        .filter(([f, v]) => f.endsWith('|bad') && v > 0)
+        .map(([f, v]) => [f.slice(0, -4), v])
+        .sort(([a], [b]) => (a < b ? -1 : 1)),
+    ),
   };
 }

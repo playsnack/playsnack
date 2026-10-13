@@ -2,15 +2,21 @@
 //   POST {v:1, events:[{k,...}]}  -> counts whitelisted events into per-KST-day aggregates
 //   GET  ?day=YYYY-MM-DD          -> read-only aggregates (cached 30 s; today-90 … today+1 only)
 //   GET  ?week=YYYY-Www           -> the same, summed over an ISO week's readable days (KST)
-// Never stores IP, user agent, nickname, cookies or device ids; a host-engine game id
-// (`sid` / `gid`) is kept only as a 6 h de-dup hash. See docs/telemetry.md.
+// Never stores IP, user agent, nickname, cookies, device or browser-session ids; a random
+// per-game id (`sid` / `gid`) is sent and kept only as a 6 h de-dup hash. A request with
+// a privacy signal (Sec-GPC: 1 or DNT: 1) is not counted. See docs/telemetry.md.
 import { kstDay, isDay, daysAgo, isoWeek, weekDays } from './_lib/day.js';
 import { appIds } from './_lib/apps.js';
-import { MAX_BODY_BYTES, parseBatch, settleOnce, summarize } from './_lib/schema.js';
+import { MAX_BODY_BYTES, parseBatch, settleOnce, summarize, WIRED } from './_lib/schema.js';
 import { createKvStore, createMemoryStore, kvConfig, StoreError, TOTAL_FIELD, TTL_SECONDS } from './_lib/store.js';
-import { createLimiter } from './_lib/ratelimit.js';
+import { createLimiter, DEFAULTS } from './_lib/ratelimit.js';
+
+/** The browser asked not to be tracked (the client already stays silent; this covers any other sender). */
+const privacySignal = (request) => request.headers.get('sec-gpc') === '1' || request.headers.get('dnt') === '1';
 
 const GET_CACHE_MS = 30_000;
+// Readable days (≤ 92) + readable ISO weeks (≤ 15) all fit, so the cache never thrashes.
+const GET_CACHE_MAX = 128;
 const TOP_ERRORS = 20;
 // Readable days: the retention window (keys expire after TTL_SECONDS) plus tomorrow
 // (a client clock ahead of KST). Anything else is 400 — so an attacker cannot
@@ -95,7 +101,7 @@ export function createHandler(opts = {}) {
 
   function limiterFor(env) {
     if (opts.limiter) return opts.limiter;
-    const cap = Number(env.EV_DAILY_CAP) > 0 ? Math.floor(Number(env.EV_DAILY_CAP)) : 20000;
+    const cap = Number(env.EV_DAILY_CAP) > 0 ? Math.floor(Number(env.EV_DAILY_CAP)) : DEFAULTS.dailyCap;
     if (!limiter || limiterCap !== cap) {
       limiter = createLimiter({ dailyCap: cap });
       limiterCap = cap;
@@ -106,17 +112,30 @@ export function createHandler(opts = {}) {
   async function post(request, store, lim) {
     const t = now();
     const today = kstDay(t);
+    if (privacySignal(request)) return new Response(null, { status: 204, headers: { 'cache-control': 'no-store', 'x-ev-store': store.kind } });
     if (lim.check(request, t)) return json(429, { ok: false, error: 'rate_limited' }, store.kind, { 'retry-after': '60' });
     const text = await readLimited(request, MAX_BODY_BYTES);
     if (text === null) return json(413, { ok: false, error: 'too_large' }, store.kind);
     const parsed = parseBatch(text);
     if (parsed.status !== 200) return json(parsed.status, { ok: false, error: parsed.error }, store.kind);
     if (lim.dailyCapReached(today)) return json(429, { ok: false, error: 'daily_cap' }, store.kind, { 'retry-after': '3600' });
-    if (parsed.accepted > 0) {
-      // Host-engine events (a finished game, a rematch) count once per game id, even
-      // when two hosts report the same game across a hand-over.
-      if (parsed.once.length) settleOnce(parsed, await store.claim(parsed.once.map((o) => o.id)));
-      const total = await store.apply(today, parsed.incr, parsed.errs, parsed.accepted, parsed.all);
+    const received = parsed.accepted + parsed.badCount; // both use KV commands → both count toward the cap
+    if (received > 0) {
+      // Host-engine events (a finished game, a rematch, a made quiz) count once per id,
+      // even when two hosts report the same game across a hand-over. Upstash cannot
+      // increment conditionally inside one pipeline, so: claim → apply, and if the apply
+      // fails, release the claims (best effort) so the other host's report still counts.
+      const ids = parsed.once.map((o) => o.id);
+      const fresh = ids.length ? await store.claim(ids) : [];
+      settleOnce(parsed, fresh);
+      let total;
+      try {
+        total = await store.apply(today, parsed.incr, parsed.errs, received, parsed.all);
+      } catch (e) {
+        const mine = ids.filter((_, i) => fresh[i]);
+        if (mine.length) await store.release(mine).catch(() => {});
+        throw e;
+      }
       lim.noteTotal(today, total);
     }
     return json(200, { ok: true, accepted: parsed.accepted, dropped: parsed.dropped }, store.kind);
@@ -131,7 +150,7 @@ export function createHandler(opts = {}) {
     return hit && t - hit.at < GET_CACHE_MS ? hit.body : null;
   };
   const remember = (key, t, body) => {
-    if (getCache.size > 100) getCache.clear();
+    if (getCache.size >= GET_CACHE_MAX) getCache.clear();
     getCache.set(key, { at: t, body });
   };
   const ok = (body, store) => json(200, body, store.kind, { 'cache-control': 'public, max-age=30, s-maxage=30' });
@@ -158,6 +177,7 @@ export function createHandler(opts = {}) {
         v: 1,
         day,
         store: store.kind,
+        wired: WIRED,
         appsKnown: appIds().size,
         total: counts[TOTAL_FIELD] || 0,
         summary: summarize(counts),
@@ -190,6 +210,7 @@ export function createHandler(opts = {}) {
         week,
         days,
         store: store.kind,
+        wired: WIRED,
         appsKnown: appIds().size,
         total: sum[TOTAL_FIELD] || 0,
         summary: summarize(sum),

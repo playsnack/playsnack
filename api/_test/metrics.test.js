@@ -77,7 +77,9 @@ test('each new kind is accepted and aggregated (day counters, summary, all-time)
   assert.deepEqual(a.summary, {
     sessionsDone: 2, sessionsDone3: 1, sessionsDup: 0, sessionsAbout: 1, rematch: 1, roomsCreated: 1,
     gamesCreated: 2, gamesRemade: 1, joinOk: 1, joinFail: 2, share: 2, askShown: 1, askYes: 1, askNo: 1, askSkip: 1,
+    bad: {},
   });
+  assert.equal(a.wired, false, 'nothing sends these yet: zeros are not measurements');
   assert.deepEqual(a.cumulative, {
     session_done: { n: 2, p3: 1 }, rematch: { n: 1 }, room_create: { n: 1 },
     game_created: { n: 2, source: { editor: 1, remake: 1 } },
@@ -100,6 +102,8 @@ test('strict validation: unknown fields and bad values drop the event', async ()
     { k: 'room_create', app: 'quiz-ox', code: 'ABCDEFGH' },
     { k: 'session_done', p: 3, sid: SID_A, about: 'yes' },
     { k: 'session_done', p: 3, sid: SID_A, ans: -1 },
+    { k: 'session_done', p: 3, sid: SID_A, ans: 4 }, // more answerers than players
+    { k: 'session_done', p: 3, sid: SID_A, about: true, ans: 3 }, // the subject is a player, never an answerer
     { k: 'game_created', source: 'magic', gid: 'gidAAAAAAAAAAAAAAAA1' },
     { k: 'game_created', source: 'editor' }, // no gid
     { k: 'game_created', source: 'editor', gid: 'gidAAAAAAAAAAAAAAAA1', pack: '{}' }, // the pack never travels
@@ -113,13 +117,20 @@ test('strict validation: unknown fields and bad values drop the event', async ()
     { k: 'room_join', ok: true, room: 'secret' },
     { k: 'share', method: 'copy', what: 'everything' },
   ];
-  for (const part of [bad.slice(0, 13), bad.slice(13)]) {
+  for (const part of [bad.slice(0, 14), bad.slice(14)]) {
     const [s, b] = await json(await h(post(part)));
     assert.equal(s, 200);
     assert.deepEqual(b, { ok: true, accepted: 0, dropped: part.length });
   }
-  assert.equal(memoryStore.data.size, 0, 'nothing stored');
+  // Only the per-kind `bad` counters (and the cap total) are written — never a value from the events.
+  const day = memoryStore.data.get('ev:2026-10-13');
+  for (const f of day.keys()) assert.ok(f === '_total' || f.endsWith('|bad'), f);
   assert.equal(memoryStore.once.size, 0, 'no de-dup id claimed');
+  const a = await (await h(get())).json();
+  assert.deepEqual(a.summary.bad, {
+    ask_answer: 4, ask_shown: 1, game_created: 3, rematch: 1, room_create: 1, room_join: 3, session_done: 13, share: 1,
+  });
+  assert.equal(a.summary.sessionsDone, 0);
 });
 
 test('a game is counted once per sid: two hosts across a hand-over, resends, same batch', async () => {
@@ -273,4 +284,153 @@ test('KV: de-dup uses SET NX EX on a hashed key; the all-time hash never expires
   assert.deepEqual(a.cumulative.session_done, { n: 1, p3: 1 });
   const w = await (await h(get('?week=2026-W42'))).json();
   assert.equal(w.summary.sessionsDone, 1);
+});
+
+test('p = players who took part: the 3+ headline needs p >= 3 and, for a quiz, an answer', async () => {
+  const { h } = setup();
+  await h(post([
+    { k: 'session_done', app: 'speed-trivia-score', p: 3, sid: 'sid10000000000000001', about: true, ans: 2 }, // subject + 2
+    { k: 'session_done', app: 'speed-trivia-score', p: 3, sid: 'sid10000000000000002', about: false, ans: 0 }, // nobody answered
+    { k: 'session_done', app: 'tap-battle', p: 3, sid: 'sid10000000000000003' }, // not a quiz: no ans
+    { k: 'session_done', app: 'speed-trivia-score', p: 2, sid: 'sid10000000000000004', about: true, ans: 1 }, // 1:1
+  ]));
+  const a = await (await h(get())).json();
+  assert.equal(a.summary.sessionsDone, 4);
+  assert.equal(a.summary.sessionsDone3, 2);
+  assert.deepEqual(a.counters.session_done.ans, { 0: 1, 1: 1, 2: 1 });
+  assert.deepEqual(a.cumulative.session_done, { n: 4, p3: 2 });
+});
+
+test('null optional fields are treated as absent', async () => {
+  const { h } = setup();
+  const [, b] = await json(await h(post([
+    { k: 'session_done', app: null, p: 3, sid: SID_A, about: null, ans: null },
+    { k: 'share', method: 'copy', what: null, app: null },
+    { k: 'room_join', ok: false, reason: null, room: null, ms: null },
+    { k: 'ask_answer', app: 'quiz-ox', a: 'no', why: null },
+    { k: 'game_created', source: 'editor', gid: null }, // a required field null = missing -> bad
+  ])));
+  assert.deepEqual(b, { ok: true, accepted: 4, dropped: 1 });
+  const a = await (await h(get())).json();
+  assert.equal(a.summary.sessionsDone3, 1);
+  assert.equal(a.counters.session_done.about, undefined);
+  assert.deepEqual(a.summary.bad, { game_created: 1 });
+});
+
+test('normApp edges: tpl-app-x -> custom, ~quiz-ox -> other', async () => {
+  const { normApp } = await import('../_lib/apps.js');
+  assert.equal(normApp('tpl-app-x'), 'custom');
+  assert.equal(normApp('~quiz-ox'), 'other');
+  assert.equal(normApp('tpl-quiz-ox~CODE~MORE'), 'quiz-ox');
+  assert.equal(normApp('custom'), 'custom');
+  assert.equal(normApp(''), undefined);
+  assert.equal(normApp(42), 'other');
+});
+
+test('KST midnight: 14:59:59Z counts on that KST day, 15:00Z on the next', async () => {
+  const { h, at } = setup();
+  at(Date.parse('2026-10-13T14:59:59Z'));
+  await h(post([{ k: 'session_done', p: 3, sid: 'sid20000000000000001' }]));
+  at(Date.parse('2026-10-13T15:00:00Z')); // UTC still the 13th, KST already the 14th
+  await h(post([{ k: 'session_done', p: 3, sid: 'sid20000000000000002' }, { k: 'room_create' }]));
+  const d13 = await (await h(get('?day=2026-10-13'))).json();
+  const d14 = await (await h(get('?day=2026-10-14'))).json();
+  assert.equal(d13.summary.sessionsDone, 1);
+  assert.equal(d14.summary.sessionsDone, 1);
+  assert.equal(d14.summary.roomsCreated, 1);
+});
+
+test('?week= across the year boundary: 2026-W53 = Mon 2026-12-28 … Sun 2027-01-03', async () => {
+  const { h, at } = setup();
+  at(Date.parse('2026-12-31T03:00:00Z'));
+  await h(post([{ k: 'session_done', p: 3, sid: 'sid30000000000000001' }]));
+  at(Date.parse('2027-01-02T03:00:00Z'));
+  await h(post([{ k: 'session_done', p: 4, sid: 'sid30000000000000002' }]));
+  at(Date.parse('2027-01-04T03:00:00Z')); // Monday of 2027-W01
+  await h(post([{ k: 'session_done', p: 5, sid: 'sid30000000000000003' }]));
+  const w = await (await h(get('?week=2026-W53'))).json();
+  assert.equal(w.week, '2026-W53');
+  assert.deepEqual([w.days[0], w.days[6]], ['2026-12-28', '2027-01-03']);
+  assert.equal(w.summary.sessionsDone, 2);
+  const w1 = await (await h(get('?week='))).json();
+  assert.equal(w1.week, '2027-W01');
+  assert.equal(w1.summary.sessionsDone, 1);
+});
+
+test('GET cache holds every readable day and week (> 100 keys) without thrashing', async () => {
+  let t = T0;
+  const memoryStore = createMemoryStore({ now: () => t });
+  let reads = 0;
+  const store = { ...memoryStore, kind: 'memory' };
+  store.read = async (d) => (reads++, memoryStore.read(d));
+  store.readDays = async (d) => (reads++, memoryStore.readDays(d));
+  const lim = { check: () => null, dailyCapReached: () => false, noteTotal: () => {} };
+  const h = createHandler({ env: {}, memoryStore: store, limiter: lim, now: () => t });
+  const keys = [];
+  for (let i = -1; i <= 90; i++) keys.push(`?day=${new Date(T0 + 9 * 3600e3 - i * 86_400_000).toISOString().slice(0, 10)}`);
+  for (let w = 29; w <= 42; w++) keys.push(`?week=2026-W${w}`);
+  assert.ok(keys.length > 100, String(keys.length));
+  for (const q of keys) assert.equal((await h(get(q))).status, 200, q);
+  const first = reads;
+  assert.equal(first, keys.length);
+  t += 10_000; // still inside the 30 s cache
+  for (const q of keys) await h(get(q));
+  assert.equal(reads, first, 'second pass served from the cache');
+});
+
+test('apply fails after the claim: claims are released, so the next report of that game counts', async () => {
+  const db = new Map();
+  let failApply = true;
+  const cmds = [];
+  const fetch = async (url, init) => {
+    const batch = JSON.parse(init.body);
+    if (failApply && batch.some(([c]) => c === 'HINCRBY')) return new Response('down', { status: 500 });
+    const out = batch.map(([cmd, key, ...args]) => {
+      cmds.push(cmd);
+      if (cmd === 'SET') {
+        if (db.has(key)) return { result: null };
+        db.set(key, args[0]);
+        return { result: 'OK' };
+      }
+      if (cmd === 'DEL') return { result: db.delete(key) ? 1 : 0 };
+      if (cmd === 'HINCRBY') {
+        const m = db.get(key) || new Map();
+        db.set(key, m);
+        m.set(args[0], (m.get(args[0]) || 0) + Number(args[1]));
+        return { result: m.get(args[0]) };
+      }
+      if (cmd === 'EXPIRE') return { result: 1 };
+      if (cmd === 'HGETALL') return { result: [...(db.get(key) || [])].flatMap(([f, v]) => [f, String(v)]) };
+      return { error: 'ERR' };
+    });
+    return new Response(JSON.stringify(out));
+  };
+  const h = createHandler({ env: { KV_REST_API_URL: 'https://kv.test', KV_REST_API_TOKEN: 't' }, fetch, now: () => T0 });
+  const done = { k: 'session_done', app: 'quiz-ox', p: 3, sid: SID_A };
+  const errLog = console.error;
+  console.error = () => {};
+  let r;
+  try {
+    r = await h(post([done]));
+  } finally {
+    console.error = errLog;
+  }
+  assert.equal(r.status, 503);
+  assert.ok(cmds.includes('DEL'), 'the claim was released');
+  assert.equal([...db.keys()].filter((k) => k.startsWith('ev:once:')).length, 0);
+  failApply = false;
+  assert.equal((await h(post([done]))).status, 200); // e.g. the other host's report
+  const a = await (await h(get())).json();
+  assert.equal(a.summary.sessionsDone, 1);
+  assert.equal(a.summary.sessionsDup, 0);
+});
+
+test('Sec-GPC: 1 or DNT: 1 -> 204, nothing counted', async () => {
+  const { h, memoryStore } = setup();
+  for (const hdr of [{ 'sec-gpc': '1' }, { dnt: '1' }]) {
+    const r = await h(new Request(URL_EV, { method: 'POST', headers: hdr, body: JSON.stringify({ v: 1, events: [{ k: 'room_create' }] }) }));
+    assert.equal(r.status, 204);
+  }
+  assert.equal(memoryStore.data.size, 0);
+  assert.equal((await h(post([{ k: 'room_create' }]))).status, 200);
 });

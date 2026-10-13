@@ -41,5 +41,5 @@ export function weekDays(week) {
   const jan4 = Date.UTC(year, 0, 4); // always in week 1
   const monday = jan4 - ((new Date(jan4).getUTCDay() + 6) % 7) * DAY_MS + (w - 1) * 7 * DAY_MS;
   const days = Array.from({ length: 7 }, (_, i) => utcDay(monday + i * DAY_MS));
-  return isoWeek(days[0]) === week ? days : null; // e.g. 2026-W53 does not exist
+  return isoWeek(days[0]) === week ? days : null; // e.g. 2025-W53 does not exist (2026-W53 does)
 }

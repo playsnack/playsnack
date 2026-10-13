@@ -156,7 +156,7 @@ test('fetch keepalive fallback without credentials when sendBeacon refuses', asy
   assert.equal(JSON.parse(fetches[0].init.body).events[0].route, 'room');
 });
 
-test('client sends only event fields: no ids, cookies, storage or UA', async () => {
+test('client sends only event fields: no person/device/browser-session ids, cookies, storage or UA', async () => {
   const touched = [];
   const trap = new Proxy({}, { get: (_, p) => (touched.push(String(p)), undefined) });
   globalThis.localStorage = trap;
@@ -223,4 +223,16 @@ test('joinFailReason maps transport reasons onto the reported set', async () => 
   assert.equal(t.joinFailReason(undefined), 'other');
   assert.equal(t.appOf('quiz-ox~ABCDEFGH'), 'quiz-ox');
   assert.equal(t.appOf('app-abc123'), 'custom');
+});
+
+test('game helpers DO send the random per-game id (sid / gid) — and nothing else that identifies', async () => {
+  const t = await fresh();
+  t.trackSessionDone('speed-trivia-score', 3, 'gameSid00000000000A');
+  t.trackRematch('speed-trivia-score', 3, 'gameSid00000000000B');
+  t.trackGameCreated('speed-trivia-score', 'editor', 'packGid00000000000C');
+  t.trackSessionDone('speed-trivia-score', 0, 'gameSid00000000000Z'); // nobody took part: not sent
+  t.flush();
+  const evs = beacons.flatMap((b) => JSON.parse(b.body).events);
+  assert.deepEqual(evs.map((e) => e.sid ?? e.gid), ['gameSid00000000000A', 'gameSid00000000000B', 'packGid00000000000C']);
+  for (const e of evs) assert.deepEqual(Object.keys(e).filter((f) => !['k', 'app', 'p', 'sid', 'gid', 'source'].includes(f)), []);
 });
