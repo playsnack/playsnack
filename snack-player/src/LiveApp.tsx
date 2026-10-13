@@ -355,6 +355,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const quizInvite = isQuiz && withRoom && conn === "connected" && phase === "lobby" && Boolean(code);
   const alone = roster.length <= 1;
   const people = isQuiz && roster.length ? roster.length : participants;
+  // A quiz that did not reach the room is said in the lobby / result only — never over a question being played.
+  const showPackFail = Boolean(packFail) && (phase === "lobby" || phase === "result");
   return (
     <>
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} />
@@ -370,10 +372,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       )}
       {/* Quiz notices (top, under the home row): the invite result while the
           lobby's bottom band holds the button, and a quiz that did not reach the room. */}
-      {isQuiz && withRoom && conn === "connected" && ((quizInvite && invite) || packFail) && (
+      {isQuiz && withRoom && conn === "connected" && ((quizInvite && invite) || showPackFail) && (
         <div style={topDock}>
           {quizInvite && inviteFeedback}
-          {packFail && (
+          {showPackFail && (
             <div style={{ ...inviteNote, flexDirection: "column", alignItems: "stretch", gap: S.s2 }} role="alert">
               <span>{packFail}</span>
               <div style={{ display: "flex", gap: S.s2 }}>
