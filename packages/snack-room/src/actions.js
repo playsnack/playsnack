@@ -64,11 +64,14 @@ export const HOST_ACTIONS = Object.freeze({
   // 나 맞히기: sanitizeQuizPack(payload) — title ≤40, 1–20 questions {q ≤80, options 2–4
   // each ≤30, answer}, settings {rounds 1–20, answerMs 3000–20000}; invalid questions are
   // dropped, none valid → actionAck {accepted:false, reason:"invalid_pack"}. Lobby/result
-  // only (else reason "not_in_lobby"). The sender becomes the subject; it replaces any pack.
+  // only (else "not_in_lobby"); in the lobby only the current subject may replace it (else
+  // "not_subject", unless that subject left). The sender becomes the subject, shown as
+  // `about` (cleaned like a nickname) or else their nickname.
   quizPack: {
     payload: "object",
     fields: {
       title: { type: "string", text: true },
+      about: { type: "string", text: true },
       questions: { type: "array", required: true },
       settings: { type: "object" },
     },

@@ -676,11 +676,16 @@ export function createRoom(o) {
       }
       ack(peerId, d?.clientMsgId);
     } else if (name === "quizPack") {
-      // 나 맞히기: whoever sends a pack becomes the subject (also "나도 만들기" from a result).
+      // 나 맞히기: the sender becomes the subject. In the lobby only the subject may update
+      // their quiz (or anyone, when none is stored or its subject has left the room); from
+      // the result anyone may send one ("나도 만들기").
       if (S.phase !== "lobby" && S.phase !== "result") return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_in_lobby" });
+      const owner = S.quizPack?.subject.anonId;
+      if (S.phase === "lobby" && owner && owner !== anonId && r.roster.has(owner)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
       const pack = sanitizeQuizPack(d?.payload);
       if (!pack) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_pack" });
-      S.quizPack = { ...pack, subject: { anonId, nick: peerNick(peer) || "게스트" } };
+      const about = typeof d.payload.about === "string" ? cleanNick(d.payload.about) : ""; // a display name, capped like a nickname
+      S.quizPack = { ...pack, subject: { anonId, nick: about || peerNick(peer) || "게스트" } };
       S.subject = anonId;
       setVar("quizInfo", quizInfo());
       for (const [id, p] of r.peers) sendSubjectFlag(id, p.anonId);

@@ -627,24 +627,38 @@ test("quizPack: sanitized (trim, caps, invalid questions dropped), quizInfo has 
   assert.deepEqual(h.v("quizInfo"), { title: "제".repeat(40), count: 2, custom: true, about: "닉1", answerMs: 3000 });
   assert.ok(!JSON.stringify(h.v("quizInfo")).includes('"answer"'), "no answers in the public var");
   // more than 20 valid questions → the first 20
-  h.act(2, "quizPack", { title: "많다", questions: Array.from({ length: 25 }, (_, i) => ({ q: `Q${i}`, options: ["a", "b"], answer: 1 })) });
+  h.act(1, "quizPack", { title: "많다", questions: Array.from({ length: 25 }, (_, i) => ({ q: `Q${i}`, options: ["a", "b"], answer: 1 })) });
   assert.equal(h.room._state.session.quizPack.questions.length, 20);
   assert.equal(h.room._state.session.quizPack.questions[19].q, "Q19");
 });
 
-test("quizPack: nothing playable is refused (the stored pack stays); a new pack replaces it", () => {
+test("quizPack: nothing playable is refused (the stored pack stays); the subject's update replaces it", () => {
   const h = harness();
   [1, 2].forEach(h.join);
   h.act(1, "quizPack", { title: "첫 팩", questions: QS });
   for (const bad of [{ title: "x" }, { questions: [] }, { questions: [{ q: "q", options: ["a"], answer: 0 }] }, { questions: "nope" }, null]) {
-    h.act(2, "quizPack", bad);
-    assert.deepEqual(ackOf(h, 2, "quizPack"), { clientMsgId: "m2quizPack", accepted: false, reason: "invalid_pack" });
+    h.act(1, "quizPack", bad);
+    assert.deepEqual(ackOf(h, 1, "quizPack"), { clientMsgId: "m1quizPack", accepted: false, reason: "invalid_pack" });
   }
   assert.equal(h.v("quizInfo").title, "첫 팩");
   assert.equal(h.v("quizInfo").about, "닉1");
-  h.act(2, "quizPack", { title: "둘째 팩", questions: QS.slice(0, 1) });
-  assert.deepEqual(h.v("quizInfo"), { title: "둘째 팩", count: 1, custom: true, about: "닉2", answerMs: null });
+  h.act(1, "quizPack", { title: "고친 팩", questions: QS.slice(0, 1), about: "  내 이름은 아주아주 긴 별명입니다  " });
+  assert.deepEqual(h.v("quizInfo"), { title: "고친 팩", count: 1, custom: true, about: "내 이름은 아주아주", answerMs: null }); // `about`: a nickname, ≤10 graphemes
   assert.equal(h.room._state.session.quizPack.questions.length, 1);
+});
+
+test("quizPack in the lobby: only the subject may replace it (not_subject) — unless the subject left", () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "닉1 팩", questions: QS });
+  h.act(2, "quizPack", { title: "가로채기", questions: QS });
+  assert.deepEqual(ackOf(h, 2, "quizPack"), { clientMsgId: "m2quizPack", accepted: false, reason: "not_subject" });
+  assert.equal(h.v("quizInfo").about, "닉1");
+  assert.equal(h.room._state.session.subject, "a1");
+  h.room.leave("p1"); // the subject is gone: the room is not stuck with their quiz
+  h.act(2, "quizPack", { title: "닉2 팩", questions: QS });
+  assert.equal(ackOf(h, 2, "quizPack").accepted, true);
+  assert.equal(h.v("quizInfo").about, "닉2");
 });
 
 test("quizPack: only in the lobby / result — refused mid-game", async () => {
