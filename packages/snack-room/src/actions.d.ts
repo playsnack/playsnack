@@ -1,4 +1,4 @@
-export type HostFieldType = "string" | "number" | "boolean";
+export type HostFieldType = "string" | "number" | "boolean" | "array" | "object";
 
 export interface HostField {
   type: HostFieldType | HostFieldType[];

@@ -39,6 +39,56 @@ const LATE_GRACE_MS = 2500;
 const COUNTDOWN_STEP_MS = 1000;
 export const LEFT_MARK = "(나감)"; // ranking mark for a player who left the room (MP-12)
 
+// Quiz pack (나 맞히기 퀴즈): a player's own questions, sent from the lobby/result. Lengths
+// are graphemes (one Korean syllable or one emoji = one), like nicknames.
+export const QUIZ_MAX_QUESTIONS = 20;
+const QUIZ_TITLE_MAX = 40;
+const QUIZ_Q_MAX = 80;
+const QUIZ_OPTION_MAX = 30;
+const QUIZ_ANSWER_MS = [3000, 20000]; // answer window bounds (ms)
+// A device starts its answer clock when the question reaches it — after the host's —
+// so an honest claim never exceeds the window by much; beyond this it is not believed.
+const ANSWER_GRACE_MS = 500;
+const RECAP_PLAYERS_MAX = 20; // answerers listed per round in quizRecap (snapshot size)
+const clip = (s, n) => capGraphemes(String(s).trim(), n).trimEnd();
+const clampInt = (v, lo, hi) => {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : undefined;
+};
+/** One question {q, options[2..4], answer} cleaned up, or null when it can't be played. */
+export const cleanQuestion = (x) => {
+  if (!x || typeof x !== "object" || !Array.isArray(x.options)) return null;
+  const q = typeof x.q === "string" ? clip(x.q, QUIZ_Q_MAX) : "";
+  const answer = Number(x.answer);
+  if (!q || !Number.isInteger(answer) || answer < 0 || answer >= x.options.length) return null;
+  const options = [];
+  let a = -1;
+  x.options.forEach((o, i) => {
+    const t = typeof o === "string" || (typeof o === "number" && Number.isFinite(o)) ? clip(o, QUIZ_OPTION_MAX) : "";
+    if (!t) return; // a blank choice is dropped (the answer index follows)
+    if (i === answer) a = options.length;
+    options.push(t);
+  });
+  return a >= 0 && options.length >= 2 && options.length <= 4 ? { q, options, answer: a } : null;
+};
+/** A `quizPack` payload cleaned up: {title, questions (1–20), settings}, or null (nothing playable). */
+export const sanitizeQuizPack = (p) => {
+  const questions = [];
+  for (const x of Array.isArray(p?.questions) ? p.questions : []) {
+    if (questions.length >= QUIZ_MAX_QUESTIONS) break;
+    const q = cleanQuestion(x);
+    if (q) questions.push(q);
+  }
+  if (!questions.length) return null;
+  const s = p.settings && typeof p.settings === "object" ? p.settings : {};
+  const settings = {};
+  const rounds = s.rounds == null ? undefined : clampInt(s.rounds, 1, QUIZ_MAX_QUESTIONS);
+  const answerMs = s.answerMs == null ? undefined : clampInt(s.answerMs, ...QUIZ_ANSWER_MS);
+  if (rounds !== undefined) settings.rounds = rounds;
+  if (answerMs !== undefined) settings.answerMs = answerMs;
+  return { title: typeof p.title === "string" ? clip(p.title, QUIZ_TITLE_MAX) : "", questions, settings };
+};
+
 const roundNameFor = (n) => (n >= 16 ? "16강" : n >= 8 ? "8강" : n >= 4 ? "4강" : "결승");
 const buildMatchups = (cands) => {
   const m = [];
@@ -86,7 +136,7 @@ export function createRoom(o) {
     scores: new Map(), // anonId → score
     roster: new Map(), // anonId → nick (live participants, insertion order)
     nicks: new Map(), // anonId → nick (score owner names)
-    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0 },
+    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null },
     destroyed: false,
     // Variable stores — what a (re)joining player needs to see the room as it is:
     vars: new Map(), // shared: id → latest broadcast value (round content too)
@@ -180,6 +230,7 @@ export function createRoom(o) {
   };
   const toResult = () => {
     S.lateUntil = now() + LATE_GRACE_MS; // a last tap batch / reaction may still be in flight
+    if (S.quiz) setVar("quizRecap", quizRecap());
     setPhase("result");
     setKnown("raceBoard", raceBoard()); // a vote / co-op session has no board to show
     setKnown("leaderboard", board());
@@ -196,6 +247,57 @@ export function createRoom(o) {
   };
 
   // Quiz: answer window (answer hidden) → reveal (answer + scores).
+  // 나 맞히기: the player whose pack is playing (the subject) watches; everyone else answers.
+  const isSubject = (anonId) => Boolean(S.quizSubject) && S.quizSubject.anonId === anonId;
+  const answerersHere = () => [...r.roster.keys()].filter((id) => !(S.quizPack && S.quizPack.subject.anonId === id));
+  // An answerer of this session: listed in the recap and on the board (0 until they score).
+  const addQuizPlayer = (anonId, nick) => {
+    if (isSubject(anonId) || S.players.some((x) => x.anonId === anonId)) return;
+    S.players.push({ anonId, nick });
+    if (!r.scores.has(anonId)) r.scores.set(anonId, 0);
+    r.nicks.set(anonId, nick);
+  };
+  const quizProgress = () => {
+    const answered = Object.keys(S.picks?.[S.roundIdx] ?? {}).length;
+    const here = [...r.roster.keys()].filter((id) => !isSubject(id)).length;
+    return { answered, of: Math.max(answered, here) };
+  };
+  const quizInfo = (count, answerMs) => {
+    const p = S.quizPack;
+    const n = count ?? Math.min(p.questions.length, p.settings.rounds ?? p.questions.length);
+    return { title: p.title || `${p.subject.nick} 퀴즈`, count: n, custom: true, about: p.subject.nick, answerMs: answerMs ?? p.settings.answerMs ?? null };
+  };
+  // Each player's own "am I the subject?" — per player (keyed by anonId, survives a reload).
+  const sendSubjectFlag = (peerId, anonId) => send(peerId, "setVar", { id: "iAmSubject", value: Boolean(S.quizPack) && S.quizPack.subject.anonId === anonId });
+  // Options are shuffled every round (a creator tends to put the answer first).
+  const shuffleOptions = ({ q, options, answer }) => {
+    const order = shuffled(options.map((_, i) => i));
+    return { q, options: order.map((k) => options[k]), answer: order.indexOf(answer) };
+  };
+  // The time an answer took, as the DEVICE measured it ("question shown → tap"). A missing
+  // or implausible claim (not a number, negative, past the window) gets the host's own
+  // measurement — never better; a claim slower than the host itself saw is clamped to it.
+  const answerTime = (claim) => {
+    const host = Math.max(0, now() - S.roundStart);
+    const m = claim === null || claim === undefined || claim === "" ? NaN : Number(claim);
+    const ok = Number.isFinite(m) && m >= 0 && m <= S.answerMs + ANSWER_GRACE_MS;
+    return Math.min(ok ? Math.min(Math.round(m), host + REACTION_TOLERANCE_MS) : host, S.answerMs);
+  };
+  const quizRecap = () => {
+    const players = S.players.slice(0, RECAP_PLAYERS_MAX);
+    return {
+      subject: S.quizSubject ? S.quizSubject.nick : null,
+      rounds: S.rounds.map((rd, i) => ({
+        q: rd.q,
+        options: rd.options,
+        answer: rd.answer,
+        picks: players.map(({ anonId, nick }) => {
+          const p = S.picks[i]?.[anonId];
+          return p ? { nick, ...p } : { nick, option: -1, ms: -1, correct: false, points: 0 };
+        }),
+      })),
+    };
+  };
   const startQuizRound = (i) => {
     if (i >= S.rounds.length) return toResult();
     S.roundIdx = i;
@@ -204,7 +306,7 @@ export function createRoom(o) {
     S.roundStart = now();
     const { answer, ...pub } = S.rounds[i]; // clients must not see the answer
     void answer;
-    setPhase("play", { roundIdx: i, roundTotal: S.rounds.length, roundNum: i + 1, roundContent: pub, roundAnswer: -1 });
+    setPhase("play", { roundIdx: i, roundTotal: S.rounds.length, roundNum: i + 1, roundContent: pub, roundAnswer: -1, quizProgress: quizProgress() });
     later("revealQuizRound", i, S.answerMs);
   };
   const revealQuizRound = (i) => {
@@ -352,6 +454,9 @@ export function createRoom(o) {
     S.bracket = null;
     const myGen = ++S.gen; // older sessions' timers/awaits become no-ops
     S.quiz = false;
+    S.quizSubject = null;
+    S.players = [];
+    S.picks = [];
     S.playAt = 0;
     S.playMs = 0;
     S.lateUntil = 0;
@@ -365,8 +470,12 @@ export function createRoom(o) {
     onActivity("start", "게임 시작");
     // Fetch content first — the lobby stays up meanwhile, so every timer below is
     // scheduled from one sync point and clients stay in step.
-    const pack = await getPack(opts.game, opts);
+    const custom = opts.quiz ? S.quizPack : null; // a player's own quiz: nothing to fetch
+    let pack = custom ? null : await getPack(opts.game, opts);
     if (r.destroyed || S.gen !== myGen) return; // room gone or superseded during the fetch
+    // A themed pack may come as {title, questions}.
+    const packTitle = pack && !Array.isArray(pack) && typeof pack.title === "string" ? pack.title : "";
+    if (pack && !Array.isArray(pack)) pack = Array.isArray(pack.questions) ? pack.questions : null;
     // "Play starts in N ms": a client runs 3·2·1 on its own clock from this (the
     // numbers below still go out — for clients that don't, and to refine the estimate).
     broadcast("countdown", { n: 3, stepMs: COUNTDOWN_STEP_MS, endsIn: 3 * COUNTDOWN_STEP_MS });
@@ -410,11 +519,22 @@ export function createRoom(o) {
       S.revealMs = Math.min(8000, Math.max(1500, Number(opts.revealMs) || 3500));
       S.mode = "guess";
       later("startGuessRound", 0, 3000);
-    } else if (pack && pack.length && opts.quiz) {
-      S.rounds = shuffled(pack).slice(0, Math.min(pack.length, Math.max(1, Number(opts.rounds) || 6)));
-      S.answerMs = Math.min(20000, Math.max(3000, Number(opts.answerMs) || 8000));
+    } else if (opts.quiz && (custom || (pack && pack.length))) {
+      // A stored pack plays in its creator's order (its settings win over start's);
+      // otherwise the default pack, shuffled. Options are shuffled every round either way.
+      const set = custom ? custom.settings : {};
+      const src = custom ? custom.questions : shuffled(pack.map(cleanQuestion).filter(Boolean));
+      const want = custom ? (set.rounds ?? src.length) : Math.max(1, Number(opts.rounds) || 6);
+      S.rounds = src.slice(0, Math.min(src.length, want)).map(shuffleOptions);
+      S.answerMs = Math.min(20000, Math.max(3000, set.answerMs ?? (Number(opts.answerMs) || 8000)));
       S.revealMs = Math.min(8000, Math.max(1500, Number(opts.revealMs) || 3000));
       S.quiz = true;
+      S.quizSubject = custom ? { ...custom.subject } : null;
+      for (const [id, n] of r.roster) addQuizPlayer(id, n);
+      S.picks = S.rounds.map(() => ({}));
+      setVar("quizInfo", custom ? quizInfo(S.rounds.length, S.answerMs) : { title: packTitle || "상식", count: S.rounds.length, custom: false, about: null, answerMs: S.answerMs });
+      setKnown("quizRecap", { subject: null, rounds: [] });
+      setKnown("raceBoard", raceBoard());
       later("startQuizRound", 0, 3000);
     } else if (pack && pack.length) {
       S.rounds = shuffled(pack).slice(0, Math.min(pack.length, Math.max(1, Number(opts.rounds) || 5)));
@@ -526,21 +646,37 @@ export function createRoom(o) {
       }
       ack(peerId, d?.clientMsgId);
     } else if (name === "answer") {
-      if (S.quiz && S.accepting && S.answered && !S.answered.has(anonId)) {
+      // One answer per player per round; the subject only watches. Scores show at the reveal.
+      const round = S.rounds[S.roundIdx];
+      const option = Number(d?.payload?.option);
+      const valid = round && Number.isInteger(option) && option >= 0 && option < round.options.length;
+      if (S.quiz && S.accepting && valid && S.answered && !S.answered.has(anonId) && !isSubject(anonId)) {
         S.answered.add(anonId);
-        const round = S.rounds[S.roundIdx];
-        if (round && Number(d?.payload?.option) === round.answer) {
-          const elapsed = now() - S.roundStart;
-          const pts = Math.max(100, 1000 - Math.round((elapsed / S.answerMs) * 800)); // faster = more
-          r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + pts);
-          r.nicks.set(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
-          onPoints(anonId, nick, 2);
-          setVar("raceBoard", raceBoard());
-          setVar("leaderboard", board());
-        } else onPoints(anonId, nick, 1);
+        addQuizPlayer(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
+        const ms = answerTime(d.payload.ms);
+        const correct = option === round.answer;
+        const points = correct ? Math.max(100, 1000 - Math.round((ms / S.answerMs) * 800)) : 0; // faster = more
+        S.picks[S.roundIdx][anonId] = { option, ms, correct, points };
+        r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + points);
+        onPoints(anonId, nick, correct ? 2 : 1);
+        setVar("quizProgress", quizProgress());
       }
       ack(peerId, d?.clientMsgId);
+    } else if (name === "quizPack") {
+      // 나 맞히기: whoever sends a pack becomes the subject (also "나도 만들기" from a result).
+      if (S.phase !== "lobby" && S.phase !== "result") return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_in_lobby" });
+      const pack = sanitizeQuizPack(d?.payload);
+      if (!pack) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_pack" });
+      S.quizPack = { ...pack, subject: { anonId, nick: peerNick(peer) || "게스트" } };
+      setVar("quizInfo", quizInfo());
+      for (const [id, p] of r.peers) sendSubjectFlag(id, p.anonId);
+      ack(peerId, d?.clientMsgId);
     } else if (name === "start") {
+      // 나 맞히기 needs someone to guess: the subject plus at least one friend.
+      const p = d?.payload;
+      if (p && typeof p === "object" && p.quiz && S.quizPack && S.phase !== "countdown" && S.phase !== "play" && !answerersHere().length) {
+        return ack(peerId, d?.clientMsgId, { accepted: false, reason: "need_answerer" });
+      }
       startSession(d?.payload).catch((e) => console.error("[snack-room] startSession failed", e));
       onPoints(anonId, nick, 1);
       ack(peerId, d?.clientMsgId);
@@ -563,9 +699,14 @@ export function createRoom(o) {
       r.roster.set(anonId, cleanNick(nick) || "게스트");
       r.nicks.set(anonId, cleanNick(nick) || "게스트");
       send(peerId, "state", this.stateFor(peerId));
+      if (S.quizPack) sendSubjectFlag(peerId, anonId);
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
       setPhotos();
+      if (S.quiz && (S.phase === "countdown" || S.phase === "play")) {
+        addQuizPlayer(anonId, r.roster.get(anonId)); // a late joiner answers from now on
+        if (S.phase === "play") setVar("quizProgress", quizProgress());
+      }
       if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard()); // back after a flap: unmarked (MP-12)
       onActivity("join", "입장");
     },
@@ -582,6 +723,7 @@ export function createRoom(o) {
       setPhotos();
       if (gone && r.scores.has(peer.anonId)) setKnown("raceBoard", raceBoard()); // now marked as left
       if (gone) maybeAdvanceMatchup(); // everyone still here may already have voted
+      if (gone && S.quiz && S.phase === "play") setVar("quizProgress", quizProgress());
       if (r.peers.size === 0) this.destroy();
       return r.peers.size === 0;
     },

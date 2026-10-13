@@ -134,12 +134,13 @@ test("quiz: answer hidden during the window, faster correct answers score more",
   assert.equal(h.v("sessionPhase"), "play");
   assert.equal(h.v("roundAnswer"), -1);
   assert.equal(h.v("roundContent").answer, undefined);
-  h.act(1, "answer", { option: 1 }); // instantly
+  const right = h.v("roundContent").options.indexOf("2"); // options are shuffled each round
+  h.act(1, "answer", { option: right }); // instantly
   await h.advance(4000);
-  h.act(2, "answer", { option: 1 }); // halfway
-  h.act(2, "answer", { option: 1 }); // second answer ignored
+  h.act(2, "answer", { option: right }); // halfway
+  h.act(2, "answer", { option: right }); // second answer ignored
   await h.advance(4000);
-  assert.equal(h.v("roundAnswer"), 1);
+  assert.equal(h.v("roundAnswer"), right);
   const [first, second] = h.v("raceBoard");
   assert.equal(first.nick, "닉1");
   assert.equal(first.score, 1000);
