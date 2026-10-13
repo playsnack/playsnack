@@ -12,6 +12,16 @@ export const MS_EDGES = [100, 250, 500, 1000, 2000, 4000, 8000, 15000, 30000];
 export const ROUTES = new Set(['home', 'app', 'room', 'create', 'other']);
 export const SHARE_METHODS = new Set(['web', 'kakao', 'copy', 'save', 'other']);
 export const KINDS = ['open', 'first_tap', 'result', 'share', 'room_join', 'err'];
+/** Why a room join failed (client: LiveApp / roomTransport reasons). Anything else -> "other". */
+export const JOIN_FAIL_REASONS = new Set(['timeout', 'silence', 'broker', 'refused', 'subscribe', 'load', 'unreachable', 'disconnected', 'other']);
+
+/** "refused: Server unavailable" -> "refused"; unknown -> "other"; absent -> undefined. */
+export function joinReason(v) {
+  if (v === undefined || v === null || v === '') return undefined;
+  if (typeof v !== 'string') return 'other';
+  const head = v.split(':')[0].trim();
+  return JOIN_FAIL_REASONS.has(head) ? head : 'other';
+}
 
 /** Histogram bucket name for a duration, e.g. 730 -> "le1000", 99999 -> "gt30000". */
 export function msBucket(ms) {
@@ -57,13 +67,15 @@ export function sanitizeErr(msg) {
 
 /**
  * Normalize one event into counter fields. Returns null when the event is dropped.
- * Shape: { kind, fields: string[], err?: string }
+ * Shape: { kind, fields: string[], err?: string, where?: string, build?: string }
  */
 export function normalizeEvent(ev) {
   if (!ev || typeof ev !== 'object' || Array.isArray(ev)) return null;
   const k = ev.k;
   const fields = [];
   let err;
+  let where;
+  let build;
   const withApp = () => {
     const app = normApp(ev.app);
     if (app) fields.push(`${k}|app|${app}`);
@@ -92,14 +104,16 @@ export function normalizeEvent(ev) {
       const res = ev.ok ? 'ok' : 'fail';
       fields.push(`room_join|${res}`);
       if (validMs(ev.ms)) fields.push(`room_join_ms|${res}|${msBucket(ev.ms)}`);
+      const reason = ev.ok ? undefined : joinReason(ev.reason);
+      if (reason) fields.push(`room_join|reason|${reason}`);
       withApp();
       break;
     }
     case 'err': {
       if (typeof ev.msg !== 'string' || !ev.msg.trim()) return null;
       err = sanitizeErr(ev.msg) || '(empty)';
-      const where = ident(ev.where, 24);
-      const build = ident(ev.build, 16);
+      where = ident(ev.where, 24);
+      build = ident(ev.build, 16);
       if (where) fields.push(`err|where|${where}`);
       if (build) fields.push(`err|build|${build}`);
       break;
@@ -108,12 +122,13 @@ export function normalizeEvent(ev) {
       return null;
   }
   fields.unshift(`${k}|n`);
-  return { kind: k, fields, err };
+  return err === undefined ? { kind: k, fields } : { kind: k, fields, err, where, build };
 }
 
 /**
  * Parse a raw body string. Returns { status, error } on rejection, or
- * { status: 200, incr: Map<field,count>, errs: Map<sample,count>, accepted, dropped }.
+ * { status: 200, incr: Map<field,count>, errs: Map<sample,count>, errLines, accepted, dropped }
+ * where errLines = [{ msg, where?, build? }] — the accepted error events, already sanitized.
  */
 export function parseBatch(text) {
   let body;
@@ -127,13 +142,17 @@ export function parseBatch(text) {
   if (body.events.length > MAX_EVENTS) return { status: 400, error: 'too_many_events' };
   const incr = new Map();
   const errs = new Map();
+  const errLines = [];
   let accepted = 0;
   for (const ev of body.events) {
     const n = normalizeEvent(ev);
     if (!n) continue;
     accepted++;
     for (const f of n.fields) incr.set(f, (incr.get(f) || 0) + 1);
-    if (n.err) errs.set(n.err, (errs.get(n.err) || 0) + 1);
+    if (n.err) {
+      errs.set(n.err, (errs.get(n.err) || 0) + 1);
+      errLines.push({ msg: n.err, where: n.where, build: n.build });
+    }
   }
-  return { status: 200, incr, errs, accepted, dropped: body.events.length - accepted };
+  return { status: 200, incr, errs, errLines, accepted, dropped: body.events.length - accepted };
 }

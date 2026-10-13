@@ -56,6 +56,10 @@ function fakeUpstash() {
         h.set(args[0], (h.get(args[0]) || 0) + Number(args[1]));
         return { result: h.get(args[0]) };
       }
+      if (cmd === 'INCRBY') {
+        db.set(key, (db.get(key) || 0) + Number(args[0]));
+        return { result: db.get(key) };
+      }
       if (cmd === 'EXPIRE') return { result: 1 };
       if (cmd === 'HGETALL') return { result: [...(db.get(key) || [])].flatMap(([f, v]) => [f, String(v)]) };
       return { error: `ERR unknown ${cmd}` };
@@ -99,9 +103,9 @@ test('fake IP/UA/nickname/cookie/device id never reach the fake Upstash, limiter
   assert.ok(up.seen.length >= 2);
   for (const s of up.seen) assertClean('kv request', s.url + s.headers + s.body);
   // Everything stored.
-  const stored = JSON.stringify([...up.db].map(([k, h]) => [k, [...h]]));
+  const stored = JSON.stringify([...up.db].map(([k, h]) => [k, typeof h === 'number' ? h : [...h]]));
   assertClean('kv storage', stored);
-  for (const k of up.db.keys()) assert.match(k, /^ev:\d{4}-\d{2}-\d{2}(:err)?$/);
+  for (const k of up.db.keys()) assert.match(k, /^ev:(\d{4}-\d{2}-\d{2}(:err)?|budget:\d{4}-\d{2})$/);
   // Off-list app ids collapse to "other"; nicknames in errors are gone.
   const body = await agg.json();
   assert.deepEqual(body.counters.open.app, { other: 1 });
@@ -116,7 +120,8 @@ test('fake IP/UA/nickname/cookie/device id never reach the fake Upstash, limiter
   assertClean('limiter keys', keys.join(','));
   assert.match(keys[0], /^[0-9a-f]{24}$/);
   assert.ok(!createHash('sha256').update(IP).digest('hex').startsWith(keys[0]));
-  // Logs.
+  // Logs: the live error lines (Vercel Logs tab) are there, and clean.
+  assert.equal(con.lines.filter((l) => l.startsWith('[ev] err ')).length, 2);
   assertClean('console', con.lines.join('\n'));
 });
 

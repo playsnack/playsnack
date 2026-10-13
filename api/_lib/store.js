@@ -2,13 +2,21 @@
 // function instance. Only counters are stored — never a raw event log.
 //   ev:<day>      hash  field -> count   (e.g. "open|app|quiz-ox", "room_join_ms|ok|le2000", "_total")
 //   ev:<day>:err  hash  sanitized error sample -> count
-// Both keys expire 90 days after the last write of the instance that set them.
+//   ev:budget:<YYYY-MM KST>  integer  Upstash commands this deployment sent that month
+// Day keys expire 90 days, the budget key ~40 days, after the instance first wrote them.
+//
+// Free-plan guard: every KV pipeline starts with INCRBY ev:budget:<month> <n>, where n is
+// the exact number of commands in that pipeline (the INCRBY and EXPIRE included). The
+// reply is the month's running command count; the handler stops talking to KV once it
+// reaches EV_MONTHLY_BUDGET (api/ev.js).
 
 export const TTL_SECONDS = 90 * 24 * 60 * 60;
+export const BUDGET_TTL_SECONDS = 40 * 24 * 60 * 60;
 export const TOTAL_FIELD = '_total';
 
 export const dayKey = (day) => `ev:${day}`;
 export const errKey = (day) => `ev:${day}:err`;
+export const budgetKey = (month) => `ev:budget:${month}`;
 
 export class StoreError extends Error {}
 
@@ -31,6 +39,22 @@ function pairsToObject(arr) {
 
 export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
   const expired = new Set(); // keys this instance already set a TTL on (saves commands)
+  let seen = { month: null, used: 0 }; // last budget count this instance got back
+
+  /** Send `cmds` behind the month's budget INCRBY (+ EXPIRE once per instance); returns their results. */
+  async function metered(month, cmds) {
+    const bk = budgetKey(month);
+    const ttl = !expired.has(bk);
+    const n = cmds.length + 1 + (ttl ? 1 : 0); // exactly what this pipeline sends
+    const head = [['INCRBY', bk, n]];
+    if (ttl) head.push(['EXPIRE', bk, BUDGET_TTL_SECONDS]);
+    const out = await pipeline([...head, ...cmds]);
+    if (ttl) expired.add(bk);
+    const used = Number(out[0]) || 0;
+    if (seen.month !== month) seen = { month, used };
+    else if (used > seen.used) seen.used = used;
+    return { used, results: out.slice(head.length) };
+  }
 
   async function pipeline(commands) {
     let res;
@@ -57,8 +81,12 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
 
   return {
     kind: 'kv',
-    /** Apply increments; returns the day's running event total after this write. */
-    async apply(day, incr, errs, accepted) {
+    /** The month's command count from the last KV reply this instance saw (null if none yet). */
+    budgetUsed(month) {
+      return seen.month === month ? seen.used : null;
+    },
+    /** Apply increments; returns { total: the day's running event total, used: the month's command count }. */
+    async apply(day, incr, errs, accepted, month) {
       const k = dayKey(day);
       const ek = errKey(day);
       const cmds = [['HINCRBY', k, TOTAL_FIELD, accepted]];
@@ -68,16 +96,17 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       if (!expired.has(k)) ttl.push(k);
       if (errs.size && !expired.has(ek)) ttl.push(ek);
       for (const key of ttl) cmds.push(['EXPIRE', key, TTL_SECONDS]);
-      const out = await pipeline(cmds);
+      const { used, results } = await metered(month, cmds);
       for (const key of ttl) expired.add(key);
-      return Number(out[0]) || 0;
+      return { total: Number(results[0]) || 0, used };
     },
-    async read(day) {
-      const [counts, errSamples] = await pipeline([
+    async read(day, month) {
+      const { used, results } = await metered(month, [
         ['HGETALL', dayKey(day)],
         ['HGETALL', errKey(day)],
       ]);
-      return { counts: pairsToObject(counts), errs: pairsToObject(errSamples) };
+      const [counts, errSamples] = results;
+      return { counts: pairsToObject(counts), errs: pairsToObject(errSamples), used };
     },
   };
 }
@@ -96,6 +125,7 @@ export function createMemoryStore() {
   return {
     kind: 'memory',
     data, // exposed for tests (privacy assertions)
+    budgetUsed: () => null, // no KV commands are spent
     async apply(day, incr, errs, accepted) {
       const h = hash(dayKey(day));
       const total = bump(h, TOTAL_FIELD, accepted);
@@ -104,12 +134,13 @@ export function createMemoryStore() {
         const e = hash(errKey(day));
         for (const [m, n] of errs) bump(e, m, n);
       }
-      return total;
+      return { total, used: null };
     },
     async read(day) {
       return {
         counts: Object.fromEntries(data.get(dayKey(day)) || []),
         errs: Object.fromEntries(data.get(errKey(day)) || []),
+        used: null,
       };
     },
   };

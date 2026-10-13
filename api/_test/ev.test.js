@@ -209,3 +209,22 @@ test('helpers: sanitizer, buckets, KST day', () => {
   assert.ok(isDay('2024-02-29'));
   assert.ok(!isDay('2026-02-29'));
 });
+
+test('room_join failure reason: whitelisted, "refused: ..." kept as refused, others -> other, ignored on ok', async () => {
+  const h = createHandler({ env: memEnv, limiter: createLimiter({ bucketSize: 100, dailyCap: 1e6 }) });
+  await h(
+    post({
+      v: 1,
+      events: [
+        { k: 'room_join', ok: false, ms: 15000, reason: 'timeout', app: 'tap-battle' },
+        { k: 'room_join', ok: false, ms: 900, reason: 'refused: Server unavailable' },
+        { k: 'room_join', ok: false, reason: 'K7MNP2QRS4 is my room' },
+        { k: 'room_join', ok: true, ms: 1200, reason: 'timeout' },
+      ],
+    }),
+  );
+  const c = (await (await h(get())).json()).counters;
+  assert.deepEqual(c.room_join.reason, { other: 1, refused: 1, timeout: 1 });
+  assert.equal(c.room_join.fail, 3);
+  assert.deepEqual(c.room_join.app, { 'tap-battle': 1 });
+});

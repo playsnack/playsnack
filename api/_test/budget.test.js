@@ -1,0 +1,206 @@
+// Free-plan guard: the monthly Upstash command budget kept in KV (ev:budget:<KST month>).
+// node --test api/_test/
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createHandler, DEFAULT_DAILY_CAP, DEFAULT_MONTHLY_BUDGET } from '../ev.js';
+import { DEFAULTS } from '../_lib/ratelimit.js';
+import { createLimiter } from '../_lib/ratelimit.js';
+import { BUDGET_TTL_SECONDS } from '../_lib/store.js';
+
+const URL_EV = 'https://playsnack.test/api/ev';
+const post = (events) =>
+  new Request(URL_EV, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ v: 1, events }) });
+const get = (q = '') => new Request(URL_EV + q);
+const KV = { UPSTASH_REDIS_REST_URL: 'https://fake-upstash.test', UPSTASH_REDIS_REST_TOKEN: 't' };
+
+/** Fake Upstash /pipeline that counts every command it executes. */
+function fakeUpstash(seed = {}) {
+  const db = new Map(Object.entries(seed));
+  const calls = []; // one entry per HTTP request: the command list
+  const ttl = new Map();
+  const fetch = async (_url, init) => {
+    const cmds = JSON.parse(init.body);
+    calls.push(cmds);
+    const out = cmds.map(([cmd, key, ...args]) => {
+      if (cmd === 'INCRBY') {
+        db.set(key, (db.get(key) || 0) + Number(args[0]));
+        return { result: db.get(key) };
+      }
+      if (cmd === 'HINCRBY') {
+        const h = db.get(key) || new Map();
+        db.set(key, h);
+        h.set(args[0], (h.get(args[0]) || 0) + Number(args[1]));
+        return { result: h.get(args[0]) };
+      }
+      if (cmd === 'EXPIRE') {
+        ttl.set(key, args[0]);
+        return { result: 1 };
+      }
+      if (cmd === 'HGETALL') return { result: [...(db.get(key) || [])].flatMap(([f, v]) => [f, String(v)]) };
+      return { error: `ERR unknown ${cmd}` };
+    });
+    return new Response(JSON.stringify(out), { status: 200 });
+  };
+  const sent = () => calls.reduce((n, c) => n + c.length, 0);
+  return { db, calls, ttl, fetch, sent };
+}
+
+const roomy = () => createLimiter({ bucketSize: 1e6, minuteCap: 1e6, dailyCap: 1e9 });
+
+test('defaults: daily cap 1500 events, monthly budget 400000 commands (80% of 500K)', () => {
+  assert.equal(DEFAULTS.dailyCap, 1500);
+  assert.equal(DEFAULT_DAILY_CAP, 1500);
+  assert.equal(DEFAULT_MONTHLY_BUDGET, 400_000);
+  assert.ok(BUDGET_TTL_SECONDS >= 35 * 86_400 && BUDGET_TTL_SECONDS <= 45 * 86_400);
+});
+
+test('every KV request counts its own commands exactly (INCRBY and EXPIRE included)', async () => {
+  const t = Date.parse('2026-10-13T03:00:00Z'); // KST 2026-10-13
+  const up = fakeUpstash();
+  const h = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
+  const B = 'ev:budget:2026-10';
+  const check = (label) => assert.equal(up.db.get(B), up.sent(), `${label}: counter ${up.db.get(B)} vs sent ${up.sent()}`);
+
+  // 1st POST: INCRBY + EXPIRE(budget) + HINCRBY _total + HINCRBY result|n + EXPIRE(day) = 5.
+  assert.equal((await h(post([{ k: 'result' }]))).status, 200);
+  assert.equal(up.calls.length, 1);
+  assert.deepEqual(up.calls[0][0], ['INCRBY', B, 5]);
+  assert.deepEqual(up.calls[0][1], ['EXPIRE', B, BUDGET_TTL_SECONDS]);
+  assert.equal(up.calls[0].length, 5);
+  check('first post');
+  // 2nd POST, same instance: TTLs already set -> INCRBY + 2 HINCRBY = 3.
+  await h(post([{ k: 'result' }]));
+  assert.equal(up.calls[1].length, 3);
+  assert.deepEqual(up.calls[1][0], ['INCRBY', B, 3]);
+  check('second post');
+  // An error event adds its sample + the err key's one-time EXPIRE.
+  await h(post([{ k: 'err', msg: 'TypeError: x', where: 'window.error' }]));
+  assert.equal(up.calls[2].length, 6); // INCRBY, _total, err|n, err|where, sample, EXPIRE err key
+  check('err post');
+  // A batch with nothing valid never talks to KV.
+  assert.equal((await h(post([{ k: 'nope' }]))).status, 200);
+  assert.equal(up.calls.length, 3);
+  // GET: INCRBY + 2 HGETALL = 3 (budget TTL already set); cached repeat = 0.
+  const g = await h(get());
+  assert.equal(up.calls.length, 4);
+  assert.equal(up.calls[3].length, 3);
+  check('get');
+  const body = await g.json();
+  assert.deepEqual(body.budget, { month: '2026-10', used: up.sent(), limit: DEFAULT_MONTHLY_BUDGET });
+  await h(get());
+  assert.equal(up.calls.length, 4);
+  // A fresh instance (cold start) pays the budget EXPIRE once again: still exact.
+  const h2 = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
+  await h2(get('?day=2026-10-12'));
+  assert.equal(up.calls[4].length, 4);
+  check('cold get');
+});
+
+test('stops at the cap: POST -> 204 and GET -> budget_reached, with no further KV calls', async () => {
+  let t = Date.parse('2026-10-13T03:00:00Z');
+  const up = fakeUpstash();
+  const h = createHandler({ env: { ...KV, EV_MONTHLY_BUDGET: '20' }, fetch: up.fetch, now: () => t, limiter: roomy() });
+  const ev = [{ k: 'open', route: 'app', app: 'quiz-ox' }]; // 1st: 1+1+1+3+1 = 7, later: 5
+  const statuses = [];
+  for (let i = 0; i < 6; i++) statuses.push((await h(post(ev))).status);
+  // 7 -> 12 -> 17 -> 22 (>= 20: reached) -> 204, 204
+  assert.deepEqual(statuses, [200, 200, 200, 200, 204, 204]);
+  assert.equal(up.db.get('ev:budget:2026-10'), 22);
+  const callsAtCap = up.calls.length;
+  assert.equal(callsAtCap, 4);
+
+  const r = await h(post(ev));
+  assert.equal(r.status, 204);
+  assert.equal(r.headers.get('x-ev-budget'), 'reached');
+  assert.equal(await r.text(), '');
+  // GET of a day this instance never read: a budget_reached body, no KV.
+  const g = await h(get());
+  assert.equal(g.status, 200);
+  assert.deepEqual(await g.json(), {
+    ok: false, error: 'budget_reached', v: 1, day: '2026-10-13', store: 'kv',
+    budget: { month: '2026-10', used: 22, limit: 20 },
+  });
+  // Many more requests later in the month: still nothing sent.
+  t += 5 * 86_400_000;
+  for (let i = 0; i < 20; i++) await h(post(ev));
+  await h(get('?day=2026-10-14'));
+  assert.equal(up.calls.length, callsAtCap);
+});
+
+test('GET past the budget serves the cached aggregate (stale) without KV', async () => {
+  let t = Date.parse('2026-10-13T03:00:00Z');
+  const up = fakeUpstash();
+  const h = createHandler({ env: { ...KV, EV_MONTHLY_BUDGET: '8' }, fetch: up.fetch, now: () => t, limiter: roomy() });
+  await h(post([{ k: 'result' }])); // 5
+  const first = await (await h(get())).json(); // 5 + 3 = 8 -> reached
+  assert.equal(first.ok, true);
+  assert.deepEqual(first.budget, { month: '2026-10', used: 8, limit: 8 });
+  const calls = up.calls.length;
+  t += 60_000; // cache expired
+  const r = await h(get());
+  assert.equal(r.headers.get('x-ev-budget'), 'reached');
+  const body = await r.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.stale, true);
+  assert.equal(body.total, 1);
+  assert.equal(up.calls.length, calls);
+});
+
+test('another instance already spent the budget: one pipeline to learn it, then silence', async () => {
+  const t = Date.parse('2026-10-13T03:00:00Z');
+  const up = fakeUpstash({ 'ev:budget:2026-10': DEFAULT_MONTHLY_BUDGET });
+  const h = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
+  assert.equal((await h(post([{ k: 'result' }]))).status, 200); // a cold instance cannot know before its first reply
+  assert.equal((await h(post([{ k: 'result' }]))).status, 204);
+  await h(get());
+  assert.equal(up.calls.length, 1);
+});
+
+test('month rollover is by KST: a new month starts a new counter and writing resumes', async () => {
+  let t = Date.parse('2026-10-31T14:59:00Z'); // KST 2026-10-31 23:59
+  const up = fakeUpstash();
+  const h = createHandler({ env: { ...KV, EV_MONTHLY_BUDGET: '5' }, fetch: up.fetch, now: () => t, limiter: roomy() });
+  assert.equal((await h(post([{ k: 'result' }]))).status, 200); // 5 -> reached
+  assert.equal((await h(post([{ k: 'result' }]))).status, 204);
+  t = Date.parse('2026-10-31T15:00:00Z'); // KST 2026-11-01 00:00 (still October in UTC)
+  assert.equal((await h(post([{ k: 'result' }]))).status, 200);
+  assert.equal(up.db.get('ev:budget:2026-10'), 5);
+  assert.equal(up.db.get('ev:budget:2026-11'), 5); // new key, its own EXPIRE again
+  assert.equal(up.ttl.get('ev:budget:2026-11'), BUDGET_TTL_SECONDS);
+  assert.ok(up.db.has('ev:2026-11-01'));
+  assert.equal((await h(post([{ k: 'result' }]))).status, 204); // November's budget (5) is now spent too
+});
+
+test('a past day is read from KV once per instance (it no longer changes)', async () => {
+  let t = Date.parse('2026-10-13T03:00:00Z');
+  const up = fakeUpstash();
+  const h = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
+  await h(get('?day=2026-10-12'));
+  t += 3_600_000;
+  await h(get('?day=2026-10-12'));
+  assert.equal(up.calls.length, 1);
+  await h(get()); // today: 30 s cache only
+  t += 31_000;
+  await h(get());
+  assert.equal(up.calls.length, 3);
+});
+
+test('accepted error events are logged as one sanitized line each (Vercel Logs), nothing else', async () => {
+  const lines = [];
+  const orig = console.error;
+  console.error = (...a) => lines.push(a.join(' '));
+  try {
+    const h = createHandler({ env: {}, limiter: roomy() });
+    await h(post([
+      { k: 'err', msg: 'TypeError: cannot read "김철수" of undefined at https://x.test/p?room=ABCDEFGH23', where: 'window.error', build: 'g1a2b3c4' },
+      { k: 'err', msg: 'boom', where: 'nick 김철수' },
+      { k: 'result' },
+    ]));
+  } finally {
+    console.error = orig;
+  }
+  assert.deepEqual(lines, [
+    '[ev] err where=window.error build=g1a2b3c4: TypeError: cannot read <str> of undefined at <url>',
+    '[ev] err where=other build=-: boom',
+  ]);
+});
