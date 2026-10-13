@@ -1,23 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ANSWER_MS, OPTION_MAX, OPTIONS_MAX, OPTIONS_MIN, Q_MAX, QUESTIONS_MAX, TITLE_MAX,
-  addOption, blankQuestion, buildQuizPack, canFinish, capText, deviceQuizStore, draftProblems, fromTemplate, graphemeLength,
-  newDraft, questionProblems, removeOption, swapCandidate, tapAnswer,
+  ANSWER_MS, OPTION_MAX, OPTIONS_MAX, OPTIONS_MIN, Q_MAX, QUESTIONS_MAX, QUESTIONS_MIN, TITLE_MAX,
+  addOption, addSuggested, blankQuestion, buildQuizPack, capText, deviceQuizStore, draftFromPack, draftProblems, editOption, editQuestion,
+  fromTemplate, graphemeLength, nameProblem, newDraft, oneLine, questionProblems, removeOption, setName, swapCandidate, swapNeedsConfirm, tapAnswer,
   type Draft, type DraftQuestion, type QuizPack,
 } from "./quiz";
+import { setNick } from "./identity";
+import { NICK_MAX } from "./nick";
 import { BLOCK_CSS, pill, primaryBtn, secondaryBtn } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
 // "나 맞히기" maker (no AI, no login). Fast path: 10 suggested questions about
 // me, I tap my real answer on each; ✕ drops a card, "다른 질문" swaps it for an
-// unused one, "직접 쓰기" adds my own, "고치기" edits any text. 5–10 questions,
-// 10 s per question (fixed). "완료" is enabled once every kept question has an
-// answer. The draft is kept on this device (quiz.ts deviceQuizStore). Preview =
-// one read-only card of question 1 as friends will see it (a faithful mini
-// card, not the Bite game screen).
+// unused one (asks first if I edited it), "직접 쓰기" adds my own, "고치기"
+// edits any text. 5–10 questions, 10 s per question (fixed). "완료" is enabled
+// once every kept question has an answer (and, for an auto-assigned guest
+// nickname, once I picked the name friends will see). The draft is kept on this
+// device (quiz.ts deviceQuizStore); the last quizzes made here can be loaded
+// again. Preview = one read-only card of question 1 as friends will see it (a
+// faithful mini card, not the Bite game screen).
 
 type Props = {
   nick: string;
+  /** The nickname was auto-assigned (identity.isNickAuto): ask for a real name. */
+  nickAuto: boolean;
   /** Label of the finish button (e.g. "완료 · 친구 초대"). */
   doneLabel: string;
   /** Close label in the header ("← 홈" on its own page, "✕ 닫기" over a room). */
@@ -28,14 +34,39 @@ type Props = {
   onClose: () => void;
 };
 
-export function QuizMaker({ nick, doneLabel, closeLabel, note, onDone, onClose }: Props) {
+/** A text field that never cuts the text while an IME is composing a syllable
+    (Chrome Android / Safari drop the composition); `onText(text, composing)`. */
+function Field({ value, onText, multiline, ...rest }: {
+  value: string; onText: (text: string, composing: boolean) => void; multiline?: boolean;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement> & React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange">) {
+  const composing = useRef(false);
+  const handlers = {
+    value,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onText(e.target.value, composing.current),
+    onCompositionStart: () => { composing.current = true; },
+    onCompositionEnd: (e: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => { composing.current = false; onText(e.currentTarget.value, false); },
+    onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => { composing.current = false; onText(e.currentTarget.value, false); },
+  };
+  return multiline
+    ? <textarea {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)} {...handlers}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) e.preventDefault(); }} />
+    : <input {...(rest as React.InputHTMLAttributes<HTMLInputElement>)} {...handlers} />;
+}
+
+export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone, onClose }: Props) {
   const store = deviceQuizStore();
-  const [draft, setDraft] = useState<Draft>(() => store.loadDraft() ?? newDraft(nick));
+  const [draft, setDraft] = useState<Draft>(() => {
+    const saved = store.loadDraft();
+    if (!saved) return newDraft(nick, { nickAuto });
+    // A draft kept from before: still ask for a real name while the nickname is a guest one.
+    return nickAuto && !saved.nameNeeded ? { ...saved, name: saved.name ?? nick, nameNeeded: true, nameChosen: false } : saved;
+  });
   const [editing, setEditing] = useState<Set<string>>(() => new Set(draft.questions.filter((q) => q.custom && !q.q).map((q) => q.id)));
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [kept, setKept] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recent] = useState<QuizPack[]>(() => store.recentPacks());
   const listEnd = useRef<HTMLDivElement>(null);
 
   // Keep the draft on the device after every change (in memory if storage fails).
@@ -47,15 +78,24 @@ export function QuizMaker({ nick, doneLabel, closeLabel, note, onDone, onClose }
   const ready = problems.length === 0;
   const answered = draft.questions.filter((q) => q.answer !== null && q.answer < q.options.length).length;
   const n = draft.questions.length;
+  const askName = Boolean(draft.nameNeeded);
+  const namePending = nameProblem(draft);
 
   const update = (id: string, f: (q: DraftQuestion) => DraftQuestion) =>
     setDraft((d) => ({ ...d, questions: d.questions.map((q) => (q.id === id ? f(q) : q)) }));
   const drop = (id: string) => setDraft((d) => ({ ...d, questions: d.questions.filter((q) => q.id !== id) }));
-  const swap = (id: string) =>
+  const swap = (q: DraftQuestion) => {
+    if (swapNeedsConfirm(q) && !confirm("직접 고친 질문이에요. 다른 질문으로 바꿀까요?")) return;
     setDraft((d) => {
       const t = swapCandidate(d);
-      return t ? { ...d, questions: d.questions.map((q) => (q.id === id ? fromTemplate(t) : q)) } : d;
+      return t ? { ...d, questions: d.questions.map((x) => (x.id === q.id ? fromTemplate(t) : x)) } : d;
     });
+    setEditing((s) => {
+      const next = new Set(s);
+      next.delete(q.id);
+      return next;
+    });
+  };
   const toggleEdit = (id: string) =>
     setEditing((s) => {
       const next = new Set(s);
@@ -63,16 +103,25 @@ export function QuizMaker({ nick, doneLabel, closeLabel, note, onDone, onClose }
       else next.add(id);
       return next;
     });
+  const scrollToEnd = () => setTimeout(() => listEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 0);
   const addCustom = () => {
     const q = blankQuestion();
     setDraft((d) => ({ ...d, questions: [...d.questions, q] }));
     setEditing((s) => new Set(s).add(q.id));
-    setTimeout(() => listEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 0);
+    scrollToEnd();
+  };
+  const addOneSuggested = () => {
+    setDraft((d) => addSuggested(d));
+    scrollToEnd();
   };
   const restart = () => {
     if (!confirm("지금 만든 내용을 지우고 질문을 새로 뽑을까요?")) return;
-    const d = newDraft(nick);
-    setDraft(d);
+    setDraft((d) => ({ ...newDraft(nick, { nickAuto }), ...(d.nameNeeded ? { name: d.name, nameNeeded: true, nameChosen: d.nameChosen } : {}) }));
+    setEditing(new Set());
+  };
+  const loadRecent = (p: QuizPack) => {
+    if (answered && !confirm("지금 만든 내용 대신 예전에 만든 퀴즈를 불러올까요?")) return;
+    setDraft(draftFromPack(p, nick));
     setEditing(new Set());
   };
   const finish = async () => {
@@ -80,7 +129,10 @@ export function QuizMaker({ nick, doneLabel, closeLabel, note, onDone, onClose }
     setBusy(true);
     setError(null);
     try {
-      await onDone(buildQuizPack(draft));
+      const pack = buildQuizPack(draft);
+      // The name the creator picked is their nickname from now on (no longer a guest name).
+      if (draft.nameNeeded && pack.about) setNick(pack.about);
+      await onDone(pack);
     } catch (e) {
       console.warn("[quiz] finish failed", e);
       setError("퀴즈를 넘기지 못했어요. 다시 눌러 주세요.");
@@ -120,9 +172,34 @@ export function QuizMaker({ nick, doneLabel, closeLabel, note, onDone, onClose }
         <h1 style={h1}>나 맞히기 만들기</h1>
         <p style={muted}>내 진짜 답을 눌러 주세요. 친구들이 내 답을 맞혀요.{note ? ` ${note}` : ""}</p>
 
+        {askName && (
+          <div style={{ ...card, marginTop: S.s4, borderColor: namePending ? C.roster3 : C.accent }}>
+            <label style={{ ...label, margin: 0 }} htmlFor="quiz-name">내 이름</label>
+            <p style={{ ...muted, margin: 0 }}>친구들이 알아볼 이름으로 정해 주세요. 퀴즈 제목과 순위에 보여요.</p>
+            <div style={{ display: "flex", gap: S.s2 }}>
+              <Field id="quiz-name" className="qin" style={{ ...input, flex: 1, minWidth: 0 }} value={draft.name ?? ""} placeholder="예: 민지"
+                maxLength={NICK_MAX * 11} onText={(s, composing) => setDraft((d) => setName(d, s, { composing }))} />
+              {!draft.nameChosen && (draft.name ?? "").trim() && (
+                <button style={{ ...miniBtn, minHeight: 44 }} onClick={() => setDraft((d) => setName(d, d.name ?? ""))}>이 이름 그대로</button>
+              )}
+            </div>
+          </div>
+        )}
+
         <label style={label} htmlFor="quiz-title">퀴즈 제목</label>
-        <input id="quiz-title" className="qin" style={input} value={draft.title} maxLength={TITLE_MAX * 11}
-          onChange={(e) => setDraft((d) => ({ ...d, title: capText(e.target.value, TITLE_MAX) }))} />
+        <Field id="quiz-title" className="qin" style={input} value={draft.title} maxLength={TITLE_MAX * 11}
+          onText={(s, composing) => setDraft((d) => ({ ...d, title: composing ? oneLine(s) : capText(s, TITLE_MAX) }))} />
+
+        {recent.length > 0 && (
+          <div style={{ marginTop: S.s3 }}>
+            <span style={{ ...muted, display: "block", marginBottom: S.s2 }}>예전에 만든 퀴즈 (이 기기에 7일 동안 보관)</span>
+            <div style={{ display: "flex", gap: S.s2, flexWrap: "wrap" }}>
+              {recent.map((p, i) => (
+                <button key={i} style={miniBtn} onClick={() => loadRecent(p)}>↩︎ {p.title} · {p.questions.length}문제</button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={progressRow} aria-live="polite">
           <span>답 고른 질문 <b style={{ color: C.accent }}>{answered}</b>/{n}</span>
@@ -134,11 +211,14 @@ export function QuizMaker({ nick, doneLabel, closeLabel, note, onDone, onClose }
             <QuestionCard key={q.id} q={q} index={i} editing={editing.has(q.id)} canSwap={canSwap}
               onTap={(k) => update(q.id, (x) => tapAnswer(x, k))}
               onChange={(f) => update(q.id, f)}
-              onDrop={() => drop(q.id)} onSwap={() => swap(q.id)} onToggleEdit={() => toggleEdit(q.id)} />
+              onDrop={() => drop(q.id)} onSwap={() => swap(q)} onToggleEdit={() => toggleEdit(q.id)} />
           ))}
         </div>
         <div ref={listEnd} />
 
+        {n < QUESTIONS_MIN && canSwap && (
+          <button className="blk" style={{ ...primaryBtn, marginTop: S.s4 }} onClick={addOneSuggested}>＋ 추천 질문 추가 ({n}/{QUESTIONS_MIN}개 이상)</button>
+        )}
         <div style={{ display: "flex", gap: S.s3, marginTop: S.s4 }}>
           <button className="blk" style={{ ...secondaryBtn, ...(n >= QUESTIONS_MAX ? disabledBtn : null) }} disabled={n >= QUESTIONS_MAX} onClick={addCustom}>✍️ 직접 쓰기</button>
           <button className="blk" style={secondaryBtn} onClick={restart}>🔄 새로 뽑기</button>
@@ -173,7 +253,7 @@ function QuestionCard({ q, index, editing, canSwap, onTap, onChange, onDrop, onS
       <div style={cardTop}>
         <span style={qNum}>Q{index + 1}</span>
         <div style={{ display: "flex", gap: 6 }}>
-          {!q.custom && canSwap && <button style={miniBtn} onClick={onSwap}>다른 질문</button>}
+          {q.tpl !== undefined && canSwap && <button style={miniBtn} onClick={onSwap}>다른 질문</button>}
           <button style={miniBtn} onClick={onToggleEdit} aria-pressed={editing}>{editing ? "다 고쳤어요" : "✏️ 고치기"}</button>
           <button style={{ ...miniBtn, width: 36, padding: 0 }} onClick={onDrop} aria-label={`질문 ${index + 1} 빼기`}>✕</button>
         </div>
@@ -181,16 +261,18 @@ function QuestionCard({ q, index, editing, canSwap, onTap, onChange, onDrop, onS
 
       {editing ? (
         <>
-          <textarea className="qin" style={{ ...input, minHeight: 64, resize: "none" }} value={q.q} placeholder="예: 내가 제일 좋아하는 간식은?"
-            aria-label="질문" maxLength={Q_MAX * 11} onChange={(e) => onChange((x) => ({ ...x, q: capText(e.target.value, Q_MAX) }))} />
+          <Field multiline className="qin" style={{ ...input, minHeight: 64, resize: "none" }} value={q.q} placeholder="예: 내가 제일 좋아하는 간식은?"
+            aria-label="질문" maxLength={Q_MAX * 11}
+            onText={(s, composing) => onChange((x) => (composing ? { ...x, q: oneLine(s), custom: true } : editQuestion(x, s)))} />
           <div style={counter}>{graphemeLength(q.q)}/{Q_MAX}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: S.s2 }}>
             {q.options.map((o, k) => (
               <div key={k} style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <button style={{ ...answerDot, ...(q.answer === k ? answerDotOn : null) }} onClick={() => onTap(k)}
                   aria-label={`보기 ${k + 1}을 내 답으로`} aria-pressed={q.answer === k}>{q.answer === k ? "✓" : ""}</button>
-                <input className="qin" style={{ ...input, flex: 1, minWidth: 0 }} value={o} placeholder={`보기 ${k + 1}`} aria-label={`보기 ${k + 1}`}
-                  maxLength={OPTION_MAX * 11} onChange={(e) => onChange((x) => ({ ...x, options: x.options.map((v, j) => (j === k ? capText(e.target.value, OPTION_MAX) : v)) }))} />
+                <Field className="qin" style={{ ...input, flex: 1, minWidth: 0 }} value={o} placeholder={`보기 ${k + 1}`} aria-label={`보기 ${k + 1}`}
+                  maxLength={OPTION_MAX * 11}
+                  onText={(s, composing) => onChange((x) => (composing ? { ...x, options: x.options.map((v, j) => (j === k ? oneLine(s) : v)), custom: true } : editOption(x, k, s)))} />
                 {q.options.length > OPTIONS_MIN && (
                   <button style={{ ...miniBtn, width: 36, padding: 0 }} onClick={() => onChange((x) => removeOption(x, k))} aria-label={`보기 ${k + 1} 지우기`}>−</button>
                 )}

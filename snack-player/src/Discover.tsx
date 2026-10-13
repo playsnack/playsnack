@@ -64,7 +64,7 @@ export function Discover() {
         {apps?.some((m) => m.id === QUIZ_APP_ID) && (
           <button className="blk" style={makeCta} onClick={() => open(QUIZ_APP_ID)}>
             🙋 나 맞히기 만들기
-            <span style={{ display: "block", marginTop: S.s1, fontWeight: 700, fontSize: TOKENS.size.bodySm }}>내 답을 고르고 친구를 초대해요 · 1~2분</span>
+            <span style={{ display: "block", marginTop: S.s1, fontWeight: 700, fontSize: TOKENS.size.bodySm }}>내 답을 고르고 친구를 초대해요</span>
           </button>
         )}
 

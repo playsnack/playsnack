@@ -1,14 +1,14 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { currentRoute, hrefTo, navigate } from "./backend";
-import { newRoomCode, playPath, roomCodeOf, roomIdFor, ROOM_PARAM } from "./links";
-import { MAKE_PARAM, QUIZ_SLUG, deviceQuizStore } from "./quiz";
+import { newRoomCode, playPath, roomIdFor, ROOM_PARAM } from "./links";
+import { QUIZ_SLUG, deviceQuizStore, opensMakerPage } from "./quiz";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { validate, type BiteDoc } from "@snack/bite";
 import { HOST_ACTIONS } from "@snack/room/actions";
 import { LiveApp } from "./LiveApp.tsx";
 import { Discover } from "./Discover.tsx";
 import { NicknameGate } from "./NicknameGate.tsx";
-import { getNick, setNick as saveNick, randomNick } from "./identity";
+import { getNick, isNickAuto, setNick as saveNick, randomNick } from "./identity";
 import { redirectFor } from "./catalog";
 import { LoadingScreen, MessageScreen, goHome } from "./Screens";
 
@@ -39,10 +39,10 @@ export function App() {
   useEffect(() => {
     if (route.name === "create" && !CreateApp) location.replace(hrefTo("/"));
   }, [route.name]);
-  // The quiz maker on its own page: /p/tpl-<quiz>?make=1 without a room code.
-  // (With a code it opens over that room instead — LiveApp.) It asks for a real
-  // nickname first: friends see "<닉네임> 맞히기".
-  const isMaker = route.name === "live" && route.slug === QUIZ_SLUG && route.params.has(MAKE_PARAM) && !roomCodeOf(route.params);
+  // The quiz maker on its own page: /p/tpl-<quiz>?make=1 with no room param at
+  // all. With a room code it opens over that room (LiveApp); with a cut/invalid
+  // code, LiveApp shows the bad-link screen (never the maker).
+  const isMaker = route.name === "live" && opensMakerPage(route.slug, route.params);
   const isLive = route.name === "live" && !isMaker;
   // A merged template's old link moves to the app it became — decided here,
   // before the player mounts, so the old app never loads or joins a room.
@@ -66,7 +66,7 @@ export function App() {
   const [nick, setNick] = useState<string | null>(() => {
     const n = getNick();
     if (n) return n;
-    if (isLive) { const g = randomNick(); saveNick(g); return g; }
+    if (isLive) { const g = randomNick(); saveNick(g, { auto: true }); return g; }
     return null;
   });
   if (route.name !== "bite" && !isLive && !nick) return <NicknameGate onDone={setNick} />;
@@ -88,13 +88,13 @@ export function App() {
 // them to the room as `quizPack` once this device joins.
 function QuizMakerPage({ nick }: { nick: string }) {
   return (
-    <QuizMaker nick={nick} doneLabel="완료 · 친구 초대하러 가기" closeLabel="← 홈" onClose={goHome}
+    <QuizMaker nick={nick} nickAuto={isNickAuto()} doneLabel="완료 · 친구 초대하러 가기" closeLabel="← 홈" onClose={goHome}
       onDone={(pack) => {
         const store = deviceQuizStore();
         const params = new URLSearchParams({ [ROOM_PARAM]: newRoomCode() });
         store.rememberRoomPack(roomIdFor(QUIZ_SLUG, params), pack);
         store.clearDraft();
-        navigate(playPath(QUIZ_SLUG, params));
+        navigate(playPath(QUIZ_SLUG, params), { replace: true }); // Back goes where the maker was opened from, not into an empty maker
       }} />
   );
 }

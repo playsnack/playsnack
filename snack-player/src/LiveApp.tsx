@@ -6,7 +6,7 @@ import type { BiteDoc } from "@snack/bite";
 import "pixi.js/browser";
 import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
-import { getAnonId, getNick } from "./identity";
+import { getAnonId, getNick, isNickAuto } from "./identity";
 import type { ConnState, RoomTransport } from "./roomTransport";
 import { createRoom, hrefTo, loadRoomDoc, navigate } from "./backend";
 import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams } from "./links";
@@ -14,7 +14,10 @@ import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
 import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
-import { MAKE_EVENT, MAKE_PARAM, QUIZ_SLUG, deviceQuizStore, lobbyCopy, packAction, type QuizInfo, type QuizPack } from "./quiz";
+import {
+  MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage,
+  type QuizInfo, type QuizPack, type RoomEntry,
+} from "./quiz";
 // The maker is loaded only when opened (play links do not pay for it).
 const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m.QuizMaker })));
 
@@ -49,17 +52,19 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const fxRef = useRef<HTMLDivElement | null>(null);
   const retryRef = useRef<() => void>(() => {});
   const [reactOpen, setReactOpen] = useState(false);
-  // ── "나 맞히기" quiz (only the quiz app): the room's phase and quizInfo, and
-  // the pack this device made for this room (quiz.ts packAction decides when
-  // to send it). The questions never travel in the link.
+  // ── "나 맞히기" quiz (only the quiz app): the room's phase, quizInfo, roster
+  // and this player's iAmSubject flag (per player, from the room), and the pack
+  // this device made for this room (quiz.ts packAction decides when to send it).
+  // The questions never travel in the link. The lobby's words are the
+  // template's; the shell only adds the invite button.
   const isQuiz = slug === QUIZ_SLUG;
   const roomId = roomIdFor(slug, params);
   const [phase, setPhase] = useState("");
-  const [quizInfo, setQuizInfo] = useState<QuizInfo | null>(null);
+  const [roster, setRoster] = useState<string[]>([]);
   const [myPack, setMyPack] = useState<QuizPack | null>(() => (isQuiz ? deviceQuizStore().roomPack(roomId) : null));
-  const [packError, setPackError] = useState(false);
+  const [packFail, setPackFail] = useState<string | null>(null);
   const [makerOpen, setMakerOpen] = useState(false);
-  const quizRef = useRef({ phase: "", info: null as QuizInfo | null, lastSentAt: 0 });
+  const quizRef = useRef({ phase: "lobby", info: null as QuizInfo | null, iAmSubject: undefined as boolean | undefined, lastSentAt: 0 });
   const withRoom = doc ? needsRoom(doc, params) : false;
   // A present-but-invalid ?room= (a code cut by a chat app) must never land in
   // the public room: nothing loads or joins, the screen says the link is bad.
@@ -140,15 +145,18 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         applyShared(sharedRef.current);
         if (typeof m.d.participants === "number") setParticipants(m.d.participants);
         const sh = sharedRef.current ?? {};
+        // A (re)join: the room sends this player's iAmSubject right after the state.
+        quizRef.current.iAmSubject = undefined;
         // A new room has no sessionPhase yet (the room sets it on its first phase change): it is in the lobby.
         onQuizVar("sessionPhase", sh.sessionPhase ?? "lobby");
+        onQuizVar("roster", sh.roster ?? []);
         onQuizVar("quizInfo", sh.quizInfo ?? null);
       } else if (m.t === "setVar") {
         runtimeRef.current?.setVar(m.d.id as string, m.d.value);
         onQuizVar(m.d.id as string, m.d.value);
       } else if (m.t === "actionAck") {
-        // Only quizPack is refused as "invalid_pack" ("not_in_lobby" = sent mid-game: packAction retries later).
-        if (m.d.accepted === false && m.d.reason === "invalid_pack") setPackError(true);
+        // Only quizPack is refused this way ("not_in_lobby" = sent mid-game: packAction waits for the result).
+        if (m.d.accepted === false && PACK_REFUSALS.has(m.d.reason as string)) onPackRefused(m.d.reason as string);
       } else if (m.t === "participants") {
         setParticipants(m.d.count as number);
       } else if (m.t === "reaction") {
@@ -177,13 +185,18 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // The quiz vars this shell reads (the template shows the rest itself).
   const onQuizVar = (id: string, value: unknown) => {
     if (!isQuiz) return;
+    const q = quizRef.current;
     if (id === "sessionPhase" && typeof value === "string") {
-      quizRef.current.phase = value;
+      q.phase = value;
       setPhase(value);
     } else if (id === "quizInfo") {
-      const info = value && typeof value === "object" ? (value as QuizInfo) : null;
-      quizRef.current.info = info;
-      setQuizInfo(info);
+      q.info = value && typeof value === "object" ? (value as QuizInfo) : null;
+    } else if (id === "iAmSubject") {
+      q.iAmSubject = value === true ? true : value === false ? false : undefined;
+    } else if (id === "roster") {
+      // People in the room by the room's roster (not raw connections).
+      setRoster(Array.isArray(value) ? value.map(String) : []);
+      return;
     } else return;
     quizTick();
   };
@@ -196,23 +209,37 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     if (!pack || !room) return;
     const q = quizRef.current;
     const store = deviceQuizStore();
-    const action = packAction({
-      phase: q.phase, info: q.info, myNick: getNick() ?? "", packTitle: pack.title,
-      confirmed: store.roomPackConfirmed(roomId), lastSentAt: q.lastSentAt, now: Date.now(),
-    });
+    const entry: Partial<RoomEntry> = store.roomEntry(roomId) ?? {};
+    const action = packAction({ phase: q.phase, info: q.info, iAmSubject: q.iAmSubject, entry, lastSentAt: q.lastSentAt, now: Date.now() });
     if (action === "confirm") {
       store.confirmRoomPack(roomId);
-      setPackError(false);
+      setPackFail(null);
     } else if (action === "forget") {
+      // Someone else's quiz is the room's now: stop sending mine here (it stays in the recent list).
       store.forgetRoomPack(roomId);
       myPackRef.current = null;
       setMyPack(null);
+      setPackFail(null);
     } else if (action === "send") {
       q.lastSentAt = Date.now();
+      store.countSend(roomId);
       room.sendAction("quizPack", pack);
+    } else if (action === "failed") {
+      setPackFail(packFailureMessage(entry.refused));
     }
   };
-  // Retries after the re-send gap (a lost pack, one refused mid-game).
+  const onPackRefused = (reason: string) => {
+    if (!myPackRef.current) return;
+    deviceQuizStore().refuseRoomPack(roomId, reason);
+    quizTick();
+  };
+  const retryPack = () => {
+    deviceQuizStore().retryRoomPack(roomId);
+    quizRef.current.lastSentAt = 0;
+    setPackFail(null);
+    quizTick();
+  };
+  // Retries after the re-send gap (a lost pack, one sent mid-game).
   useEffect(() => {
     if (!isQuiz || !myPack || conn !== "connected") return;
     quizTick();
@@ -242,7 +269,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     quizRef.current.lastSentAt = 0;
     myPackRef.current = pack;
     setMyPack(pack);
-    setPackError(false);
+    setPackFail(null);
     setMakerOpen(false);
     quizTick();
   };
@@ -256,7 +283,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     } catch {}
   };
 
-  const onHostEvent = (e: { name: string; payload?: unknown }) => roomRef.current?.sendAction(e.name, e.payload);
+  const onHostEvent = (e: { name: string; payload?: unknown }) => {
+    // "나도 만들기" from a template button: handled on this device, never sent to the room.
+    if (isQuiz && e.name === MAKE_HOST_EVENT) return openQuizMaker();
+    roomRef.current?.sendAction(e.name, e.payload);
+  };
 
   // Friends-only room: the link carries a room code (?room=…). Without one,
   // the pill makes a code and moves this player into that room (no reload);
@@ -317,36 +348,46 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       )}
     </>
   );
-  // Quiz lobby card (y≈120–340 of the template's lobby, left empty for it):
-  // the subject gets the invite front and centre; friends see whose quiz it is.
-  // The template's own button starts the game (the room needs one answerer
-  // besides the subject).
-  const quizLobby = isQuiz && withRoom && conn === "connected" && phase === "lobby" && Boolean(code || quizInfo?.custom || myPack);
-  const isSubject = Boolean(myPack);
-  const copy = lobbyCopy(quizInfo, isSubject, participants);
+  // Quiz lobby (friends-only room): the template owns every word of the lobby;
+  // the shell adds only the invite button, in the band the template leaves
+  // empty for it (y 758–810 of the 390×844 frame). Big while only one person is
+  // in (by the room's roster), small once friends are there.
+  const quizInvite = isQuiz && withRoom && conn === "connected" && phase === "lobby" && Boolean(code);
+  const alone = roster.length <= 1;
+  const people = isQuiz && roster.length ? roster.length : participants;
   return (
     <>
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} />
       <HomeButton />
-      {withRoom && conn !== "failed" && <RoomChip state={conn} people={participants} />}
-      {quizLobby && (
-        <div style={lobbyCard} role="region" aria-label="대기실">
-          <div style={lobbyTitle}>{copy.title}</div>
-          {isSubject && quizInfo?.custom && quizInfo.count ? (
-            <div style={lobbyBody}>{quizInfo.title} · {quizInfo.count}문제{quizInfo.answerMs ? ` · ${Math.round(quizInfo.answerMs / 1000)}초` : ""}</div>
-          ) : null}
-          <div style={lobbyBody}>{packError ? "퀴즈를 방에 넘기지 못했어요. 다시 만들어 주세요." : copy.body}</div>
-          {code && (isSubject && participants <= 1
-            ? <button className="blk" style={{ ...primaryBtn, marginTop: S.s3 }} onClick={() => void shareInvite()}>🔗 친구 초대하기</button>
-            : <button className="blk" style={{ ...secondaryBtn, marginTop: S.s3, padding: S.s3 }} onClick={() => void shareInvite()}>🔗 친구 더 부르기</button>)}
-          {packError && <button className="blk" style={{ ...secondaryBtn, marginTop: S.s2, padding: S.s3 }} onClick={() => setMakerOpen(true)}>다시 만들기</button>}
-          {code && <div style={{ display: "flex", flexDirection: "column", gap: S.s2, marginTop: invite ? S.s2 : 0 }}>{inviteFeedback}</div>}
+      {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} />}
+      {quizInvite && (
+        <div style={quizInviteBand}>
+          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: 52 } : { ...pill, height: 52 }}
+            onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">
+            {alone ? "🔗 친구 초대하기" : "🔗 친구 더 부르기"}
+          </button>
+        </div>
+      )}
+      {/* Quiz notices (top, under the home row): the invite result while the
+          lobby's bottom band holds the button, and a quiz that did not reach the room. */}
+      {isQuiz && withRoom && conn === "connected" && ((quizInvite && invite) || packFail) && (
+        <div style={topDock}>
+          {quizInvite && inviteFeedback}
+          {packFail && (
+            <div style={{ ...inviteNote, flexDirection: "column", alignItems: "stretch", gap: S.s2 }} role="alert">
+              <span>{packFail}</span>
+              <div style={{ display: "flex", gap: S.s2 }}>
+                <button className="blk" style={{ ...secondaryBtn, padding: S.s2 }} onClick={retryPack}>다시 보내기</button>
+                <button className="blk" style={{ ...secondaryBtn, padding: S.s2 }} onClick={() => setMakerOpen(true)}>다시 만들기</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {/* Friends-only room pill (bottom-left): "친구끼리" opens a new coded room
           (an unlisted link — friends who have it meet there); in a coded room it
-          hands the invite link out. Hidden while the quiz lobby card has it. */}
-      {withRoom && conn !== "failed" && !quizLobby && (
+          hands the invite link out. In the quiz lobby the band button has it. */}
+      {withRoom && conn !== "failed" && !quizInvite && (
         <div style={inviteDock}>
           {inviteFeedback}
           {code
@@ -356,7 +397,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       )}
       {makerOpen && (
         <Suspense fallback={<LoadingScreen />}>
-          <QuizMaker nick={getNick() ?? ""} doneLabel="완료 · 이 방에서 하기" closeLabel="✕ 닫기"
+          <QuizMaker nick={getNick() ?? ""} nickAuto={isNickAuto()} doneLabel="완료 · 이 방에서 하기" closeLabel="✕ 닫기"
             note="다 만들면 이 방의 다음 판이 내 퀴즈로 바뀌어요."
             onClose={() => setMakerOpen(false)} onDone={finishMaker} />
         </Suspense>
@@ -409,16 +450,19 @@ const closeBtn: React.CSSProperties = {
   flex: "none", width: 32, height: 32, margin: "-4px -6px -4px 0", padding: 0, border: "none", background: "transparent",
   color: C.ink, fontSize: 16, cursor: "pointer",
 };
-// The quiz lobby card: inside the band the template's lobby leaves empty
-// (y≈120–340 of a 390×844 screen, below the nav bar), full width with the gutter.
-const lobbyCard: React.CSSProperties = {
-  position: "fixed", top: "calc(var(--snack-safe-top) + 122px)", left: 16, right: 16, maxWidth: 488, margin: "0 auto", zIndex: 14,
-  maxHeight: 216, overflowY: "auto", boxSizing: "border-box",
-  background: C.surface, color: C.ink, border: `${TOKENS.border.block}px solid ${C.accent}`, borderRadius: R.block, boxShadow: blockShadow,
-  padding: S.s4, font: `16px ${TOKENS.font.body}`, textAlign: "center",
+// The quiz lobby's invite band: the template leaves y 758–810 × x 16–374 of its
+// 390×844 frame empty for it (34 px above the frame's bottom edge). The big
+// button fills it; the small one sits at its left (the reaction button, shown
+// once others are in, takes the bottom-right corner).
+const quizInviteBand: React.CSSProperties = {
+  position: "fixed", left: 16, right: 16, bottom: "calc(var(--snack-safe-bottom) + 34px)", maxWidth: 488, margin: "0 auto",
+  display: "flex", justifyContent: "flex-start", zIndex: 13,
 };
-const lobbyTitle: React.CSSProperties = { fontWeight: 800, fontSize: TOKENS.size.bodyLg, lineHeight: 1.4, wordBreak: "keep-all" };
-const lobbyBody: React.CSSProperties = { color: C.inkMuted, fontSize: TOKENS.size.bodySm, lineHeight: 1.5, marginTop: S.s1, wordBreak: "keep-all" };
+// Notices over the top of the play area, under the home / people row.
+const topDock: React.CSSProperties = {
+  position: "fixed", top: "calc(var(--snack-safe-top) + 66px)", left: 16, right: 16, maxWidth: 488, margin: "0 auto",
+  display: "flex", flexDirection: "column", gap: 8, zIndex: 15,
+};
 // Tucked into the very corner so it covers as little bottom content as possible.
 const reactionDock: React.CSSProperties = {
   position: "fixed", right: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)",
