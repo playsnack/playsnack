@@ -85,7 +85,7 @@ export type QuizPack = {
   settings: { rounds: number; answerMs: number };
 };
 /** What the room publishes (no answers). `about` = the subject's name. */
-export type QuizInfo = { title?: string; count?: number; custom?: boolean; answerMs?: number; about?: string | null };
+export type QuizInfo = { title?: string; count?: number; custom?: boolean; answerMs?: number; about?: string | null; packId?: string | null };
 
 export const ABOUT_ME: QuestionTemplate[] = (aboutMe as { questions: QuestionTemplate[] }).questions;
 
@@ -284,6 +284,12 @@ export type RoomEntry = {
   sends?: number;
   /** The room refused the pack ("invalid_pack" / not the current subject's). */
   refused?: string;
+  /**
+   * The room's quizInfo.packId when this pack was made here (null = no custom quiz then).
+   * A subject remaking their quiz is already iAmSubject: only a NEW packId means the
+   * room took this pack. Undefined (made on its own page, older entries): iAmSubject alone.
+   */
+  madeOver?: string | null;
 };
 
 /** Device storage with an in-memory copy: works (for this page) when storage fails. */
@@ -356,9 +362,9 @@ export function quizStore(kv: KV | null = defaultKV(), clock: () => number = Dat
     saveDraft: (d: Draft) => write(DRAFT_KEY, JSON.stringify(d)),
     clearDraft: () => write(DRAFT_KEY, null),
     /** This device made `pack` for the room `roomId` (the subject's device sends it); also kept in the recent list. */
-    rememberRoomPack(roomId: string, pack: QuizPack) {
+    rememberRoomPack(roomId: string, pack: QuizPack, madeOver?: string | null) {
       const all = rooms();
-      all[roomId] = { pack, at: clock() };
+      all[roomId] = { pack, at: clock(), ...(madeOver !== undefined ? { madeOver } : {}) };
       const list = [{ pack, at: clock() }, ...recent().filter((x) => !sameQuiz(x.pack, pack))].slice(0, RECENT_KEEP);
       const a = write(RECENT_KEY, JSON.stringify(list));
       return saveRooms(all) && a;
@@ -405,7 +411,7 @@ export type PackState = {
   info: QuizInfo | null;
   /** The room's per-player flag (lane A): true = this device's pack is the room's quiz. Undefined until the room says. */
   iAmSubject: boolean | undefined;
-  entry: Pick<RoomEntry, "confirmed" | "sends" | "refused">;
+  entry: Pick<RoomEntry, "confirmed" | "sends" | "refused" | "madeOver">;
   lastSentAt: number;
   now: number;
 };
@@ -422,9 +428,15 @@ export type PackState = {
  *               stop and say so (the screen offers to retry / remake)
  *   "wait"    — nothing to do now (mid-game: the room refuses packs)
  */
+/** The room plays this device's pack: I am its subject, under a packId newer than the one I made over. */
+export function roomHasMyPack(s: PackState): boolean {
+  if (s.iAmSubject !== true) return false;
+  const made = s.entry.madeOver;
+  return made === undefined || (s.info?.custom === true && (s.info.packId ?? null) !== made);
+}
 export function packAction(s: PackState): "confirm" | "forget" | "send" | "failed" | "wait" {
   const { confirmed = false, sends = 0, refused } = s.entry;
-  if (s.iAmSubject === true) return confirmed && !sends && !refused ? "wait" : "confirm";
+  if (roomHasMyPack(s)) return confirmed && !sends && !refused ? "wait" : "confirm";
   if (confirmed && s.iAmSubject === false && s.info?.custom === true) return "forget";
   if (refused) return "failed";
   const wantSend = !s.info?.custom || !confirmed; // (iAmSubject is not true here)
@@ -432,6 +444,18 @@ export function packAction(s: PackState): "confirm" | "forget" | "send" | "faile
   if (sends >= MAX_SENDS) return "failed";
   if (s.phase !== "lobby" && s.phase !== "result") return "wait";
   return s.now - s.lastSentAt >= RESEND_GAP_MS ? "send" : "wait";
+}
+
+/**
+ * This device holds a pack the room has not taken yet and is still trying to hand it over
+ * (not refused, not given up). Meanwhile the quiz template shows "<title> · 준비 중…" with no
+ * start button (the shell sets its `packPending` var): the room's current quiz — usually the
+ * cold default one — must not be started from here by mistake.
+ */
+export function packPending(s: PackState): boolean {
+  const { confirmed = false, sends = 0, refused } = s.entry;
+  if (roomHasMyPack(s) || refused || sends >= MAX_SENDS) return false;
+  return !confirmed || s.info?.custom !== true; // = packAction's "want to send"
 }
 
 /** What the screen says when the pack did not reach the room (only what happened). */

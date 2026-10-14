@@ -16,7 +16,7 @@ import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
 import { joinTracker } from "./roomJoin";
 import {
-  MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage,
+  MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage, packPending,
   type QuizInfo, type QuizPack, type RoomEntry,
 } from "./quiz";
 // The maker is loaded only when opened (play links do not pay for it).
@@ -216,11 +216,14 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const quizTick = () => {
     const pack = myPackRef.current;
     const room = roomRef.current;
-    if (!pack || !room) return;
     const q = quizRef.current;
     const store = deviceQuizStore();
-    const entry: Partial<RoomEntry> = store.roomEntry(roomId) ?? {};
-    const action = packAction({ phase: q.phase, info: q.info, iAmSubject: q.iAmSubject, entry, lastSentAt: q.lastSentAt, now: Date.now() });
+    const entry: Partial<RoomEntry> = (pack && store.roomEntry(roomId)) || {};
+    const state = { phase: q.phase, info: q.info, iAmSubject: q.iAmSubject, entry, lastSentAt: q.lastSentAt, now: Date.now() };
+    // Until the room takes my pack its lobby must not offer the quiz it has now (packPending).
+    if (isQuiz) runtimeRef.current?.setVar("packPending", pack && packPending(state) ? pack.title : "");
+    if (!pack || !room) return;
+    const action = packAction(state);
     if (action === "confirm") {
       store.confirmRoomPack(roomId);
       setPackFail(null);
@@ -274,7 +277,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   }, [isQuiz]);
   const finishMaker = (pack: QuizPack) => {
     const store = deviceQuizStore();
-    store.rememberRoomPack(roomId, pack);
+    store.rememberRoomPack(roomId, pack, quizRef.current.info?.packId ?? null);
     store.clearDraft();
     quizRef.current.lastSentAt = 0;
     myPackRef.current = pack;
@@ -289,6 +292,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     runtimeRef.current = rt;
     applyShared(sharedRef.current); // seed from cold-load / latest authoritative state
     extras.attach(rt as Parameters<typeof extras.attach>[0]);
+    quizTick(); // a pack made for this room shows "준비 중…" from the first frame
     // Dev only (dropped from builds): the screenshot harness feeds fixture vars.
     if (import.meta.env.DEV) Object.assign(globalThis, { __snackRuntime: rt });
     try {
