@@ -50,7 +50,7 @@ node snack-server/tools/pages-e2e.mjs https://test.playsnack.pages.dev --joins 5
 | 5 | 1288 | 1248 | 951 |
 | 중앙값 | 1183 | 1253 | 982 |
 
-  (앞선 배포 `d12bface`에서 두 번 더 돌린 10회: 방장 1054–2262, 친구 1125–1748, 14/14.) 회사 Mac → 서울 근처 엣지 기준이며 폰/LTE 수치는 아니다.
+  (앞선 배포 `d12bface`의 두 실행 10회: 방장 1054–2262, 친구 1125–1748. 첫 실행은 엣지 방이 결과를 POST할 거라 가정한 검사 탓에 13/14 → 검사를 아래 사실대로 고친 뒤 14/14.) 사무실 Mac의 headless Chromium 수치이며 폰/LTE 수치는 아니다.
 - 1:1 기본 퀴즈를 실제 탭으로 결과 화면까지(두 브라우저 모두 `result`).
 - 자동화 표시: Playwright가 `navigator.webdriver`를 켜 플레이어가 텔레메트리를 안 보냄 — 두 브라우저에서 `POST /api/ev` **0건** 확인. 서버도 자동화 UA를 버린다. 시험 주소는 비밀값이 없어 어차피 Upstash에 안 닿는다.
 
