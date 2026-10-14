@@ -1,8 +1,9 @@
 # 익명 측정 (`/api/ev`) — Q0 레인 D
 
 > 마스터 플랜 §4 Q0 레인 D(측정 기반) · §6 개인정보. Q2 레인 D(공유 ID `?s=`, 이벤트 10개 이하, 대시보드, 안내 페이지)가 이 위에 붙는다.
-> 상태: 엔드포인트 + 클라이언트 + 테스트 완료. **앱에는 아직 연결 안 됨**(`telemetry.ts`는 새 파일, 호출부 없음).
-> 무료 베타 지표(§9)는 **정의됨 · 앱 연결 전** — 서버 수신·집계와 클라이언트 헬퍼만 있고, 어떤 화면·엔진도 아직 보내지 않는다.
+> 상태: 엔드포인트 + 클라이언트 + 테스트 완료. 앱 연결(2026-10-13 핫픽스): `main.tsx`가 오류 비컨(`window.error`·`unhandledrejection`)을 켜고, `LiveApp`이 방 입장 시도마다 `room_join` 1건을 보낸다(`roomJoin.ts` → `trackJoin`). 다른 이벤트(`open`·`first_tap`·`result`·`share`)는 아직 호출부 없음.
+> 무료 베타 지표(§9)는 **정의됨 · 앱 연결 전** — 서버 수신·집계와 클라이언트 헬퍼만 있고, 어떤 화면·엔진도 아직 보내지 않는다(`room_join`만 위 핫픽스로 연결됨).
+> **무료 전용**: Upstash 월 명령 예산을 KV 안에 두고 넘으면 멈춘다 — §5a.
 
 ## 1. 구성
 | 파일 | 역할 |
@@ -13,7 +14,7 @@
 | `api/_lib/ratelimit.js` | 저장 없는 속도 제한 |
 | `api/_lib/apps.js` | 공식 앱 ID 목록(`snack-server/data/bite/index.json`) |
 | `api/_lib/day.js` | KST 날짜 |
-| `api/_test/*.test.js` | `node --test api/_test/` (37개 · gate-all의 `api-tests` 단계. 무료 베타 지표는 `metrics.test.js`) |
+| `api/_test/*.test.js` | `node --test api/_test/` (46개 · gate-all의 `api-tests` 단계. 무료 베타 지표는 `metrics.test.js`, 월 예산은 `budget.test.js`) |
 | `snack-player/src/telemetry.ts` | 브라우저 클라이언트 |
 
 `_`로 시작하는 파일은 함수가 되지 않는다 — Vercel 문서 "Adding utility files to the /api directory": *"Vercel ignores … Files that start with an underscore"* (https://vercel.com/docs/functions/configuring-functions/advanced-configuration). 문서 문구는 "파일"이며 `_lib/` 같은 **디렉터리**에도 적용되는지는 문서에 명시가 없다(→ §8 미검증). 같은 문서는 공용 코드를 `api/` 밖에 두라고 권장한다; 소유 범위 때문에 `api/_lib`에 두었다. `vercel.json`은 건드리지 않았다(`framework: null`이면 루트 `api/`를 자동 인식 — 문서 "Vercel will deploy any file in the /api directory as a function").
@@ -37,18 +38,22 @@
 - 모르는 종류 · 잘못된 값의 이벤트는 버림(`dropped`로 개수만 응답). 모르는 필드는 위 6종은 무시, §9 종류는 **이벤트째 버림**. 값이 `null`인 필드는 없는 것으로 본다.
 - **아는 종류**가 검증에서 버려지면 `<종류>|bad`로 센다(값은 저장 안 함) — 연결 버그(예: 11자 `sid`)가 조용한 0이 아니라 `summary.bad`에 보인다.
 - `app`은 먼저 앱 부분만 남긴다(`quiz-ox~CODE`·`tpl-quiz-ox` → `quiz-ox`, `app-<hash>` → `custom`) — 친구방 코드 · 만든 앱 해시는 카운터가 되지 않는다. 그 뒤 공식 템플릿 목록에 없으면 `other`. `where`(≤24자)·`build`(≤16자)는 `[A-Za-z][A-Za-z0-9_.-]*` 아니면 `other`.
+- `room_join`의 `reason`(실패 때만, 목록 밖이면 이벤트째 `bad`): `bad_link` · `not_found` · `network` · `timeout`(전송 15초) · `unreachable` · `disconnected` · `refused` · `subscribe`(브로커에는 붙었지만 방 토픽 구독 실패 — 2026-10-13 실기기 테스트에서 찾은 실패) · `silence`(LiveApp이 15초 동안 방 소식을 못 들음) · `other`. 클라이언트 `joinFailReason()`이 전송 쪽 원인을 이 목록으로 바꾼다(`broker` → `unreachable`, `load` → `network`, `"refused: …"` → `refused`).
+- `err` 이벤트가 받아들여지면 서버가 **한 줄**을 `console.error`로 남긴다: `[ev] err where=<w> build=<b>: <정화된 문구>`(요청당 최대 5줄). Vercel 프로젝트 → Logs 탭에서 실시간으로 보인다(Hobby 보관 1시간). 그 줄에는 정화된 문구 · where · build 말고 요청의 어떤 것도 들어가지 않는다(privacy 테스트가 콘솔 전체를 검사). KV를 쓰지 않으므로 일일 상한 · 월 예산을 넘어도 계속 남는다(속도 제한 `429` · 개인정보 신호 `204` 요청은 제외).
 - ms 버킷: `le100 le250 le500 le1000 le2000 le4000 le8000 le15000 le30000 gt30000`.
-- 응답: `200 {ok, accepted, dropped}` · `204` 요청에 `Sec-GPC: 1` 또는 `DNT: 1`(아무것도 세지 않음) · `413` 본문 >4096바이트(스트림도 4096에서 끊음) · `400` JSON 오류/`v≠1`/이벤트 >20개 · `429` 속도 제한(`rate_limited`/`daily_cap`) · `503` KV 실패 · `405` 기타 메서드.
+- 응답: `200 {ok, accepted, dropped}` · `204` 요청에 `Sec-GPC: 1` 또는 `DNT: 1`(아무것도 세지 않음) · `204` 월 예산 도달(§5a, 본문 없음, `x-ev-budget: reached`) · `413` 본문 >4096바이트(스트림도 4096에서 끊음) · `400` JSON 오류/`v≠1`/이벤트 >20개 · `429` 속도 제한(`rate_limited`/`daily_cap`) · `503` KV 실패 · `405` 기타 메서드.
 
 ### GET `/api/ev?day=YYYY-MM-DD`
-기본값 = 오늘(KST). 읽기 전용, 인스턴스 메모리 **날짜별** 30초 캐시 + `cache-control: public, max-age=30, s-maxage=30`.
+기본값 = 오늘(KST). 읽기 전용, 인스턴스 메모리 **날짜별** 30초 캐시 + `cache-control: public, max-age=30, s-maxage=30`. (지난 날도 30초만 둔다 — 본문의 `cumulative`(누적 `ev:all`)는 계속 바뀌므로.)
 받는 날짜는 보존 기간 안만: **오늘−90일 … 오늘+1일**(KST, +1은 시계가 앞선 클라이언트용). 그 밖(`1999-01-01`, `2999-01-01`…)은 `400 day_out_of_range`, 날짜 형식/달력 오류는 `400 bad_day` — 날짜를 바꿔 가며 캐시를 비켜 Upstash 명령을 무한히 쓰게 하는 길을 막는다(받는 키 = 날짜 ≤ 92 + 주 ≤ 15, 캐시 상한 128이라 다 들어감).
 ```json
 { "ok": true, "v": 1, "day": "2026-10-12", "store": "kv", "appsKnown": 44, "total": 8,
   "counters": { "open": { "n": 2, "route": { "app": 1 }, "app": { "quiz-ox": 1 } },
                 "room_join_ms": { "ok": { "le2000": 1 } } },
-  "errors": { "distinct": 1, "top": [ { "msg": "TypeError: x is undefined", "count": 1 } ] } }
+  "errors": { "distinct": 1, "top": [ { "msg": "TypeError: x is undefined", "count": 1 } ] },
+  "budget": { "month": "2026-10", "used": 1234, "limit": 400000 } }
 ```
+`budget.used` = 이 읽기 파이프라인의 `INCRBY` 응답(추가 명령 없음, 메모리 저장소면 `null`). 월 예산을 넘은 뒤엔 KV를 건드리지 않고 이 인스턴스가 마지막으로 읽은 본문(`"stale": true`) 또는 `{ "ok": false, "error": "budget_reached", "budget": {…} }`를 준다.
 모든 응답에 `x-ev-store: kv|memory` 헤더. `appsKnown`이 0이면 함수 번들에 `index.json`이 안 들어간 것(§8).
 응답에는 `wired`(§9 이벤트를 앱이 보내기 시작했는지 — 지금 `false`, 연결 커밋에서 `schema.js`의 `WIRED`를 바꾼다), `summary`(§9 숫자 요약), `cumulative`(누적 `ev:all`)도 들어 있다(위 예시는 생략). `wired: false`인 동안 0은 "0판"이 아니라 "안 잼"이다.
 
@@ -60,8 +65,9 @@ ISO 주(월–일, KST 날짜) 7일의 카운터를 더해 `{week, days, total, 
 - `ev:<KST날짜>:err` 해시: 정화된 오류 문구 → 횟수.
 - `ev:all` 해시: 누적 카운터 — 정해진 필드만(`session_done|n`·`session_done|p3`·`rematch|n`·`room_create|n`·`game_created|n`·`game_created|source|<s>`). **만료 없음**, 배포 시점부터 센다(소급 없음). 잘못 부풀면 날짜 키와 달리 저절로 사라지지 않으므로 §9.6 절차로 고친다.
 - `ev:once:<해시>` 문자열: "이 판/이 퀴즈는 이미 셌다" 표시. 키 = SHA-256(`종류\0sid|gid`) 앞 32자, `SET NX EX 21600`(6시간). 원래 id는 저장 · 전송하지 않는다(§9.3).
+- `ev:budget:<KST 연-월>` 정수: 그달 이 배포가 Upstash에 보낸 명령 수(§5a). 40일 만료.
 - 날짜 키는 90일 만료(`EXPIRE`, 인스턴스당 키별 하루 1회만 보내 명령 절약). **원시 이벤트 로그 없음.**
-- 쓰기 1회 = `/pipeline` 1요청(`HINCRBY` 여러 개 + 필요 시 `EXPIRE`), §9 판 · 퀴즈 이벤트가 있으면 그 앞에 `SET NX` 요청 1개 더. 읽기 = `HGETALL` 3개(날짜 · 오류 · 누적), 주간은 ≤ 8개.
+- 모든 `/pipeline` 요청은 맨 앞에 `INCRBY ev:budget:<월> <n>`(+ 인스턴스의 그달 첫 요청이면 그 키의 `EXPIRE`)을 단다(§5a). 쓰기 1회 = `/pipeline` 1요청(`HINCRBY` 여러 개 + 필요 시 `EXPIRE`), §9 판 · 퀴즈 이벤트가 있으면 그 앞에 `SET NX` 요청 1개 더. 읽기 = `HGETALL` 3개(날짜 · 오류 · 누적), 주간은 ≤ 8개.
 - **claim → 집계 순서:** Upstash 파이프라인은 조건부 증가를 못 하므로 `SET NX`(claim) 다음에 `HINCRBY`(집계)를 보낸다. 집계가 실패(503)하면 이번에 잡은 claim을 `DEL`로 풀어(최선 노력) 다른 호스트의 같은 판 보고가 세어지게 한다. 풀기마저 실패하면 그 판은 6시간 동안 `dup`로만 세어진다(과소). 파이프라인이 일부 명령만 적용하고 실패하는 경우는 가짜로만 시험했다(§8).
 - 환경변수가 없으면 인스턴스별 메모리(재시작 · 인스턴스 간 공유 안 됨, 개발 · 미설정 상태용).
 
@@ -77,9 +83,35 @@ ISO 주(월–일, KST 날짜) 7일의 카운터를 더해 `{week, days, total, 
 ## 5. 속도 제한 (아무것도 저장 안 함)
 1. 클라이언트별 토큰 버킷(인스턴스 메모리): 키 = `SHA-256(인스턴스 랜덤 솔트 + KST날짜 + 주소)` 앞 24자. 주소(`x-vercel-forwarded-for` → `x-forwarded-for` 첫 값 → `x-real-ip`)는 메모리에서 해시만 하고 저장 · 기록하지 않는다. `x-vercel-forwarded-for`를 **그대로 신뢰**한다 — Vercel이 자기 프록시에서 채우는 헤더라 Vercel 위에서는 클라이언트가 위조할 수 없다(다른 호스팅으로 옮기면 이 헤더는 위조 가능 → 그 환경의 신뢰 헤더로 바꿔야 함). 날짜가 바뀌면 솔트 재생성 + 버킷 비움. 기본 버스트 20, 초당 0.5 충전(분당 30). 최대 1만 키.
 2. 인스턴스 분당 600요청.
-3. 일일 이벤트 상한 `EV_DAILY_CAP`(기본 5000 — §8 비용): 쓰기마다 돌려받는 `_total`로 판단 → 넘으면 그날 `429 daily_cap`. 인스턴스별로 마지막 본 값을 쓰므로 약간 넘칠 수 있다.
+3. 일일 이벤트 상한 `EV_DAILY_CAP`(기본 **1500**): 쓰기마다 돌려받는 `_total`(KV에 있는 그날 전체 합계)로 판단 → 넘으면 그날 `429 daily_cap`. 인스턴스별로 마지막 본 값을 쓰므로 새 인스턴스마다 첫 쓰기 1회(≤20 이벤트)만큼 넘칠 수 있다. **무료 보장은 이 상한이 아니라 아래 월 예산이다.**
+
+## 5a. 무료 보장 (Upstash Free, 카드 없음)
+**규칙: Upstash에 결제 카드를 절대 등록하지 않는다.** Upstash 가격 페이지 FAQ(https://upstash.com/pricing/redis, 2026-10-13 확인): *"Once you enter your credit card, your database will be upgraded to the pay-as-you-go plan and limits will be updated."* — 카드가 없으면 과금될 수단이 없고, 카드를 넣는 순간 사용량 과금 DB가 된다. 같은 페이지의 Free: **월 500K 명령, 데이터 250MB, 대역폭 월 10GB**. Free 한도를 넘으면 어떻게 되는지는 그 페이지에 쓰여 있지 않다(유료 플랜 FAQ에만 "rate limiting / rejected requests") → 그래서 넘기 전에 우리가 멈춘다.
+
+**월 명령 예산(`EV_MONTHLY_BUDGET`, 기본 400000 = 500K의 80%)** — `api/_lib/store.js` `metered()`:
+- KV로 가는 **모든** `/pipeline` 요청(집계 `apply`, 판 중복 제거 `claim`의 `SET NX`, 실패 시 `release`의 `DEL`, 읽기 `read` · `readDays`)의 **첫 명령**이 `INCRBY ev:budget:<KST 연-월> <n>`이다. `n` = 그 파이프라인이 보내는 명령 수 **정확히**(INCRBY 자신과 EXPIRE 포함). 같은 파이프라인에 예산 키 `EXPIRE 40일`(인스턴스당 그달 1회).
+- 응답의 INCRBY 값 = 그달 사용량. 이 값이 예산 이상이면 그 인스턴스는 그달 **KV 명령을 하나도 보내지 않는다**: POST → `204`(저장 안 함 — claim도 안 보냄), GET(`?day` · `?week`) → 그 인스턴스가 마지막으로 읽은 본문(`"stale": true`) 또는 `{ "ok": false, "error": "budget_reached", "budget": {…} }`. 달이 바뀌면(KST 1일 0시) 새 키로 다시 시작.
+- GET 응답의 `budget: { month, used, limit }` — `used`는 그 읽기 파이프라인의 INCRBY 응답(추가 명령 없음, 메모리 저장소면 `null`).
+- 파이프라인 안 명령이 하나씩 과금되는지 Upstash 문서에 명시가 없다("pricing is based on per command/request") → **하나씩 센다고 가정**(보수적). Upstash 콘솔의 실제 사용량이 우리 카운터보다 크면 이 가정이 틀린 것. 실패한 파이프라인(HTTP 오류)은 우리 카운터에 안 들어가지만 Upstash가 셌을 수 있다(작은 과소 계산).
+- 넘침 한계: 예산 도달을 아직 모르는 인스턴스(콜드 스타트)는 첫 요청 1회만큼 더 쓴다 — 요청 1회 ≤ 약 110 명령(아래). 인스턴스가 수십 개여도 수천 명령 = 남은 100K 여유 안.
+
+**최악 계산** (이벤트 1개의 날짜 `HINCRBY` 필드 최대: 실패한 `room_join` 6개(n·fail·ms·room·reason·app), `session_done` 7개 + 누적 `ev:all` 2개 + claim `SET` 1개 ≈ 10개; `err`는 필드 3 + 문구 1):
+| 요청 | 명령 수 |
+|---|---|
+| POST, 판 이벤트 없음 (이벤트 k개) | `INCRBY` 1 + `_total` 1 + 필드 ≤ 6k(같은 필드는 합쳐짐) + `EXPIRE` ≤ 3(예산 · 날짜 · 오류 키, 인스턴스당 처음만). 보통 이벤트 1개 = 3–8 |
+| POST, 서로 다른 판 20개 (최악) | claim: `INCRBY` 1 + `EXPIRE` ≤ 1 + `SET` 20 = 22 · 집계: `INCRBY` 1 + `_total` 1 + `HINCRBY` ≤ 60 + `EXPIRE` ≤ 2 = 64 → **≈ 86** (집계가 실패하면 release `INCRBY` 1 + `DEL` ≤ 20 더 → ≈ 107) |
+| GET `?day` (캐시 안 맞음) | `INCRBY` 1 + `HGETALL` 3 (+`EXPIRE` 1) = **4–5** |
+| GET `?week` (캐시 안 맞음) | `INCRBY` 1 + `HGETALL` ≤ 8 (+`EXPIRE` 1) = **≤ 10** |
+| GET 캐시 맞음 · 개인정보 신호 · 예산 도달 후 모든 요청 · 유효 이벤트 0개 POST | **0** |
+
+- 쓰기: 일일 상한 1500 이벤트를 매일 채운다고 하면 — 오류 · 입장 위주(이벤트당 ≈ 5 + 요청당 2)면 ≈ 10–12K/일 → 월 ≈ 330–370K, **전부 판 이벤트**(요청당 판 1개: claim 2 + 집계 11 ≈ 13)면 ≈ 19.5K/일 → 월 ≈ 600K. 즉 일일 상한만으로는 무료가 보장되지 않고, **월 예산 400K가 실제 멈춤 장치**다. 실제 베타 규모(테스트 세션 = 이벤트 수십 개 = 명령 수백 개)는 이보다 훨씬 작다.
+- 읽기: 인스턴스당 날짜 · 주 키마다 30초 캐시 → 오늘을 쉬지 않고 한 달 내내 폴링하면 2,880 × 4 ≈ 11.5K/일(≈ 357K/월). Vercel CDN `s-maxage=30`이 반복 GET을 대부분 흡수할 것(미검증).
+- 합친 최악은 400K를 넘는다 → 그때 예산이 멈춘다(그달 나머지 수집 중단 — 무료 유지가 우선). 평소 사용량은 GET의 `budget.used`로 본다.
+
+**멈춘 뒤**: 앱에는 아무 영향 없음(텔레메트리는 응답을 기다리지 않는다). 오류 줄은 Vercel Logs에 계속 남는다(KV 안 씀). 다음 달 1일(KST)에 자동 재개. 예산을 바꾸려면 `EV_MONTHLY_BUDGET`(500000 미만으로).
 
 ## 6. 클라이언트 `snack-player/src/telemetry.ts`
+연결: `main.tsx` — `telemetryEnabled()`일 때만 `configureTelemetry({ build })` + `installErrorBeacon(build)` (build id = `g` + 커밋 7자, `vite.config.ts`가 `VERCEL_GIT_COMMIT_SHA` → 로컬 git 커밋 → `dev` 순으로 정함; 서버의 `build` 형식 `[A-Za-z]…`에 맞추려고 `g`를 붙임). `LiveApp` — `roomJoin.ts`의 `joinTracker`가 시도마다 `trackJoin()`으로 `room_join {ok, ms, room, reason?, app}` 1건(ms = `connect()`/`retry()` 호출 → 첫 `connected`, 실패면 → `failed`; 결과 전에 화면을 떠나면 안 보냄).
 ```ts
 import { track, trackError, installErrorBeacon, configureTelemetry, flush } from './telemetry';
 installErrorBeacon(BUILD_ID);                       // window error + unhandledrejection
@@ -93,15 +125,15 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 
 ## 7. 주인 설정
 1. Upstash 무료 계정 → Redis DB 생성(리전: 한국과 가까운 곳) → REST URL · 토큰 복사.
-2. Vercel 프로젝트 `playsnack` → Settings → Environment Variables: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (Vercel 마켓플레이스 연동이 만드는 `KV_REST_API_URL` / `KV_REST_API_TOKEN`도 인식). 선택: `EV_DAILY_CAP`.
-3. 재배포 후 `curl -i https://<배포>/api/ev` → `x-ev-store: kv`, `appsKnown: 44` 확인.
+2. Vercel 프로젝트 `playsnack` → Settings → Environment Variables: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (Vercel 마켓플레이스 연동이 만드는 `KV_REST_API_URL` / `KV_REST_API_TOKEN`도 인식). 선택: `EV_DAILY_CAP`(기본 1500), `EV_MONTHLY_BUDGET`(기본 400000). **Upstash에 카드 등록 금지**(§5a).
+3. 재배포 후 `curl -i https://<배포>/api/ev` → `x-ev-store: kv`, `appsKnown: 44`, `budget.used`가 숫자인지 확인. Upstash 콘솔의 그달 명령 수와 `budget.used`가 비슷한지 가끔 비교(§5a 가정 확인).
 4. 빌드에서 끄려면 `VITE_TELEMETRY=off`.
 
 ## 8. 미검증 (프리뷰 배포가 있어야 확인 가능)
 - **`/api` 자동 인식**: `framework: null` + `outputDirectory: snack-player/dist`에서 루트 `api/ev.js`가 함수로 배포되는지, `api/_lib/` · `api/_test/` **디렉터리**가 함수로 안 잡히는지(문서는 `_` 파일만 명시).
 - **`index.json` 번들 포함**: `readFileSync(new URL('../../snack-server/data/bite/index.json', import.meta.url))`가 파일 추적에 잡히는지. 안 잡히면 모든 앱이 `other`가 되고 GET의 `appsKnown`이 0 — 그때 `vercel.json`의 `functions["api/ev.js"].includeFiles` 추가 필요(레인 범위 밖).
 - **실제 Upstash 응답**: `/pipeline` 응답 형식(`[{result}|{error}]`)과 `HGETALL` 결과(평탄 배열)는 문서 기준 가짜로만 테스트했다.
-- **Upstash 명령 과금**: 무료 한도(마스터 플랜 표: 월 50만 명령, 확인 필요)가 pipeline 안 명령 하나하나를 세는지. 이벤트 1개 ≈ 명령 2–4개(배치 내 같은 필드는 합쳐짐), 단 §9 판 · 퀴즈 이벤트는 따로 `SET` 1개 + `HINCRBY` 6–9개(혼자 올 때 ≈ 10개). 최악의 요청(서로 다른 판 20개) ≈ 81개(`SET` 20 + `HINCRBY` ≤ 60 + `EXPIRE`). 기본 상한을 **5000 이벤트/일**로 낮췄다(20000이면 `SET`만 월 60만). 그래도 상한을 매일 판 이벤트로 채우는 최악은 5000 × ~10 × 30 ≈ 월 150만 명령이다 — 무료 한도를 확실히 지키려면 `EV_DAILY_CAP=1500`(≈ 45만). 실제 베타 규모(판 1개 = `session_done` 1개 + 입장 몇 개)는 이보다 훨씬 작다. 한도를 넘었을 때 Upstash 무료 등급의 동작(거절? 과금?)도 확인 필요.
+- **Upstash 명령 과금**: 무료 월 500K(가격 페이지 확인). pipeline 안 명령을 하나씩 세는지는 문서에 없음 → 하나씩 센다고 보고 KV 안 월 예산(§5a)으로 막았다(claim · release 포함 모든 파이프라인). 콘솔 수치와 `budget.used` 비교로 확인할 것.
 - Vercel 요청 로그의 IP 보관 정책, 함수 리전(KST 사용자 기준 지연), 인스턴스 수에 따른 메모리 제한기의 실효성.
 
 ## 9. 무료 베타 지표 — 정의됨 · 앱 연결 전
@@ -118,7 +150,7 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 | `rematch` | `p`, `sid`(새 판), `app?` | **호스트 엔진만**, 이 방에서 앞 판이 결과까지 간 뒤 새 판이 시작될 때(콘텐츠 로딩 후 카운트다운 직전). 여기 `p`는 시작 순간 **방에 있는** 인원(아직 아무도 참여 전). | 서버 `ev:once`(종류+`sid`) |
 | `game_created` | `source`: `editor`·`remake`, `gid`, `app?` | **호스트 엔진만**, 유효한 `quizPack` 액션을 받아들인 순간(검증 실패 · 거절된 팩은 안 셈 = "플레이 가능한 것만"). `remake` = 결과 화면(`S.phase === "result"`)에서 **직전 주인공이 아닌** 참가자가 보낸 팩(직전 판이 기본 퀴즈면 주인공 없음 → 누구든 remake), 그 밖은 `editor`. | 서버 `ev:once`(종류+`gid`) |
 | `room_create` | `app?` | 친구방 코드를 새로 만든 기기, 코드 생성 순간 1번. **코드는 보내지 않는다.** | 코드 생성이 그 탭에서만 일어남(서버 중복 제거 없음) |
-| `room_join` (확장) | `ok`, `ms?`, `room?`: `public`·`friend`, 실패 시 `reason?`: `bad_link`·`not_found`·`network`·`timeout`·`unreachable`·`disconnected`·`refused`·`other` | 입장 **시도** 1번(연결 1회 · 재시도 1회)마다 그 기기. 성공 = 첫 방 상태 수신, 실패 = 위 이유 중 먼저 난 것 1개. | 시도마다 1번(클라이언트 가드) |
+| `room_join` (확장) | `ok`, `ms?`, `room?`: `public`·`friend`, 실패 시 `reason?`: `bad_link`·`not_found`·`network`·`timeout`·`unreachable`·`disconnected`·`refused`·`subscribe`·`silence`·`other` | 입장 **시도** 1번(연결 1회 · 재시도 1회)마다 그 기기. 성공 = 첫 방 상태 수신, 실패 = 위 이유 중 먼저 난 것 1개. | 시도마다 1번(클라이언트 가드) |
 | `share` (확장) | `method`, `what?`: `invite`·`result`·`app`·`other`, `app?` | 실제로 일어난 공유만: 공유 시트가 끝남(취소 `AbortError` 제외) → `web`, 클립보드 쓰기 성공 → `copy`, 링크를 화면에만 보여줌 → `other`. | 탭마다 1번 |
 | `ask_shown` | `app?` | 결과 화면에 "다음에도 하고 싶나요?"를 보여준 **각 기기**, 판마다 1번. | 페이지 안 `gameKey` 가드(서버로 안 보냄) |
 | `ask_answer` | `a`: `yes`·`no`·`skip`, `no`일 때만 `why?`: `boring`·`hard`·`laggy`·`few`·`other`, `app?` | 응답하거나 "건너뛰기"를 누른 기기, 판마다 1번. 무응답 = `ask_shown − (yes+no+skip)`. | 같은 가드 |
@@ -164,7 +196,7 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 8. `room.js:628,639,663,665` — `answerers` · `acted`(Set)를 `answered`처럼 배열로 스냅샷 · 복원(그대로 두면 JSON에서 `{}`가 되어 새 호스트의 `p`가 0이 됨). `sid` · `done` · `subject`는 손댈 필요 없음(`...rest`).
 9. `roomTransport.ts:253` `connectMesh({…})`와 `:222` `connectRelay({…})` — `engine: { onSessionEnd: (e) => trackSessionDone(this.me.slug, e.players, e.sid, quiz ? {about: e.about, answerers: e.answerers} : undefined), onSessionStart: (e) => e.again && trackRematch(this.me.slug, e.players, e.sid), onGameCreated: (e) => trackGameCreated(this.me.slug, e.source, e.gid) }`. `this.me.slug`는 방 id(`slug~CODE`)지만 헬퍼의 `appOf()`가 코드를 잘라낸다. 엔진 옵션 통로: `meshClient.js:77,250-251`, `relayClient.js:33,94`.
 10. `LiveApp.tsx:173-177` `openFriendRoom` — `trackRoomCreate(slug)`(코드 생성 직후, `navigate` 전).
-11. `LiveApp.tsx:115-121` 연결 메시지 — 시도마다 첫 `connected`에 `trackJoin(slug, true, {ms, room})`, `failed`에 `trackJoin(slug, false, {room, reason: joinFailReason(m.d.reason)})`(이유는 `roomTransport.ts:86`이 `m.d.reason`에 실음; `LiveApp.tsx:109` 무응답은 `timeout`). 연결 전 실패: `LiveApp.tsx:197`(잘린 코드) → `bad_link`, `:94` → `not_found`/`network`. 시도 = `room.connect()`(:138) 또는 재시도(:140-142) 1번.
+11. **연결됨(2026-10-13 핫픽스, `roomJoin.ts`):** 시도(`room.connect()` 또는 다시 시도) 1번마다 첫 `connected`에 `trackJoin(slug, true, {ms, room})`, 첫 `failed`에 `trackJoin(slug, false, {ms, room, reason: joinFailReason(m.d.reason)})`; LiveApp 15초 무응답은 `silence`. 아직 안 됨: 연결 전 실패(잘린 코드 → `bad_link`, 앱 로드 실패 → `not_found`/`network`).
 12. `LiveApp.tsx:178-195` `shareInvite` — 공유 시트 성공 `trackShare("web", "invite", slug)`, 클립보드 성공 `"copy"`, 화면 표시 `"other"`. 결과 공유 · 앱 공유는 버튼이 생기는 곳에서 `what: "result"`/`"app"`.
 13. 결과 화면 문항(새 UI) — 표시 때 `trackAskShown(slug, gameKey)`, 응답 때 `trackAskAnswer(slug, gameKey, a, why)`. `gameKey` = 이 기기에서 본 결과 화면 순번 등(보내지 않음).
 14. 위가 들어가는 커밋에서 `api/_lib/schema.js`의 `WIRED`를 `true`로 바꾼다.

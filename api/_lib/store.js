@@ -5,15 +5,23 @@
 // Both keys expire 90 days after the last write of the instance that set them.
 //   ev:all        hash  all-time counters for a fixed field list (no expiry; docs/telemetry.md §9)
 //   ev:once:<id>  string, 6 h — "this game was already counted" (id = hash of kind + game id)
+//   ev:budget:<YYYY-MM KST>  integer, ~40 days — Upstash commands this deployment sent that month
+//
+// Free-plan guard: EVERY KV pipeline (apply, claim, release, read, readDays) starts with
+// INCRBY ev:budget:<month> <n>, n = the exact number of commands in that pipeline (the
+// INCRBY and the once-per-instance EXPIRE included). The reply is the month's running
+// count; the handler stops talking to KV once it reaches EV_MONTHLY_BUDGET (api/ev.js).
 
 export const TTL_SECONDS = 90 * 24 * 60 * 60;
 export const ONCE_TTL_SECONDS = 6 * 60 * 60;
+export const BUDGET_TTL_SECONDS = 40 * 24 * 60 * 60;
 export const TOTAL_FIELD = '_total';
 
 export const dayKey = (day) => `ev:${day}`;
 export const errKey = (day) => `ev:${day}:err`;
 export const ALL_KEY = 'ev:all';
 export const onceKey = (id) => `ev:once:${id}`;
+export const budgetKey = (month) => `ev:budget:${month}`;
 
 export class StoreError extends Error {}
 
@@ -36,6 +44,7 @@ function pairsToObject(arr) {
 
 export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
   const expired = new Set(); // keys this instance already set a TTL on (saves commands)
+  let seen = { month: null, used: 0 }; // last budget count this instance got back
 
   async function pipeline(commands) {
     let res;
@@ -60,10 +69,29 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
     return out.map((r) => r.result);
   }
 
+  /** Send `cmds` behind the month's budget INCRBY (+ EXPIRE once per instance); returns their results. */
+  async function metered(month, cmds) {
+    const bk = budgetKey(month);
+    const ttl = !expired.has(bk);
+    const n = cmds.length + 1 + (ttl ? 1 : 0); // exactly what this pipeline sends
+    const head = [['INCRBY', bk, n]];
+    if (ttl) head.push(['EXPIRE', bk, BUDGET_TTL_SECONDS]);
+    const out = await pipeline([...head, ...cmds]);
+    if (ttl) expired.add(bk);
+    const used = Number(out[0]) || 0;
+    if (seen.month !== month) seen = { month, used };
+    else if (used > seen.used) seen.used = used;
+    return out.slice(head.length);
+  }
+
   return {
     kind: 'kv',
+    /** The month's command count from the last KV reply this instance saw (null if none yet). */
+    budgetUsed(month) {
+      return seen.month === month ? seen.used : null;
+    },
     /** Apply increments; returns the day's running event total after this write. */
-    async apply(day, incr, errs, accepted, all = new Map()) {
+    async apply(day, incr, errs, accepted, all = new Map(), month) {
       const k = dayKey(day);
       const ek = errKey(day);
       const cmds = [['HINCRBY', k, TOTAL_FIELD, accepted]];
@@ -74,22 +102,22 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       if (!expired.has(k)) ttl.push(k);
       if (errs.size && !expired.has(ek)) ttl.push(ek);
       for (const key of ttl) cmds.push(['EXPIRE', key, TTL_SECONDS]);
-      const out = await pipeline(cmds);
+      const out = await metered(month, cmds);
       for (const key of ttl) expired.add(key);
       return Number(out[0]) || 0;
     },
     /** Claim de-dup ids; returns one boolean per id: true = first time seen (within the TTL). */
-    async claim(ids, ttl = ONCE_TTL_SECONDS) {
+    async claim(ids, month, ttl = ONCE_TTL_SECONDS) {
       if (!ids.length) return [];
-      const out = await pipeline(ids.map((id) => ['SET', onceKey(id), '1', 'NX', 'EX', ttl]));
+      const out = await metered(month, ids.map((id) => ['SET', onceKey(id), '1', 'NX', 'EX', ttl]));
       return out.map((r) => r === 'OK');
     },
     /** Undo claims whose counts could not be written (so another host's report still counts). */
-    async release(ids) {
-      if (ids.length) await pipeline(ids.map((id) => ['DEL', onceKey(id)]));
+    async release(ids, month) {
+      if (ids.length) await metered(month, ids.map((id) => ['DEL', onceKey(id)]));
     },
-    async read(day) {
-      const [counts, errSamples, all] = await pipeline([
+    async read(day, month) {
+      const [counts, errSamples, all] = await metered(month, [
         ['HGETALL', dayKey(day)],
         ['HGETALL', errKey(day)],
         ['HGETALL', ALL_KEY],
@@ -97,8 +125,8 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       return { counts: pairsToObject(counts), errs: pairsToObject(errSamples), all: pairsToObject(all) };
     },
     /** Day counters for several days (one request) + the all-time counters. */
-    async readDays(days) {
-      const out = await pipeline([...days.map((d) => ['HGETALL', dayKey(d)]), ['HGETALL', ALL_KEY]]);
+    async readDays(days, month) {
+      const out = await metered(month, [...days.map((d) => ['HGETALL', dayKey(d)]), ['HGETALL', ALL_KEY]]);
       return { days: out.slice(0, days.length).map(pairsToObject), all: pairsToObject(out[days.length]) };
     },
   };
@@ -120,6 +148,7 @@ export function createMemoryStore({ now = Date.now } = {}) {
     kind: 'memory',
     data, // exposed for tests (privacy assertions)
     once, // exposed for tests (privacy assertions)
+    budgetUsed: () => null, // no KV commands are spent
     async apply(day, incr, errs, accepted, all = new Map()) {
       const h = hash(dayKey(day));
       const total = bump(h, TOTAL_FIELD, accepted);
@@ -134,7 +163,7 @@ export function createMemoryStore({ now = Date.now } = {}) {
       }
       return total;
     },
-    async claim(ids, ttl = ONCE_TTL_SECONDS) {
+    async claim(ids, _month, ttl = ONCE_TTL_SECONDS) {
       const t = now();
       if (once.size > 10000) for (const [k, exp] of once) if (exp <= t) once.delete(k);
       return ids.map((id) => {

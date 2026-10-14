@@ -259,6 +259,7 @@ test('KV: de-dup uses SET NX EX on a hashed key; the all-time hash never expires
         m.set(args[0], (m.get(args[0]) || 0) + Number(args[1]));
         return { result: m.get(args[0]) };
       }
+      if (cmd === 'INCRBY') { db.set(key, (db.get(key) || 0) + Number(args[0])); return { result: db.get(key) }; } // budget counter (store.js metered)
       if (cmd === 'EXPIRE') return { result: 1 };
       if (cmd === 'HGETALL') return { result: [...(db.get(key) || [])].flatMap(([f, v]) => [f, String(v)]) };
       return { error: 'ERR' };
@@ -399,6 +400,7 @@ test('apply fails after the claim: claims are released, so the next report of th
         m.set(args[0], (m.get(args[0]) || 0) + Number(args[1]));
         return { result: m.get(args[0]) };
       }
+      if (cmd === 'INCRBY') { db.set(key, (db.get(key) || 0) + Number(args[0])); return { result: db.get(key) }; } // budget counter (store.js metered)
       if (cmd === 'EXPIRE') return { result: 1 };
       if (cmd === 'HGETALL') return { result: [...(db.get(key) || [])].flatMap(([f, v]) => [f, String(v)]) };
       return { error: 'ERR' };

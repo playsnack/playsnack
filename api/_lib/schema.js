@@ -22,7 +22,8 @@ export const KINDS = [
 ];
 export const SHARE_WHATS = new Set(['invite', 'result', 'app', 'other']);
 export const ROOM_KINDS = new Set(['public', 'friend']);
-export const JOIN_FAIL_REASONS = new Set(['bad_link', 'not_found', 'network', 'timeout', 'unreachable', 'disconnected', 'refused', 'other']);
+// subscribe = broker reached but the room topic subscription failed; silence = no room traffic for 15 s.
+export const JOIN_FAIL_REASONS = new Set(['bad_link', 'not_found', 'network', 'timeout', 'unreachable', 'disconnected', 'refused', 'subscribe', 'silence', 'other']);
 export const GAME_SOURCES = new Set(['editor', 'remake']);
 export const ASK_ANSWERS = new Set(['yes', 'no', 'skip']);
 export const ASK_REASONS = new Set(['boring', 'hard', 'laggy', 'few', 'other']);
@@ -120,6 +121,7 @@ export function normalizeEvent(raw) {
   const fields = [];
   const all = []; // all-time counters (ev:all)
   let err;
+  let errAt; // { where, build } of an err event (for the server's live log line)
   let once;
   if (Object.hasOwn(STRICT_KEYS, k) && Object.keys(ev).some((f) => !STRICT_KEYS[k].has(f))) return null;
   const withApp = () => {
@@ -218,13 +220,14 @@ export function normalizeEvent(raw) {
       const build = ident(ev.build, 16);
       if (where) fields.push(`err|where|${where}`);
       if (build) fields.push(`err|build|${build}`);
+      errAt = { where, build };
       break;
     }
     default:
       return null;
   }
   fields.unshift(`${k}|n`);
-  return { kind: k, fields, err, all, once };
+  return { kind: k, fields, err, all, once, ...(errAt ? errAt : {}) };
 }
 
 const add = (m, f, n = 1) => m.set(f, (m.get(f) || 0) + n);
@@ -232,7 +235,8 @@ const add = (m, f, n = 1) => m.set(f, (m.get(f) || 0) + n);
 /**
  * Parse a raw body string. Returns { status, error } on rejection, or
  * { status: 200, incr: Map<field,count>, errs: Map<sample,count>, all: Map<field,count>,
- *   once: [{id, kind, fields, all}], accepted, badCount, dropped }.
+ *   once: [{id, kind, fields, all}], errLines: [{msg, where?, build?}], accepted, badCount, dropped }.
+ * errLines = the accepted error events, already sanitized (the server logs one line each).
  * badCount = events of a known kind dropped by validation; they are counted as
  * `<kind>|bad` (in incr) so a wiring bug is visible instead of a silent 0.
  * `once` events are not in incr/all yet: the caller claims their ids, then settleOnce().
@@ -252,6 +256,7 @@ export function parseBatch(text) {
   const all = new Map();
   const once = [];
   const onceSeen = new Set();
+  const errLines = [];
   const bad = new Map(); // known kind, dropped by validation -> count (a wiring bug shows up)
   let accepted = 0;
   for (const ev of body.events) {
@@ -272,11 +277,14 @@ export function parseBatch(text) {
     }
     for (const f of n.fields) add(incr, f);
     for (const f of n.all) add(all, f);
-    if (n.err) add(errs, n.err);
+    if (n.err) {
+      add(errs, n.err);
+      errLines.push({ msg: n.err, where: n.where, build: n.build });
+    }
   }
   const badCount = [...bad.values()].reduce((a, b) => a + b, 0);
   for (const [f, c] of bad) add(incr, f, c);
-  return { status: 200, incr, errs, all, once, accepted, badCount, dropped: body.events.length - accepted };
+  return { status: 200, incr, errs, all, once, errLines, accepted, badCount, dropped: body.events.length - accepted };
 }
 
 /** Count each `once` event whose id was claimed for the first time (fresh[i]); the rest become `<kind>|dup`. */

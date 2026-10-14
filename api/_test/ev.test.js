@@ -211,3 +211,23 @@ test('helpers: sanitizer, buckets, KST day', () => {
   assert.ok(isDay('2024-02-29'));
   assert.ok(!isDay('2026-02-29'));
 });
+
+test('room_join failure reasons from the live join tracker (subscribe, silence) are on the list; free text is not', async () => {
+  const h = createHandler({ env: memEnv, limiter: createLimiter({ bucketSize: 100, dailyCap: 1e6 }) });
+  await h(
+    post({
+      v: 1,
+      events: [
+        { k: 'room_join', ok: false, ms: 2385, reason: 'subscribe', room: 'friend', app: 'tap-battle' },
+        { k: 'room_join', ok: false, ms: 15000, reason: 'silence', room: 'public' },
+        { k: 'room_join', ok: false, ms: 900, reason: 'refused' },
+        { k: 'room_join', ok: false, reason: 'K7MNP2QRS4 is my room' }, // off-list -> dropped, counted as bad
+      ],
+    }),
+  );
+  const c = (await (await h(get())).json()).counters;
+  assert.deepEqual(c.room_join.reason, { refused: 1, silence: 1, subscribe: 1 });
+  assert.equal(c.room_join.fail, 3);
+  assert.equal(c.room_join.bad, 1);
+  assert.deepEqual(c.room_join.app, { 'tap-battle': 1 });
+});

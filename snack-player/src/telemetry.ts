@@ -4,8 +4,8 @@
 //   made by the host engine); the server keeps only its hash, for 6 h (docs/telemetry.md §9).
 // - Off in dev, with VITE_TELEMETRY=off, or when Do Not Track / Global Privacy Control is set.
 // - Batches every 5 s / 20 events / when the page is hidden; sendBeacon, fetch keepalive fallback.
-// Not wired into the app yet; callers use track()/installErrorBeacon() and the
-// free-beta helpers at the end of this file.
+// Wired: main.tsx (installErrorBeacon) and LiveApp via roomJoin.ts (trackJoin). The other
+// free-beta helpers at the end of this file are not called from the app yet.
 // Erasable TypeScript only (Node can run this file directly for tests).
 
 export type Route = 'home' | 'app' | 'room' | 'create' | 'other';
@@ -13,7 +13,9 @@ export type ShareMethod = 'web' | 'kakao' | 'copy' | 'save' | 'other';
 // Free-beta metrics (docs/telemetry.md §9). Defined, not yet called from the app.
 export type ShareWhat = 'invite' | 'result' | 'app' | 'other';
 export type RoomKind = 'public' | 'friend';
-export type JoinFailReason = 'bad_link' | 'not_found' | 'network' | 'timeout' | 'unreachable' | 'disconnected' | 'refused' | 'other';
+export type JoinFailReason =
+  | 'bad_link' | 'not_found' | 'network' | 'timeout' | 'unreachable' | 'disconnected' | 'refused'
+  | 'subscribe' | 'silence' | 'other';
 export type GameSource = 'editor' | 'remake';
 export type AskAnswer = 'yes' | 'no' | 'skip';
 export type AskReason = 'boring' | 'hard' | 'laggy' | 'few' | 'other';
@@ -225,8 +227,10 @@ export function appOf(slugOrRoomId: string): string {
 /** Map a room transport's failure reason (roomTransport / mqttBus) to the reported set. */
 export function joinFailReason(raw: string | undefined): JoinFailReason {
   if (!raw) return 'other';
-  if (raw === 'timeout' || raw === 'unreachable' || raw === 'disconnected') return raw;
-  if (raw === 'broker' || raw === 'subscribe') return 'unreachable';
+  // subscribe: connected to the broker but the room topic subscription failed (mqttBus);
+  // silence: LiveApp heard nothing from the room for 15 s.
+  if (raw === 'timeout' || raw === 'unreachable' || raw === 'disconnected' || raw === 'subscribe' || raw === 'silence') return raw;
+  if (raw === 'broker') return 'unreachable';
   if (raw === 'load') return 'network';
   if (raw.startsWith('refused')) return 'refused';
   return 'other';

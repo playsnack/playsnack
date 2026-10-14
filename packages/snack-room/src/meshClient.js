@@ -501,7 +501,12 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     if (host() !== myId) onRole(false);
     beat();
   };
+  // Nothing goes out before the bus is subscribed: a beat queued while offline would be
+  // flushed at CONNACK right ahead of the SUBSCRIBE — we could not hear any answer yet,
+  // and that back-to-back PUBLISH+SUBSCRIBE is what broke the local test broker.
+  let subscribed = false;
   Promise.resolve(bus.ready).then(() => {
+    subscribed = true;
     if (closed || ready) return;
     beat();
     discovery = setTimeout(finishDiscovery, discoveryMs);
@@ -511,6 +516,7 @@ export function connectMesh({ createBus, me, onMessage, getPack, onRole = () => 
     setStatus("failed", s.reason || "broker");
   });
   const tick = setInterval(() => {
+    if (!subscribed) return;
     if (ready && !line.length) {
       // Still no host (the founder we waited for never announced): found it ourselves.
       const founders = [myId, ...alive()].sort();

@@ -257,6 +257,28 @@ test("MP-02: a queued action older than 5 s is dropped, not replayed", async () 
   }
 });
 
+test("nothing is published before the bus is subscribed (a slow broker connection)", async () => {
+  const published = [];
+  let subscribe;
+  const conn = connectMesh({
+    createBus: () => ({
+      ready: new Promise((r) => (subscribe = r)),
+      publish: (m) => published.push(m),
+      onMessage: () => {},
+      close: () => {},
+    }),
+    me: { slug: "slow", anonId: "a1", nick: "닉1" },
+    timing: FAST,
+    onMessage: () => {},
+  });
+  await sleep(FAST.beatMs * 4); // several beats' worth of time, still connecting
+  assert.deepEqual(published, []);
+  subscribe();
+  await sleep(FAST.beatMs * 2);
+  assert.ok(published.some((m) => m.t === "here"), "beats start once subscribed");
+  conn.close();
+});
+
 test("a host's heartbeat ends discovery early", async () => {
   const h = hub();
   const slow = { ...FAST, discoveryMs: 1500 };

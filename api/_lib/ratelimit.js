@@ -4,7 +4,7 @@
 //     The address is only hashed in memory; it is never stored, logged or sent anywhere.
 //     The salt is regenerated (and all buckets dropped) when the KST day changes.
 //  2. Per-instance cap on requests per minute.
-//  3. Daily event cap (EV_DAILY_CAP, default 5000), checked against the running
+//  3. Daily event cap (EV_DAILY_CAP, default 1500), checked against the running
 //     total that every store write returns.
 import { createHash, randomBytes } from 'node:crypto';
 import { kstDay } from './day.js';
@@ -13,7 +13,7 @@ export const DEFAULTS = {
   bucketSize: 20, // burst of requests per client
   refillPerSec: 0.5, // 30 requests/minute sustained per client
   minuteCap: 600, // requests per instance per minute
-  dailyCap: 5000, // events per KST day (all instances) — sized for the Upstash free tier (docs/telemetry.md §8)
+  dailyCap: 1500, // events per KST day (all instances) — keeps Upstash Free in reach; the hard stop is the monthly budget (docs/telemetry.md §5a)
   maxClients: 10000, // bucket map size bound
 };
 

@@ -6,6 +6,11 @@ export function kstDay(now = Date.now()) {
   return new Date(now + KST_OFFSET_MS).toISOString().slice(0, 10);
 }
 
+/** 'YYYY-MM' of the KST month containing `now` (the Upstash command budget period). */
+export function kstMonth(now = Date.now()) {
+  return kstDay(now).slice(0, 7);
+}
+
 /** True for a real calendar date written as YYYY-MM-DD. */
 export function isDay(s) {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;

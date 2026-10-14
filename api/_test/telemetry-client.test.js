@@ -218,7 +218,7 @@ test('free-beta helpers: typed events, room code / sid kept off the wire for ask
 test('joinFailReason maps transport reasons onto the reported set', async () => {
   const t = await fresh();
   const cases = { timeout: 'timeout', unreachable: 'unreachable', disconnected: 'disconnected', broker: 'unreachable',
-    subscribe: 'unreachable', load: 'network', 'refused: Not authorized': 'refused', whatever: 'other', '': 'other' };
+    subscribe: 'subscribe', silence: 'silence', load: 'network', 'refused: Not authorized': 'refused', whatever: 'other', '': 'other' };
   for (const [raw, want] of Object.entries(cases)) assert.equal(t.joinFailReason(raw), want, raw);
   assert.equal(t.joinFailReason(undefined), 'other');
   assert.equal(t.appOf('quiz-ox~ABCDEFGH'), 'quiz-ox');
