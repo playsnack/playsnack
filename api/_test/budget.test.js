@@ -1,4 +1,4 @@
-// Free-plan guard: the monthly Upstash command budget kept in KV (ev:budget:<KST month>).
+// Free-plan guard: the monthly Upstash command budget kept in KV (stats:budget:<KST month>).
 // node --test api/_test/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -64,10 +64,10 @@ test('every KV request counts its own commands exactly (INCRBY and EXPIRE includ
   const t = Date.parse('2026-10-13T03:00:00Z'); // KST 2026-10-13
   const up = fakeUpstash();
   const h = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
-  const B = 'ev:budget:2026-10';
+  const B = 'stats:budget:2026-10';
   const check = (label) => assert.equal(up.db.get(B), up.sent(), `${label}: counter ${up.db.get(B)} vs sent ${up.sent()}`);
 
-  // 1st POST: INCRBY + EXPIRE(budget) + HINCRBY _total + HINCRBY result|n + EXPIRE(day) = 5.
+  // 1st POST: INCRBY + EXPIRE(budget) + HINCRBY events_total + HINCRBY results_shown + EXPIRE(day) = 5.
   assert.equal((await h(post([{ k: 'result' }]))).status, 200);
   assert.equal(up.calls.length, 1);
   assert.deepEqual(up.calls[0][0], ['INCRBY', B, 5]);
@@ -81,7 +81,7 @@ test('every KV request counts its own commands exactly (INCRBY and EXPIRE includ
   check('second post');
   // An error event adds its sample + the err key's one-time EXPIRE.
   await h(post([{ k: 'err', msg: 'TypeError: x', where: 'window.error' }]));
-  assert.equal(up.calls[2].length, 6); // INCRBY, _total, err|n, err|where, sample, EXPIRE err key
+  assert.equal(up.calls[2].length, 6); // INCRBY, events_total, errors_total, errors_by_where, message, EXPIRE errors key
   check('err post');
   // A batch with nothing valid never talks to KV.
   assert.equal((await h(post([{ k: 'nope' }]))).status, 200);
@@ -122,7 +122,7 @@ test('stops at the cap: POST -> 204 and GET -> budget_reached, with no further K
   for (let i = 0; i < 6; i++) statuses.push((await h(post(ev))).status);
   // 7 -> 12 -> 17 -> 22 (>= 20: reached) -> 204, 204
   assert.deepEqual(statuses, [200, 200, 200, 200, 204, 204]);
-  assert.equal(up.db.get('ev:budget:2026-10'), 22);
+  assert.equal(up.db.get('stats:budget:2026-10'), 22);
   const callsAtCap = up.calls.length;
   assert.equal(callsAtCap, 4);
 
@@ -165,7 +165,7 @@ test('GET past the budget serves the cached aggregate (stale) without KV', async
 
 test('another instance already spent the budget: one pipeline to learn it, then silence', async () => {
   const t = Date.parse('2026-10-13T03:00:00Z');
-  const up = fakeUpstash({ 'ev:budget:2026-10': DEFAULT_MONTHLY_BUDGET });
+  const up = fakeUpstash({ 'stats:budget:2026-10': DEFAULT_MONTHLY_BUDGET });
   const h = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
   assert.equal((await h(post([{ k: 'result' }]))).status, 200); // a cold instance cannot know before its first reply
   assert.equal((await h(post([{ k: 'result' }]))).status, 204);
@@ -181,10 +181,10 @@ test('month rollover is by KST: a new month starts a new counter and writing res
   assert.equal((await h(post([{ k: 'result' }]))).status, 204);
   t = Date.parse('2026-10-31T15:00:00Z'); // KST 2026-11-01 00:00 (still October in UTC)
   assert.equal((await h(post([{ k: 'result' }]))).status, 200);
-  assert.equal(up.db.get('ev:budget:2026-10'), 5);
-  assert.equal(up.db.get('ev:budget:2026-11'), 5); // new key, its own EXPIRE again
-  assert.equal(up.ttl.get('ev:budget:2026-11'), BUDGET_TTL_SECONDS);
-  assert.ok(up.db.has('ev:2026-11-01'));
+  assert.equal(up.db.get('stats:budget:2026-10'), 5);
+  assert.equal(up.db.get('stats:budget:2026-11'), 5); // new key, its own EXPIRE again
+  assert.equal(up.ttl.get('stats:budget:2026-11'), BUDGET_TTL_SECONDS);
+  assert.ok(up.db.has('stats:daily:2026-11-01'));
   assert.equal((await h(post([{ k: 'result' }]))).status, 204); // November's budget (5) is now spent too
 });
 
@@ -213,7 +213,7 @@ test('a failed apply releases its claims through a metered pipeline too', async 
   assert.deepEqual(kinds[2], 'INCRBY,DEL');
   failApply = false;
   // The failed pipeline's INCRBY never reached the fake, so the counter covers claim + release only.
-  assert.equal(up.db.get('ev:budget:2026-10'), up.calls[0].length + up.calls[2].length);
+  assert.equal(up.db.get('stats:budget:2026-10'), up.calls[0].length + up.calls[2].length);
 });
 
 test('accepted error events are logged as one sanitized line each (Vercel Logs), nothing else', async () => {
@@ -234,4 +234,27 @@ test('accepted error events are logged as one sanitized line each (Vercel Logs),
     '[ev] err where=window.error build=g1a2b3c4: TypeError: cannot read <str> of undefined at <url>',
     '[ev] err where=other build=-: boom',
   ]);
+});
+
+test('worst-case counts (docs/telemetry.md §5a): 20 different games in one POST ≤ 86, a /stats page view ≤ 25', async () => {
+  const t = Date.parse('2026-10-14T03:00:00Z'); // KST Wed 2026-10-14 (2026-W42)
+  const up = fakeUpstash();
+  const h = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
+  const { appIds } = await import('../_lib/apps.js');
+  const apps = [...appIds()].slice(0, 20);
+  // Every game a different app, player count and answerer count: the most distinct fields one batch can make.
+  const games = apps.map((app, i) => ({ k: 'session_done', app, p: 3 + i, sid: `sid${String(i).padStart(17, '0')}`, about: i % 2 === 0, ans: 1 + (i % 9) }));
+  assert.equal((await h(post(games))).status, 200);
+  const [claim, apply] = up.calls.map((c) => c.length);
+  assert.ok(claim <= 22, `claim ${claim}`); // INCRBY + EXPIRE(budget) + SET × 20
+  assert.ok(apply <= 64, `apply ${apply}`); // INCRBY + events_total + HINCRBY ≤ 60 + EXPIRE day
+  assert.ok(claim + apply <= 86, `post ${claim + apply}`);
+  // The /stats page: ?week= this week + last week, ?day= today (cold instance, nothing cached).
+  const h2 = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
+  const before = up.sent();
+  for (const q of ['?week=2026-W42', '?week=2026-W41', '?day=2026-10-14']) assert.equal((await h2(get(q))).status, 200);
+  const view = up.sent() - before;
+  assert.ok(view <= 25, `page view ${view}`);
+  assert.equal(view, up.calls.slice(2).reduce((n, c) => n + c.length, 0), 'counter = commands sent');
+  assert.equal(up.db.get('stats:budget:2026-10'), up.sent());
 });

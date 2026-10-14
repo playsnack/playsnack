@@ -1,11 +1,12 @@
 // /api/ev — anonymous product telemetry (Vercel function, Web-standard handler).
 //   POST {v:1, events:[{k,...}]}  -> counts whitelisted events into per-KST-day aggregates
 //   GET  ?day=YYYY-MM-DD          -> read-only aggregates (cached 30 s; today-90 … today+1 only)
-//   GET  ?week=YYYY-Www           -> the same, summed over an ISO week's readable days (KST)
+//   GET  ?week=YYYY-Www           -> the same, summed over an ISO week's readable days (KST),
+//                                    plus each day's own numbers (byDay) for the /stats page
 // Never stores IP, user agent, nickname, cookies, device or browser-session ids; a random
 // per-game id (`sid` / `gid`) is sent and kept only as a 6 h de-dup hash. A request with
 // a privacy signal (Sec-GPC: 1 or DNT: 1) is not counted. See docs/telemetry.md.
-// Free-plan guard: every KV pipeline is metered into ev:budget:<KST month> (store.js); once
+// Free-plan guard: every KV pipeline is metered into stats:budget:<KST month> (store.js); once
 // the month's count reaches EV_MONTHLY_BUDGET (default 400000 = 80% of Upstash Free's 500K
 // commands/month) this instance sends no more KV commands that month (docs/telemetry.md §5a).
 import { kstDay, kstMonth, isDay, daysAgo, isoWeek, weekDays } from './_lib/day.js';
@@ -63,20 +64,13 @@ async function readLimited(request, limit) {
   return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
 }
 
-/** "a|b|c" -> {a:{b:{c:n}}}; the running total field is reported separately. */
-function nest(counts) {
-  const out = {};
-  for (const [field, n] of Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : 1))) {
-    if (field === TOTAL_FIELD) continue;
-    const parts = field.split('|');
-    let node = out;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (typeof node[parts[i]] !== 'object') node[parts[i]] = {};
-      node = node[parts[i]];
-    }
-    node[parts[parts.length - 1]] = n;
-  }
-  return out;
+/** Stored counters as they are named in Upstash, sorted; the running total is reported separately. */
+function flat(counts) {
+  return Object.fromEntries(
+    Object.entries(counts)
+      .filter(([field]) => field !== TOTAL_FIELD)
+      .sort(([a], [b]) => (a < b ? -1 : 1)),
+  );
 }
 
 /**
@@ -214,8 +208,8 @@ export function createHandler(opts = {}) {
         appsKnown: appIds().size,
         total: counts[TOTAL_FIELD] || 0,
         summary: summarize(counts),
-        counters: nest(counts),
-        cumulative: nest(all),
+        counters: flat(counts),
+        cumulative: flat(all),
         errors: { distinct: Object.keys(errs).length, top },
         budget: { month, used: store.budgetUsed(month), limit },
       };
@@ -226,6 +220,7 @@ export function createHandler(opts = {}) {
 
   // A week = its days inside the readable window only (so ≤ 15 weeks are accepted and
   // each read is one request of ≤ 8 HGETALLs); error samples stay per day (?day=).
+  // byDay = each of those days' own summary, from the same HGETALLs.
   async function getWeek(q, store, t, month, limit) {
     const week = q === '' ? isoWeek(kstDay(t)) : q;
     const all7 = weekDays(week);
@@ -249,8 +244,10 @@ export function createHandler(opts = {}) {
         appsKnown: appIds().size,
         total: sum[TOTAL_FIELD] || 0,
         summary: summarize(sum),
-        counters: nest(sum),
-        cumulative: nest(read.all),
+        counters: flat(sum),
+        // Each readable day of the week on its own (same read, no extra command).
+        byDay: days.map((d, i) => ({ day: d, total: read.days[i][TOTAL_FIELD] || 0, summary: summarize(read.days[i]) })),
+        cumulative: flat(read.all),
         budget: { month, used: store.budgetUsed(month), limit },
       };
       remember(cacheKey, t, body);

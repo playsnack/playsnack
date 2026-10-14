@@ -55,34 +55,66 @@ test('each new kind is accepted and aggregated (day counters, summary, all-time)
   assert.equal(gs, 200);
   assert.equal(a.day, '2026-10-13');
   const c = a.counters;
-  assert.equal(c.session_done.n, 2);
-  assert.deepEqual(c.session_done.p, { 2: 1, '4-5': 1 });
-  assert.equal(c.session_done.p3, 1);
-  assert.deepEqual(c.session_done.app3, { 'speed-trivia-score': 1 });
-  assert.deepEqual(c.session_done.app, { 'quiz-ox': 1, 'speed-trivia-score': 1 });
-  assert.deepEqual(c.session_done.about, { true: 1, false: 1 });
-  assert.deepEqual(c.session_done.ans, { 1: 1, 3: 1 });
-  assert.equal(c.rematch.n, 1);
-  assert.deepEqual(c.room_create, { n: 1, app: { 'tap-battle': 1 } });
-  assert.deepEqual(c.game_created, { n: 2, source: { editor: 1, remake: 1 }, app: { 'speed-trivia-score': 2 } });
-  assert.equal(c.room_join.ok, 1);
-  assert.equal(c.room_join.fail, 2);
-  assert.deepEqual(c.room_join.reason, { timeout: 1, bad_link: 1 });
-  assert.deepEqual(c.room_join.room, { friend: { ok: 1 }, public: { fail: 1 } });
-  assert.deepEqual(c.share.what, { invite: 1 });
-  assert.deepEqual(c.ask_shown, { n: 1, app: { 'tap-battle': 1 } });
-  assert.deepEqual(c.ask_answer.a, { yes: 1, no: 1, skip: 1 });
-  assert.deepEqual(c.ask_answer.why, { laggy: 1 });
-  assert.deepEqual(c.ask_answer.app, { 'tap-battle': { yes: 1, no: 1 }, custom: { skip: 1 } });
+  // The whole day, exactly as stored (readable names, docs/telemetry.md §3).
+  assert.deepEqual(c, {
+    answered_again: 3,
+    answered_again_no: 1,
+    'answered_again_no_by_app:tap-battle': 1,
+    'answered_again_no_reason:laggy': 1,
+    answered_again_skip: 1,
+    'answered_again_skip_by_app:custom': 1,
+    answered_again_yes: 1,
+    'answered_again_yes_by_app:tap-battle': 1,
+    asked_again: 1,
+    'asked_again_by_app:tap-battle': 1,
+    games_finished: 2,
+    games_finished_3plus: 1,
+    'games_finished_3plus_by_app:speed-trivia-score': 1,
+    'games_finished_by_answerers:1': 1,
+    'games_finished_by_answerers:3': 1,
+    'games_finished_by_app:quiz-ox': 1,
+    'games_finished_by_app:speed-trivia-score': 1,
+    'games_finished_by_players:2': 1,
+    'games_finished_by_players:4-5': 1,
+    'games_finished_quiz_kind:about_someone': 1,
+    'games_finished_quiz_kind:default_quiz': 1,
+    join_attempts: 3,
+    'join_attempts_by_app:tap-battle': 1,
+    'join_failed_reason:bad_link': 1,
+    'join_failed_reason:timeout': 1,
+    'join_ms_bucket:0-1s': 1,
+    joins_failed: 2,
+    'joins_failed_by_room:public': 1,
+    joins_ok: 1,
+    'joins_ok_by_room:friend': 1,
+    quizzes_created: 2,
+    'quizzes_created_by_app:speed-trivia-score': 2,
+    quizzes_created_editor: 1,
+    quizzes_created_remake: 1,
+    rematches: 1,
+    'rematches_by_app:tap-battle': 1,
+    'rematches_by_players:4-5': 1,
+    rooms_created: 1,
+    'rooms_created_by_app:tap-battle': 1,
+    shares: 2,
+    'shares:invite': 1,
+    'shares_by_app:tap-battle': 1,
+    'shares_by_method:copy': 1,
+    'shares_by_method:web': 1,
+  });
   assert.deepEqual(a.summary, {
     sessionsDone: 2, sessionsDone3: 1, sessionsDup: 0, sessionsAbout: 1, rematch: 1, roomsCreated: 1,
-    gamesCreated: 2, gamesRemade: 1, joinOk: 1, joinFail: 2, share: 2, askShown: 1, askYes: 1, askNo: 1, askSkip: 1,
+    gamesCreated: 2, gamesEditor: 1, gamesRemade: 1, joinOk: 1, joinFail: 2,
+    joinFailReasons: { bad_link: 1, timeout: 1 },
+    joinMs: { '0-1s': 1, '1-2s': 0, '2-3s': 0, '3-5s': 0, '5-10s': 0, '10s+': 0 },
+    share: 2, shareWhat: { invite: 1 },
+    askShown: 1, askYes: 1, askNo: 1, askSkip: 1, askNoReasons: { laggy: 1 }, errors: 0,
     bad: {},
   });
   assert.equal(a.wired, true, 'the app sends these (docs/telemetry.md §9.5)');
   assert.deepEqual(a.cumulative, {
-    session_done: { n: 2, p3: 1 }, rematch: { n: 1 }, room_create: { n: 1 },
-    game_created: { n: 2, source: { editor: 1, remake: 1 } },
+    games_finished: 2, games_finished_3plus: 1, quizzes_created: 2, quizzes_created_editor: 1, quizzes_created_remake: 1,
+    rematches: 1, rooms_created: 1,
   });
 });
 
@@ -123,8 +155,8 @@ test('strict validation: unknown fields and bad values drop the event', async ()
     assert.deepEqual(b, { ok: true, accepted: 0, dropped: part.length });
   }
   // Only the per-kind `bad` counters (and the cap total) are written — never a value from the events.
-  const day = memoryStore.data.get('ev:2026-10-13');
-  for (const f of day.keys()) assert.ok(f === '_total' || f.endsWith('|bad'), f);
+  const day = memoryStore.data.get('stats:daily:2026-10-13');
+  for (const f of day.keys()) assert.ok(f === 'events_total' || f.startsWith('rejected_events:'), f);
   assert.equal(memoryStore.once.size, 0, 'no de-dup id claimed');
   const a = await (await h(get())).json();
   assert.deepEqual(a.summary.bad, {
@@ -152,12 +184,14 @@ test('a game is counted once per sid: two hosts across a hand-over, resends, sam
   assert.equal(a.summary.sessionsDone, 1);
   assert.equal(a.summary.sessionsDone3, 1);
   assert.equal(a.summary.sessionsDup, 3);
-  assert.deepEqual(a.counters.session_done.p, { 3: 1 }, 'the first report wins');
+  assert.equal(a.counters['games_finished_by_players:3'], 1, 'the first report wins');
+  assert.equal(a.counters['games_finished_by_players:4-5'], undefined);
   assert.equal(a.summary.rematch, 1);
-  assert.equal(a.cumulative.session_done.n, 1);
+  assert.equal(a.cumulative.games_finished, 1);
   assert.equal(a.summary.gamesCreated, 1);
   assert.equal(a.summary.gamesRemade, 1);
-  assert.equal(a.counters.game_created.dup, 1);
+  assert.equal(a.counters.quizzes_created_duplicates, 1);
+  assert.equal(a.counters.games_finished_duplicates, 3);
   assert.equal(a.total, 7, 'duplicates still count toward the daily event cap');
   assert.equal(memoryStore.once.size, 3);
   // The de-dup claim lapses after ONCE_TTL_SECONDS (a later report then counts again — documented limit).
@@ -182,27 +216,28 @@ test('bounded keys: arbitrary app strings, sids and counts never widen the field
     });
     assert.equal((await h(post(events))).status, 200);
   }
-  const fields = [...memoryStore.data.get('ev:2026-10-13').keys()];
+  const fields = [...memoryStore.data.get('stats:daily:2026-10-13').keys()];
   const appOk = (v) => known.has(v) || v === 'other' || v === 'custom';
   for (const f of fields) {
     assert.doesNotMatch(f, /ROOMCODE|evil|sid0|gid0/, f);
-    const p = f.split('|');
-    if (p[1] === 'app' || p[1] === 'app3') assert.ok(appOk(p[2]), f);
-    if (p[1] === 'p') assert.ok(['1', '2', '3', '4-5', '6-8', '9+'].includes(p[2]), f);
+    assert.match(f, /^[a-z0-9_]+(:[a-z0-9-]+|:[0-9+-]+)?$/, `readable lowercase name: ${f}`);
+    const [name, value] = f.split(':');
+    if (name.endsWith('_by_app')) assert.ok(appOk(value), f);
+    if (name.endsWith('_by_players')) assert.ok(['1', '2', '3', '4-5', '6-8', '9+'].includes(value), f);
   }
   // 200 events with ~200 distinct app strings and ids land in a fixed set of fields.
   // game_created is n % 4 === 3, always an odd n, so its source is always "remake".
   // 4 app values (quiz-ox, tap-battle, custom, other) → session_done 1+6+1+4+4,
   // room_create 1+4, ask_answer 1+3+4×3, game_created 1+1+4.
   assert.equal(fields.length, 43, fields.join(' '));
-  assert.deepEqual([...memoryStore.data.get('ev:all').keys()].sort(), [
-    'game_created|n', 'game_created|source|remake', 'room_create|n', 'session_done|n', 'session_done|p3',
+  assert.deepEqual([...memoryStore.data.get('stats:all_time').keys()].sort(), [
+    'games_finished', 'games_finished_3plus', 'quizzes_created', 'quizzes_created_remake', 'rooms_created',
   ]);
   assert.equal(playerBucket(1), '1');
   assert.equal(playerBucket(5), '4-5');
   assert.equal(playerBucket(8), '6-8');
   assert.equal(playerBucket(9), '9+');
-  assert.equal(normalizeEvent({ k: 'room_create', app: 'quiz-ox~ABC' }).fields[1], 'room_create|app|quiz-ox');
+  assert.equal(normalizeEvent({ k: 'room_create', app: 'quiz-ox~ABC' }).fields[1], 'rooms_created_by_app:quiz-ox');
 });
 
 test('GET ?week= sums the ISO week (KST) and stays bounded', async () => {
@@ -223,8 +258,13 @@ test('GET ?week= sums the ISO week (KST) and stays bounded', async () => {
   assert.equal(w.summary.sessionsDone3, 2);
   assert.equal(w.summary.roomsCreated, 1);
   assert.equal(w.total, 4);
-  assert.deepEqual(w.counters.session_done.app3, { 'quiz-ox': 2 });
-  assert.deepEqual(w.cumulative.session_done, { n: 4, p3: 3 });
+  assert.equal(w.counters['games_finished_3plus_by_app:quiz-ox'], 2);
+  assert.equal(w.cumulative.games_finished, 4);
+  assert.equal(w.cumulative.games_finished_3plus, 3);
+  // byDay: each day of the week on its own, from the same read.
+  assert.deepEqual(w.byDay.map((d) => d.day), weekDays('2026-W42'));
+  assert.deepEqual(w.byDay.map((d) => d.summary.sessionsDone), [1, 0, 2, 0, 0, 0, 0]);
+  assert.deepEqual(w.byDay.map((d) => d.total), [2, 0, 2, 0, 0, 0, 0]);
   // Default = this week; bad / unreal / out-of-retention weeks are 400.
   assert.equal((await (await h(get('?week='))).json()).week, isoWeek('2026-10-19'));
   const err = async (q) => {
@@ -273,16 +313,16 @@ test('KV: de-dup uses SET NX EX on a hashed key; the all-time hash never expires
   const sets = cmds.filter((c) => c[0] === 'SET');
   assert.equal(sets.length, 2);
   for (const c of sets) {
-    assert.match(c[1], /^ev:once:[0-9a-f]{32}$/);
+    assert.match(c[1], /^stats:dedupe:[0-9a-f]{32}$/);
     assert.deepEqual(c.slice(2), ['1', 'NX', 'EX', ONCE_TTL_SECONDS]);
   }
   assert.ok(!JSON.stringify(cmds).includes(SID_A), 'raw sid never sent to the KV');
-  assert.ok(!cmds.some((c) => c[0] === 'EXPIRE' && c[1] === 'ev:all'));
+  assert.ok(!cmds.some((c) => c[0] === 'EXPIRE' && c[1] === 'stats:all_time'));
   const a = await (await h(get())).json();
   assert.equal(a.store, 'kv');
   assert.equal(a.summary.sessionsDone, 1);
   assert.equal(a.summary.sessionsDup, 1);
-  assert.deepEqual(a.cumulative.session_done, { n: 1, p3: 1 });
+  assert.deepEqual(a.cumulative, { games_finished: 1, games_finished_3plus: 1 });
   const w = await (await h(get('?week=2026-W42'))).json();
   assert.equal(w.summary.sessionsDone, 1);
 });
@@ -298,8 +338,9 @@ test('p = players who took part: the 3+ headline needs p >= 3 and, for a quiz, a
   const a = await (await h(get())).json();
   assert.equal(a.summary.sessionsDone, 4);
   assert.equal(a.summary.sessionsDone3, 2);
-  assert.deepEqual(a.counters.session_done.ans, { 0: 1, 1: 1, 2: 1 });
-  assert.deepEqual(a.cumulative.session_done, { n: 4, p3: 2 });
+  const ans = Object.keys(a.counters).filter((f) => f.startsWith('games_finished_by_answerers:'));
+  assert.deepEqual(ans, ['games_finished_by_answerers:0', 'games_finished_by_answerers:1', 'games_finished_by_answerers:2']);
+  assert.deepEqual(a.cumulative, { games_finished: 4, games_finished_3plus: 2 });
 });
 
 test('null optional fields are treated as absent', async () => {
@@ -314,7 +355,7 @@ test('null optional fields are treated as absent', async () => {
   assert.deepEqual(b, { ok: true, accepted: 4, dropped: 1 });
   const a = await (await h(get())).json();
   assert.equal(a.summary.sessionsDone3, 1);
-  assert.equal(a.counters.session_done.about, undefined);
+  assert.ok(!Object.keys(a.counters).some((f) => f.startsWith('games_finished_quiz_kind:')));
   assert.deepEqual(a.summary.bad, { game_created: 1 });
 });
 
@@ -419,7 +460,7 @@ test('apply fails after the claim: claims are released, so the next report of th
   }
   assert.equal(r.status, 503);
   assert.ok(cmds.includes('DEL'), 'the claim was released');
-  assert.equal([...db.keys()].filter((k) => k.startsWith('ev:once:')).length, 0);
+  assert.equal([...db.keys()].filter((k) => k.startsWith('stats:dedupe:')).length, 0);
   failApply = false;
   assert.equal((await h(post([done]))).status, 200); // e.g. the other host's report
   const a = await (await h(get())).json();

@@ -114,14 +114,15 @@ test('fake IP/UA/nickname/cookie/device id never reach the fake Upstash, limiter
   // Everything stored.
   const stored = JSON.stringify([...up.db].map(([k, h]) => [k, typeof h === 'number' ? h : [...h]]));
   assertClean('kv storage', stored);
-  for (const k of up.db.keys()) assert.match(k, /^ev:(\d{4}-\d{2}-\d{2}(:err)?|all|once:[0-9a-f]{32}|budget:\d{4}-\d{2})$/);
+  for (const k of up.db.keys()) assert.match(k, /^stats:(daily:\d{4}-\d{2}-\d{2}|errors:\d{4}-\d{2}-\d{2}|all_time|dedupe:[0-9a-f]{32}|budget:\d{4}-\d{2})$/);
   // Off-list app ids collapse to "other"; nicknames in errors are gone.
   const body = await agg.json();
-  assert.deepEqual(body.counters.open.app, { other: 1 });
-  assert.deepEqual(body.counters.share.app, { other: 1 });
-  assert.deepEqual(body.counters.err.where, { other: 1, room: 1 });
+  const byPrefix = (p) => Object.fromEntries(Object.entries(body.counters).filter(([f]) => f.startsWith(p)).map(([f, n]) => [f.slice(p.length), n]));
+  assert.deepEqual(byPrefix('page_opens_by_app:'), { other: 1 });
+  assert.deepEqual(byPrefix('shares_by_app:'), { other: 1 });
+  assert.deepEqual(byPrefix('errors_by_where:'), { other: 1, room: 1 });
   // The room code is cut off the app id; the game counted once, by app.
-  assert.deepEqual(body.counters.session_done.app, { 'quiz-ox': 1 });
+  assert.deepEqual(byPrefix('games_finished_by_app:'), { 'quiz-ox': 1 });
   for (const e of body.errors.top) assert.doesNotMatch(e.msg, /[^\x00-\x7f]/);
   assertClean('GET response', JSON.stringify(body));
 
@@ -146,8 +147,8 @@ test('memory fallback stores nothing identifying either', async () => {
   const once = [...memoryStore.once.keys()];
   assert.equal(once.length, 1);
   assertClean('memory de-dup keys', once.join(','));
-  assert.match(once[0], /^ev:once:[0-9a-f]{32}$/);
-  assert.match(dump, /room_join\|ok/);
+  assert.match(once[0], /^stats:dedupe:[0-9a-f]{32}$/);
+  assert.match(dump, /joins_ok/);
 });
 
 test('limiter salt rotates with the KST day', () => {

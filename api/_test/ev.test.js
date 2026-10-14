@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandler, handler as realHandler } from '../ev.js';
 import defaultExport from '../ev.js';
-import { sanitizeErr, msBucket } from '../_lib/schema.js';
+import { sanitizeErr, timeBucket } from '../_lib/schema.js';
 import { kstDay, isDay, daysAgo } from '../_lib/day.js';
 import { createLimiter } from '../_lib/ratelimit.js';
 
@@ -57,20 +57,34 @@ test('valid batch is counted, invalid events dropped, unknown fields ignored', a
   assert.equal(a.day, kstDay());
   assert.equal(a.total, 12, '8 accepted + 4 known-kind events dropped by validation');
   assert.equal(a.appsKnown, 44);
-  const c = a.counters;
-  assert.equal(c.open.n, 2);
-  assert.deepEqual(c.open.route, { app: 1, home: 1 });
-  assert.deepEqual(c.open.app, { 'quiz-ox': 1 });
-  assert.equal(c.first_tap.n, 1);
-  assert.deepEqual(c.first_tap_ms, { le1000: 1 });
-  assert.deepEqual(c.result.app, { other: 1 });
-  assert.deepEqual(c.share.method, { kakao: 1 });
-  assert.equal(c.room_join.ok, 1);
-  assert.equal(c.room_join.fail, 1);
-  assert.deepEqual(c.room_join_ms, { ok: { le2000: 1 } });
-  assert.deepEqual(c.err.where, { BitePlayer: 1 });
+  // Stored as readable names (docs/telemetry.md §3), returned flat and sorted.
+  assert.deepEqual(a.counters, {
+    'errors_by_build:a1b2c3d': 1,
+    'errors_by_where:BitePlayer': 1,
+    errors_total: 1,
+    'first_tap_ms_bucket:0-1s': 1,
+    first_taps: 1,
+    'first_taps_by_app:quiz-ox': 1,
+    join_attempts: 2,
+    'join_ms_bucket:1-2s': 1,
+    joins_failed: 1,
+    joins_ok: 1,
+    page_opens: 2,
+    'page_opens_by_app:quiz-ox': 1,
+    'page_opens_by_route:app': 1,
+    'page_opens_by_route:home': 1,
+    'rejected_events:first_tap': 1,
+    'rejected_events:open': 1,
+    'rejected_events:room_join': 1,
+    'rejected_events:share': 1,
+    results_shown: 1,
+    'results_shown_by_app:other': 1,
+    shares: 1,
+    'shares_by_app:worldcup-food': 1,
+    'shares_by_method:kakao': 1,
+  });
+  assert.deepEqual(Object.keys(a.counters), Object.keys(a.counters).sort());
   assert.deepEqual(a.errors.top, [{ msg: 'TypeError: x is undefined', count: 1 }]);
-  assert.equal(c.telemetry_of_doom, undefined);
   // Known kinds that failed validation are visible (unknown kinds and non-objects are not).
   assert.deepEqual(a.summary.bad, { first_tap: 1, open: 1, room_join: 1, share: 1 });
 });
@@ -135,7 +149,7 @@ test('missing env -> in-memory fallback through the real exported handler', asyn
   assert.equal(after.headers.get('x-ev-store'), 'memory');
   const a = await after.json();
   assert.equal(a.store, 'memory');
-  assert.ok(a.counters.open.route.create >= 1);
+  assert.ok(a.counters['page_opens_by_route:create'] >= 1);
 });
 
 test('rate limits: per-client bucket, per-instance minute cap, daily cap', async () => {
@@ -202,10 +216,10 @@ test('helpers: sanitizer, buckets, KST day', () => {
   assert.equal(sanitizeErr('player scott123 left, user_42 too, scott stays'), 'player ? left, ? too, scott stays');
   assert.ok(sanitizeErr('a'.repeat(500)).length <= 100);
   assert.doesNotMatch(sanitizeErr('오류 발생 🎉 ok'), /[^\x00-\x7f]/);
-  assert.equal(msBucket(0), 'le100');
-  assert.equal(msBucket(2000), 'le2000');
-  assert.equal(msBucket(2001), 'le4000');
-  assert.equal(msBucket(99999), 'gt30000');
+  // Join-time buckets (upper bound inclusive): p75 <= 2 s means 75% land in 0-1s or 1-2s.
+  const b = (ms) => timeBucket(ms);
+  assert.deepEqual([0, 1000, 1001, 2000, 2001, 3000, 3001, 5000, 5001, 10000, 10001, 600000].map(b),
+    ['0-1s', '0-1s', '1-2s', '1-2s', '2-3s', '2-3s', '3-5s', '3-5s', '5-10s', '5-10s', '10s+', '10s+']);
   assert.equal(kstDay(Date.parse('2026-10-12T14:59:59Z')), '2026-10-12');
   assert.equal(kstDay(Date.parse('2026-10-12T15:00:00Z')), '2026-10-13');
   assert.ok(isDay('2024-02-29'));
@@ -225,9 +239,16 @@ test('room_join failure reasons from the live join tracker (subscribe, silence) 
       ],
     }),
   );
-  const c = (await (await h(get())).json()).counters;
-  assert.deepEqual(c.room_join.reason, { refused: 1, silence: 1, subscribe: 1 });
-  assert.equal(c.room_join.fail, 3);
-  assert.equal(c.room_join.bad, 1);
-  assert.deepEqual(c.room_join.app, { 'tap-battle': 1 });
+  const a = await (await h(get())).json();
+  const c = a.counters;
+  assert.deepEqual(a.summary.joinFailReasons, { refused: 1, silence: 1, subscribe: 1 });
+  assert.equal(c['join_failed_reason:subscribe'], 1);
+  assert.equal(c.joins_failed, 3);
+  assert.equal(c['rejected_events:room_join'], 1);
+  assert.equal(c['join_attempts_by_app:tap-battle'], 1);
+  // Failed attempts keep their own time buckets; only successful joins feed join_ms_bucket.
+  assert.deepEqual(a.summary.joinMs, { '0-1s': 0, '1-2s': 0, '2-3s': 0, '3-5s': 0, '5-10s': 0, '10s+': 0 });
+  assert.equal(c['join_failed_ms_bucket:2-3s'], 1);
+  assert.equal(c['join_failed_ms_bucket:10s+'], 1);
+  assert.equal(c['join_failed_ms_bucket:0-1s'], 1);
 });

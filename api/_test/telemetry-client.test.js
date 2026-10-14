@@ -65,10 +65,10 @@ test('round trip: tracked events arrive in the aggregates', async () => {
   assert.deepEqual(await res.json(), { ok: true, accepted: 6, dropped: 0 });
   const a = await (await h(new Request('https://playsnack.test/api/ev'))).json();
   assert.equal(a.total, 6);
-  assert.deepEqual(a.counters.open.app, { 'quiz-ox': 1 });
-  assert.deepEqual(a.counters.first_tap_ms, { le500: 1 });
-  assert.deepEqual(a.counters.room_join_ms, { ok: { le2000: 1 } });
-  assert.deepEqual(a.counters.err.build, { a1b2c3d: 1 });
+  assert.equal(a.counters['page_opens_by_app:quiz-ox'], 1);
+  assert.equal(a.counters['first_tap_ms_bucket:0-1s'], 1);
+  assert.equal(a.summary.joinMs['1-2s'], 1);
+  assert.equal(a.counters['errors_by_build:a1b2c3d'], 1);
   assert.deepEqual(a.errors.top, [{ msg: 'TypeError: <str> is not a function', count: 1 }]);
 });
 
@@ -212,7 +212,7 @@ test('free-beta helpers: typed events, room code / sid kept off the wire for ask
   assert.equal(a.summary.gamesCreated, 1);
   assert.equal(a.summary.gamesRemade, 1);
   assert.equal(a.summary.sessionsAbout, 1);
-  assert.deepEqual(a.counters.room_join.reason, { refused: 1 });
+  assert.deepEqual(a.summary.joinFailReasons, { refused: 1 });
 });
 
 test('joinFailReason maps transport reasons onto the reported set', async () => {

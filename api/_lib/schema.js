@@ -11,7 +11,9 @@ export const VERSION = 1;
 export const MAX_BODY_BYTES = 4096;
 export const MAX_EVENTS = 20;
 export const MAX_MS = 10 * 60 * 1000;
-export const MS_EDGES = [100, 250, 500, 1000, 2000, 4000, 8000, 15000, 30000];
+/** Duration histogram edges (ms, upper bound inclusive) and their stored labels; last = above the last edge. */
+export const MS_EDGES = [1000, 2000, 3000, 5000, 10000];
+export const TIME_BUCKETS = ['0-1s', '1-2s', '2-3s', '3-5s', '5-10s', '10s+'];
 
 export const ROUTES = new Set(['home', 'app', 'room', 'create', 'other']);
 export const SHARE_METHODS = new Set(['web', 'kakao', 'copy', 'save', 'other']);
@@ -65,10 +67,10 @@ export function onceId(k, sid) {
   return createHash('sha256').update(`${k}\0${sid}`).digest('hex').slice(0, 32);
 }
 
-/** Histogram bucket name for a duration, e.g. 730 -> "le1000", 99999 -> "gt30000". */
-export function msBucket(ms) {
-  for (const e of MS_EDGES) if (ms <= e) return `le${e}`;
-  return `gt${MS_EDGES[MS_EDGES.length - 1]}`;
+/** Histogram bucket for a duration: 730 -> "0-1s", 1000 -> "0-1s", 1001 -> "1-2s", 12000 -> "10s+". */
+export function timeBucket(ms) {
+  const i = MS_EDGES.findIndex((e) => ms <= e);
+  return TIME_BUCKETS[i < 0 ? MS_EDGES.length : i];
 }
 
 function validMs(v) {
@@ -108,6 +110,30 @@ export function sanitizeErr(msg) {
 }
 
 /**
+ * Readable stored names (docs/telemetry.md §3). Every kind has a total counter (`n`);
+ * `app` = its per-app counter prefix (`<prefix>:<app>`); `p` = per-player-bucket prefix;
+ * `dup` = "the same game reported twice" (host hand-over).
+ */
+export const KIND_FIELDS = {
+  open: { n: 'page_opens', app: 'page_opens_by_app' },
+  first_tap: { n: 'first_taps', app: 'first_taps_by_app' },
+  result: { n: 'results_shown', app: 'results_shown_by_app' },
+  share: { n: 'shares', app: 'shares_by_app' },
+  room_join: { n: 'join_attempts', app: 'join_attempts_by_app' },
+  err: { n: 'errors_total' },
+  session_done: { n: 'games_finished', app: 'games_finished_by_app', p: 'games_finished_by_players', dup: 'games_finished_duplicates' },
+  rematch: { n: 'rematches', app: 'rematches_by_app', p: 'rematches_by_players', dup: 'rematches_duplicates' },
+  room_create: { n: 'rooms_created', app: 'rooms_created_by_app' },
+  game_created: { n: 'quizzes_created', app: 'quizzes_created_by_app', dup: 'quizzes_created_duplicates' },
+  ask_shown: { n: 'asked_again', app: 'asked_again_by_app' },
+  ask_answer: { n: 'answered_again' },
+};
+/** A known kind whose event failed validation (value never stored): `rejected_events:<kind>`. */
+export const REJECTED_PREFIX = 'rejected_events:';
+/** Successful joins by time-to-join bucket — the p75 ≤ 2 s quality bar (docs/telemetry.md §9). */
+export const JOIN_MS_PREFIX = 'join_ms_bucket:';
+
+/**
  * Normalize one event into counter fields. Returns null when the event is dropped.
  * Shape: { kind, fields: string[], err?: string, all: string[], once?: string }
  * `all` = all-time counters; `once` = de-dup id — such an event is counted only after
@@ -118,25 +144,27 @@ export function normalizeEvent(raw) {
   // A null field is the same as an absent one (JSON clients often send null).
   const ev = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== null));
   const k = ev.k;
+  if (typeof k !== 'string' || !Object.hasOwn(KIND_FIELDS, k)) return null;
+  const F = KIND_FIELDS[k];
   const fields = [];
-  const all = []; // all-time counters (ev:all)
+  const all = []; // all-time counters (stats:all_time)
   let err;
   let errAt; // { where, build } of an err event (for the server's live log line)
   let once;
   if (Object.hasOwn(STRICT_KEYS, k) && Object.keys(ev).some((f) => !STRICT_KEYS[k].has(f))) return null;
   const withApp = () => {
     const app = normApp(ev.app);
-    if (app) fields.push(`${k}|app|${app}`);
+    if (app) fields.push(`${F.app}:${app}`);
   };
   switch (k) {
     case 'open':
       if (!ROUTES.has(ev.route)) return null;
-      fields.push(`open|route|${ev.route}`);
+      fields.push(`page_opens_by_route:${ev.route}`);
       withApp();
       break;
     case 'first_tap':
       if (!validMs(ev.ms)) return null;
-      fields.push(`first_tap_ms|${msBucket(ev.ms)}`);
+      fields.push(`first_tap_ms_bucket:${timeBucket(ev.ms)}`);
       withApp();
       break;
     case 'result':
@@ -145,8 +173,8 @@ export function normalizeEvent(raw) {
     case 'share':
       if (!SHARE_METHODS.has(ev.method)) return null;
       if (ev.what !== undefined && !SHARE_WHATS.has(ev.what)) return null;
-      fields.push(`share|method|${ev.method}`);
-      if (ev.what !== undefined) fields.push(`share|what|${ev.what}`);
+      fields.push(`shares_by_method:${ev.method}`);
+      if (ev.what !== undefined) fields.push(`shares:${ev.what}`);
       withApp();
       break;
     case 'room_join': {
@@ -154,11 +182,11 @@ export function normalizeEvent(raw) {
       if (ev.room !== undefined && !ROOM_KINDS.has(ev.room)) return null;
       // A reason only on a failure, and only from the list.
       if (ev.reason !== undefined && (ev.ok || !JOIN_FAIL_REASONS.has(ev.reason))) return null;
-      const res = ev.ok ? 'ok' : 'fail';
-      fields.push(`room_join|${res}`);
-      if (validMs(ev.ms)) fields.push(`room_join_ms|${res}|${msBucket(ev.ms)}`);
-      if (ev.room !== undefined) fields.push(`room_join|room|${ev.room}|${res}`);
-      if (ev.reason !== undefined) fields.push(`room_join|reason|${ev.reason}`);
+      const res = ev.ok ? 'joins_ok' : 'joins_failed';
+      fields.push(res);
+      if (validMs(ev.ms)) fields.push(`${ev.ok ? JOIN_MS_PREFIX : 'join_failed_ms_bucket:'}${timeBucket(ev.ms)}`);
+      if (ev.room !== undefined) fields.push(`${res}_by_room:${ev.room}`);
+      if (ev.reason !== undefined) fields.push(`join_failed_reason:${ev.reason}`);
       withApp();
       break;
     }
@@ -173,32 +201,32 @@ export function normalizeEvent(raw) {
       if (ev.ans !== undefined && !validPlayers(ev.ans, 0)) return null;
       // Answerers are among the players; the subject is a player but never an answerer.
       if (ev.ans !== undefined && ev.ans > ev.p - (ev.about === true ? 1 : 0)) return null;
-      fields.push(`${k}|p|${playerBucket(ev.p)}`);
-      if (ev.about !== undefined) fields.push(`${k}|about|${ev.about}`);
-      if (ev.ans !== undefined) fields.push(`${k}|ans|${ev.ans === 0 ? '0' : playerBucket(ev.ans)}`);
+      fields.push(`${F.p}:${playerBucket(ev.p)}`);
+      if (ev.about !== undefined) fields.push(`${F.n}_quiz_kind:${ev.about ? 'about_someone' : 'default_quiz'}`);
+      if (ev.ans !== undefined) fields.push(`${F.n}_by_answerers:${ev.ans === 0 ? '0' : playerBucket(ev.ans)}`);
       withApp();
-      all.push(`${k}|n`);
+      all.push(F.n);
       // The headline: 3+ players took part — and, for a quiz, somebody answered.
       if (k === 'session_done' && ev.p >= 3 && ev.ans !== 0) {
-        fields.push('session_done|p3');
+        fields.push('games_finished_3plus');
         const app = normApp(ev.app);
-        if (app) fields.push(`session_done|app3|${app}`);
-        all.push('session_done|p3');
+        if (app) fields.push(`games_finished_3plus_by_app:${app}`);
+        all.push('games_finished_3plus');
       }
       once = onceId(k, ev.sid);
       break;
     }
     case 'room_create':
       withApp();
-      all.push('room_create|n');
+      all.push(F.n);
       break;
     case 'game_created':
       // A valid quiz pack the host engine accepted; `remake` = sent from the result
       // screen by someone who was not the previous subject (participant → creator).
       if (!GAME_SOURCES.has(ev.source) || !validId(ev.gid)) return null;
-      fields.push(`game_created|source|${ev.source}`);
+      fields.push(`quizzes_created_${ev.source}`);
       withApp();
-      all.push('game_created|n', `game_created|source|${ev.source}`);
+      all.push(F.n, `quizzes_created_${ev.source}`);
       once = onceId(k, ev.gid);
       break;
     case 'ask_shown':
@@ -207,10 +235,10 @@ export function normalizeEvent(raw) {
     case 'ask_answer': {
       if (!ASK_ANSWERS.has(ev.a)) return null;
       if (ev.why !== undefined && (ev.a !== 'no' || !ASK_REASONS.has(ev.why))) return null;
-      fields.push(`ask_answer|a|${ev.a}`);
-      if (ev.why !== undefined) fields.push(`ask_answer|why|${ev.why}`);
+      fields.push(`answered_again_${ev.a}`);
+      if (ev.why !== undefined) fields.push(`answered_again_no_reason:${ev.why}`);
       const app = normApp(ev.app);
-      if (app) fields.push(`ask_answer|app|${app}|${ev.a}`);
+      if (app) fields.push(`answered_again_${ev.a}_by_app:${app}`);
       break;
     }
     case 'err': {
@@ -218,15 +246,15 @@ export function normalizeEvent(raw) {
       err = sanitizeErr(ev.msg) || '(empty)';
       const where = ident(ev.where, 24);
       const build = ident(ev.build, 16);
-      if (where) fields.push(`err|where|${where}`);
-      if (build) fields.push(`err|build|${build}`);
+      if (where) fields.push(`errors_by_where:${where}`);
+      if (build) fields.push(`errors_by_build:${build}`);
       errAt = { where, build };
       break;
     }
     default:
       return null;
   }
-  fields.unshift(`${k}|n`);
+  fields.unshift(F.n);
   return { kind: k, fields, err, all, once, ...(errAt ? errAt : {}) };
 }
 
@@ -238,7 +266,7 @@ const add = (m, f, n = 1) => m.set(f, (m.get(f) || 0) + n);
  *   once: [{id, kind, fields, all}], errLines: [{msg, where?, build?}], accepted, badCount, dropped }.
  * errLines = the accepted error events, already sanitized (the server logs one line each).
  * badCount = events of a known kind dropped by validation; they are counted as
- * `<kind>|bad` (in incr) so a wiring bug is visible instead of a silent 0.
+ * `rejected_events:<kind>` (in incr) so a wiring bug is visible instead of a silent 0.
  * `once` events are not in incr/all yet: the caller claims their ids, then settleOnce().
  */
 export function parseBatch(text) {
@@ -263,12 +291,12 @@ export function parseBatch(text) {
     const n = normalizeEvent(ev);
     if (!n) {
       const k = ev && typeof ev === 'object' ? ev.k : undefined;
-      if (typeof k === 'string' && KNOWN.has(k)) add(bad, `${k}|bad`);
+      if (typeof k === 'string' && KNOWN.has(k)) add(bad, `${REJECTED_PREFIX}${k}`);
       continue;
     }
     accepted++;
     if (n.once) {
-      if (onceSeen.has(n.once)) add(incr, `${n.kind}|dup`); // same game twice in one batch
+      if (onceSeen.has(n.once)) add(incr, KIND_FIELDS[n.kind].dup); // same game twice in one batch
       else {
         onceSeen.add(n.once);
         once.push({ id: n.once, kind: n.kind, fields: n.fields, all: n.all });
@@ -287,40 +315,52 @@ export function parseBatch(text) {
   return { status: 200, incr, errs, all, once, errLines, accepted, badCount, dropped: body.events.length - accepted };
 }
 
-/** Count each `once` event whose id was claimed for the first time (fresh[i]); the rest become `<kind>|dup`. */
+/** Count each `once` event whose id was claimed for the first time (fresh[i]); the rest count as that kind's `*_duplicates`. */
 export function settleOnce(parsed, fresh) {
   parsed.once.forEach((o, i) => {
-    if (!fresh[i]) return add(parsed.incr, `${o.kind}|dup`);
+    if (!fresh[i]) return add(parsed.incr, KIND_FIELDS[o.kind].dup);
     for (const f of o.fields) add(parsed.incr, f);
     for (const f of o.all) add(parsed.all, f);
   });
   return parsed;
 }
 
+/** `{<value>: n}` for every `<prefix><value>` counter (sorted by value), 0s left out. */
+export function byPrefix(c, prefix) {
+  return Object.fromEntries(
+    Object.entries(c)
+      .filter(([f, v]) => f.startsWith(prefix) && v > 0)
+      .map(([f, v]) => [f.slice(prefix.length), v])
+      .sort(([a], [b]) => (a < b ? -1 : 1)),
+  );
+}
+
 /** The free-beta numbers (docs/telemetry.md §9) from flat counters (a day or a sum of days). */
 export function summarize(c) {
   const n = (f) => c[f] || 0;
   return {
-    sessionsDone: n('session_done|n'),
-    sessionsDone3: n('session_done|p3'),
-    sessionsDup: n('session_done|dup'),
-    sessionsAbout: n('session_done|about|true'),
-    rematch: n('rematch|n'),
-    roomsCreated: n('room_create|n'),
-    gamesCreated: n('game_created|n'),
-    gamesRemade: n('game_created|source|remake'),
-    joinOk: n('room_join|ok'),
-    joinFail: n('room_join|fail'),
-    share: n('share|n'),
-    askShown: n('ask_shown|n'),
-    askYes: n('ask_answer|a|yes'),
-    askNo: n('ask_answer|a|no'),
-    askSkip: n('ask_answer|a|skip'),
-    bad: Object.fromEntries(
-      Object.entries(c)
-        .filter(([f, v]) => f.endsWith('|bad') && v > 0)
-        .map(([f, v]) => [f.slice(0, -4), v])
-        .sort(([a], [b]) => (a < b ? -1 : 1)),
-    ),
+    sessionsDone: n('games_finished'),
+    sessionsDone3: n('games_finished_3plus'),
+    sessionsDup: n('games_finished_duplicates'),
+    sessionsAbout: n('games_finished_quiz_kind:about_someone'),
+    rematch: n('rematches'),
+    roomsCreated: n('rooms_created'),
+    gamesCreated: n('quizzes_created'),
+    gamesEditor: n('quizzes_created_editor'),
+    gamesRemade: n('quizzes_created_remake'),
+    joinOk: n('joins_ok'),
+    joinFail: n('joins_failed'),
+    joinFailReasons: byPrefix(c, 'join_failed_reason:'),
+    // Successful joins per time bucket, every bucket present and in order (for p50/p75/p95).
+    joinMs: Object.fromEntries(TIME_BUCKETS.map((b) => [b, n(JOIN_MS_PREFIX + b)])),
+    share: n('shares'),
+    shareWhat: byPrefix(c, 'shares:'),
+    askShown: n('asked_again'),
+    askYes: n('answered_again_yes'),
+    askNo: n('answered_again_no'),
+    askSkip: n('answered_again_skip'),
+    askNoReasons: byPrefix(c, 'answered_again_no_reason:'),
+    errors: n('errors_total'),
+    bad: byPrefix(c, REJECTED_PREFIX),
   };
 }

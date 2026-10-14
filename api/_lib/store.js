@@ -1,27 +1,37 @@
 // Aggregate store: Upstash Redis REST (free KV) when configured, else in-memory per
 // function instance. Only counters are stored — never a raw event log.
-//   ev:<day>      hash  field -> count   (e.g. "open|app|quiz-ox", "room_join_ms|ok|le2000", "_total")
-//   ev:<day>:err  hash  sanitized error sample -> count
-// Both keys expire 90 days after the last write of the instance that set them.
-//   ev:all        hash  all-time counters for a fixed field list (no expiry; docs/telemetry.md §9)
-//   ev:once:<id>  string, 6 h — "this game was already counted" (id = hash of kind + game id)
-//   ev:budget:<YYYY-MM KST>  integer, ~40 days — Upstash commands this deployment sent that month
+// Key names are readable English, `:` namespaces, `_` between words (docs/telemetry.md §3):
+//   stats:daily:<YYYY-MM-DD KST>   hash  field -> count (e.g. "games_finished_by_app:quiz-ox",
+//                                        "join_ms_bucket:1-2s", "events_total")
+//   stats:errors:<YYYY-MM-DD KST>  hash  sanitized error message -> count
+// Both expire 90 days after the last write of the instance that set them.
+//   stats:all_time                 hash  all-time counters for a fixed field list (no expiry; §9)
+//   stats:dedupe:<hash>            string, 6 h — "this game was already counted" (hash of kind + game id)
+//   stats:budget:<YYYY-MM KST>     integer, ~40 days — Upstash commands this deployment sent that month
+// Other features keep their own top-level namespace in the same style — e.g. room results
+// use roomResultKey() = results:room:<hash>. Old `ev:*` keys are no longer read
+// (api/_tools/cleanup-old-keys.mjs deletes them when run by hand).
 //
 // Free-plan guard: EVERY KV pipeline (apply, claim, release, read, readDays) starts with
-// INCRBY ev:budget:<month> <n>, n = the exact number of commands in that pipeline (the
+// INCRBY stats:budget:<month> <n>, n = the exact number of commands in that pipeline (the
 // INCRBY and the once-per-instance EXPIRE included). The reply is the month's running
 // count; the handler stops talking to KV once it reaches EV_MONTHLY_BUDGET (api/ev.js).
 
 export const TTL_SECONDS = 90 * 24 * 60 * 60;
 export const ONCE_TTL_SECONDS = 6 * 60 * 60;
 export const BUDGET_TTL_SECONDS = 40 * 24 * 60 * 60;
-export const TOTAL_FIELD = '_total';
+/** Events received that day (accepted + rejected) — the daily cap reads it back. */
+export const TOTAL_FIELD = 'events_total';
 
-export const dayKey = (day) => `ev:${day}`;
-export const errKey = (day) => `ev:${day}:err`;
-export const ALL_KEY = 'ev:all';
-export const onceKey = (id) => `ev:once:${id}`;
-export const budgetKey = (month) => `ev:budget:${month}`;
+export const dayKey = (day) => `stats:daily:${day}`;
+export const errKey = (day) => `stats:errors:${day}`;
+export const ALL_KEY = 'stats:all_time';
+export const onceKey = (id) => `stats:dedupe:${id}`;
+export const budgetKey = (month) => `stats:budget:${month}`;
+/** Room results (the room-result lane): one key per room, `<hash>` = a hash, never a room code. */
+export const roomResultKey = (hash) => `results:room:${hash}`;
+/** Keys written before the readable scheme (2026-10-13/14 testing); nothing reads them. */
+export const OLD_KEY_PATTERN = 'ev:*';
 
 export class StoreError extends Error {}
 
