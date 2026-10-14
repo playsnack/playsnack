@@ -35,7 +35,7 @@
 | `first_tap` | `ms`(0–600000), `app?` | `first_taps`, `first_tap_ms_bucket:<구간>`, `first_taps_by_app:<app>` |
 | `result` | `app?` | `results_shown`, `results_shown_by_app:<app>` |
 | `share` | `method`: web·kakao·copy·save·other, `what?`(§9), `app?` | `shares`, `shares_by_method:<m>`, `shares:<what>`, `shares_by_app:<app>` |
-| `room_join` | `ok`: bool, `ms?`, `app?`, `room?` · `reason?`(§9) | `join_attempts`, `joins_ok`/`joins_failed`, 성공 `join_ms_bucket:<구간>` · 실패 `join_failed_ms_bucket:<구간>`, `joins_ok_by_room:<r>`/`joins_failed_by_room:<r>`, `join_failed_reason:<r>`, `join_attempts_by_app:<app>` |
+| `room_join` | `ok`: bool, `ms?`, `app?`, `room?` · `reason?`(§9) · `tries?`(1–20 정수) · `slow?`(`true`만, 성공 때만) | `join_attempts`, `joins_ok`/`joins_failed`, 성공 `join_ms_bucket:<구간>` · 실패 `join_failed_ms_bucket:<구간>`, `joins_ok_by_room:<r>`/`joins_failed_by_room:<r>`, `join_failed_reason:<r>`, `joins_ok_by_tries:<b>`/`joins_failed_by_tries:<b>`(b = `1`·`2`·`3`·`4+`), `joins_ok_after_slow_start`, `join_attempts_by_app:<app>` |
 | `err` | `msg`, `where?`, `build?` | `errors_total`, `errors_by_where:<w>`, `errors_by_build:<b>` + 정화된 문구 1건(`stats:errors:<day>`) |
 | `seen` | `d`(브라우저 무작위 번호), `uses?`·`games?`·`made?`·`age?`(구간) — §4a | `device_checkins`, `devices_by_active_days:<b>`, `devices_by_games:<b>`, `devices_by_made:<b>`, `devices_by_age:<b>` (`d`는 저장 안 함 — 해시해서 HyperLogLog에만) |
 
@@ -43,7 +43,8 @@
 - 모르는 종류 · 잘못된 값의 이벤트는 버림(`dropped`로 개수만 응답). 모르는 필드는 위 6종은 무시, §9 종류는 **이벤트째 버림**. 값이 `null`인 필드는 없는 것으로 본다.
 - **아는 종류**가 검증에서 버려지면 `rejected_events:<종류>`로 센다(값은 저장 안 함) — 연결 버그(예: 11자 `sid`)가 조용한 0이 아니라 `summary.bad`에 보인다.
 - `app`은 먼저 앱 부분만 남긴다(`quiz-ox~CODE`·`tpl-quiz-ox` → `quiz-ox`, `app-<hash>` → `custom`) — 친구방 코드 · 만든 앱 해시는 카운터가 되지 않는다. 그 뒤 공식 템플릿 목록에 없으면 `other`. `where`(≤24자)·`build`(≤16자)는 `[A-Za-z][A-Za-z0-9_.-]*` 아니면 `other`.
-- `room_join`의 `reason`(실패 때만, 목록 밖이면 이벤트째 `bad`): `bad_link` · `not_found` · `network` · `timeout`(전송 15초) · `unreachable` · `disconnected` · `refused` · `subscribe`(브로커에는 붙었지만 방 토픽 구독 실패 — 2026-10-13 실기기 테스트에서 찾은 실패) · `silence`(LiveApp이 15초 동안 방 소식을 못 들음) · `other`. 클라이언트 `joinFailReason()`이 전송 쪽 원인을 이 목록으로 바꾼다(`broker` → `unreachable`, `load` → `network`, `"refused: …"` → `refused`).
+- `room_join`의 `reason`(실패 때만, 목록 밖이면 이벤트째 `bad`): `bad_link` · `not_found` · `network` · `timeout`(브로커 입장 예산 42초 · 전송 45초) · `unreachable` · `disconnected` · `refused` · `subscribe`(브로커에는 붙었지만 방 토픽 구독 실패 — 2026-10-13 실기기 테스트에서 찾은 실패) · `silence`(LiveApp이 47초 동안 방 소식을 못 들음) · `other`. 클라이언트 `joinFailReason()`이 전송 쪽 원인을 이 목록으로 바꾼다(`broker` → `unreachable`, `load` → `network`, `"refused: …"` → `refused`).
+- `room_join`의 `tries` · `slow`(2026-10-14, 느린 공개 브로커 대응 `claude/slow-broker`): 서버 없는 방은 브로커가 CONNACK을 늦게 주면 다시 붙는다(한 번 10초 기다림, 1.5초 뒤 다음 시도, 42초까지 ≈ 4번). `tries` = 그 입장 시도에서 브로커 연결을 몇 번 했는지(1–20 정수, 넘거나 정수가 아니면 이벤트째 `bad`; 저장은 `1`·`2`·`3`·`4+` 네 구간), `slow: true` = 6초 넘게 걸려 "연결이 느려요 · 계속 시도하는 중…"이 보인 뒤 들어감(성공 때만, `false`나 실패에 붙으면 `bad`). 서버 방 · 호스트 방은 `tries`를 안 보낸다. 늘어나는 필드는 최대 9개(구간 4 × 성공/실패 + 1) — §5a 계산에 넣음.
 - `err` 이벤트가 받아들여지면 서버가 **한 줄**을 `console.error`로 남긴다: `[ev] err where=<w> build=<b>: <정화된 문구>`(요청당 최대 5줄). Vercel 프로젝트 → Logs 탭에서 실시간으로 보인다(Hobby 보관 1시간). 그 줄에는 정화된 문구 · where · build 말고 요청의 어떤 것도 들어가지 않는다(privacy 테스트가 콘솔 전체를 검사). KV를 쓰지 않으므로 일일 상한 · 월 예산을 넘어도 계속 남는다(속도 제한 `429` · 개인정보 신호 `204` 요청은 제외).
 - 시간 구간(위쪽 포함): `0-1s`(≤1000ms) · `1-2s`(≤2000) · `2-3s`(≤3000) · `3-5s`(≤5000) · `5-10s`(≤10000) · `10s+`. 입장 품질 기준 "p75 ≤ 2초" = 성공한 입장의 75% 이상이 `0-1s`+`1-2s`(구간으로 정확히 판정). p50 · p75 · p95 값 자체는 구간 안을 고르게 나눠 짐작한다(`statsView.ts estimatePercentile`).
 - 응답: `200 {ok, accepted, dropped}` · `204` 요청에 `Sec-GPC: 1` 또는 `DNT: 1`(아무것도 세지 않음) · `204` 월 예산 도달(§5a, 본문 없음, `x-ev-budget: reached`) · `413` 본문 >4096바이트(스트림도 4096에서 끊음) · `400` JSON 오류/`v≠1`/이벤트 >20개 · `429` 속도 제한(`rate_limited`/`daily_cap`) · `503` KV 실패 · `405` 기타 메서드.
@@ -146,10 +147,10 @@ ISO 주(월–일, KST 날짜) 7일의 카운터를 더해 `{week, days, total, 
 - 파이프라인 안 명령이 하나씩 과금되는지 Upstash 문서에 명시가 없다("pricing is based on per command/request") → **하나씩 센다고 가정**(보수적). Upstash 콘솔의 실제 사용량이 우리 카운터보다 크면 이 가정이 틀린 것. 실패한 파이프라인(HTTP 오류)은 우리 카운터에 안 들어가지만 Upstash가 셌을 수 있다(작은 과소 계산).
 - 넘침 한계: 예산 도달을 아직 모르는 인스턴스(콜드 스타트)는 첫 요청 1회만큼 더 쓴다 — 요청 1회 ≤ 약 110 명령(아래). 인스턴스가 수십 개여도 수천 명령 = 남은 100K 여유 안.
 
-**최악 계산** (2026-10-14 다시 셈 — 월별 · 기기 명령 포함. 이벤트 1개의 날짜 `HINCRBY` 필드 최대: 실패한 `room_join` 6개, `session_done` 7개 + 누적 3개(`games_finished` · `_3plus` · `players_in_finished_games`) + 월별 6개(같은 3개 × 합계 · 날짜) + claim `SET` 1개; `err`는 필드 3 + 문구 1; `seen`은 필드 5 + 월별 4 + `PFADD` 3(요청당, 이벤트 수와 무관) + daily 기기 키 `EXPIRE` 1):
+**최악 계산** (2026-10-14 다시 셈 — 월별 · 기기 명령 포함. 이벤트 1개의 날짜 `HINCRBY` 필드 최대: `room_join` 7개(성공 · 실패 모두 — `_by_tries` · `joins_ok_after_slow_start` 포함), `session_done` 7개 + 누적 3개(`games_finished` · `_3plus` · `players_in_finished_games`) + 월별 6개(같은 3개 × 합계 · 날짜) + claim `SET` 1개; `err`는 필드 3 + 문구 1; `seen`은 필드 5 + 월별 4 + `PFADD` 3(요청당, 이벤트 수와 무관) + daily 기기 키 `EXPIRE` 1):
 | 요청 | 명령 수 |
 |---|---|
-| POST, 판 이벤트 없음 (이벤트 k개) | `INCRBY` 1 + `events_total` 1 + 필드 ≤ 6k(같은 필드는 합쳐짐) + 성공 입장의 월별 2 + `EXPIRE` ≤ 3. 보통 이벤트 1개 = 3–10 |
+| POST, 판 이벤트 없음 (이벤트 k개) | `INCRBY` 1 + `events_total` 1 + 필드 ≤ 7k(같은 필드는 합쳐짐 — 입장 이벤트 20개여도 서로 다른 필드는 열거값 한도로 ≈ 60 이하) + 성공 입장의 월별 2 + `EXPIRE` ≤ 3. 보통 이벤트 1개 = 3–10 |
 | POST, 서로 다른 판 20개 (최악) | claim: `INCRBY` 1 + `EXPIRE` ≤ 1 + `SET` 20 = 22 · 집계: `INCRBY` 1 + `events_total` 1 + `HINCRBY` ≤ 60 + 누적 3 + 월별 6 + `EXPIRE` ≤ 2 ≈ 73(시험 값 66) → **≈ 95** (집계가 실패하면 release `INCRBY` 1 + `DEL` ≤ 20 더 → ≈ 116) |
 | POST, `seen` 20개(서로 다른 기기) | `INCRBY` 1 + `events_total` 1 + `device_checkins` 1 + 구간 필드 ≤ 22 + 월별 ≤ 22 + `PFADD` 3 + `EXPIRE` ≤ 3 = **≤ 53** (보통은 다른 이벤트에 얹혀 가서 기기 하나당 ≈ +12) |
 | GET `?day` (캐시 안 맞음) | `INCRBY` 1 + `HGETALL` 3 (+`EXPIRE` 1) = **4–5** |
@@ -168,7 +169,7 @@ ISO 주(월–일, KST 날짜) 7일의 카운터를 더해 `{week, days, total, 
 **멈춘 뒤**: 앱에는 아무 영향 없음(텔레메트리는 응답을 기다리지 않는다). 오류 줄은 Vercel Logs에 계속 남는다(KV 안 씀). 다음 달 1일(KST)에 자동 재개. 예산을 바꾸려면 `EV_MONTHLY_BUDGET`(500000 미만으로).
 
 ## 6. 클라이언트 `snack-player/src/telemetry.ts`
-연결: `main.tsx` — `telemetryEnabled()`일 때만 `configureTelemetry({ build })` + `installErrorBeacon(build)` (build id = `g` + 커밋 7자, `vite.config.ts`가 `VERCEL_GIT_COMMIT_SHA` → 로컬 git 커밋 → `dev` 순으로 정함; 서버의 `build` 형식 `[A-Za-z]…`에 맞추려고 `g`를 붙임). `LiveApp` — `roomJoin.ts`의 `joinTracker`가 시도마다 `trackJoin()`으로 `room_join {ok, ms, room, reason?, app}` 1건(ms = `connect()`/`retry()` 호출 → 첫 `connected`, 실패면 → `failed`; 결과 전에 화면을 떠나면 안 보냄).
+연결: `main.tsx` — `telemetryEnabled()`일 때만 `configureTelemetry({ build })` + `installErrorBeacon(build)` (build id = `g` + 커밋 7자, `vite.config.ts`가 `VERCEL_GIT_COMMIT_SHA` → 로컬 git 커밋 → `dev` 순으로 정함; 서버의 `build` 형식 `[A-Za-z]…`에 맞추려고 `g`를 붙임). `LiveApp` — `roomJoin.ts`의 `joinTracker`가 시도마다 `trackJoin()`으로 `room_join {ok, ms, room, reason?, tries?, slow?, app}` 1건(`tries` = 서버 없는 방의 브로커 연결 시도 수, `slow` = "연결이 느려요" 안내가 뜬 뒤 들어감)(ms = `connect()`/`retry()` 호출 → 첫 `connected`, 실패면 → `failed`; 결과 전에 화면을 떠나면 안 보냄).
 ```ts
 import { track, trackError, installErrorBeacon, configureTelemetry, flush } from './telemetry';
 installErrorBeacon(BUILD_ID);                       // window error + unhandledrejection
@@ -257,7 +258,7 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 8. `room.js:628,639,663,665` — `answerers` · `acted`(Set)를 `answered`처럼 배열로 스냅샷 · 복원(그대로 두면 JSON에서 `{}`가 되어 새 호스트의 `p`가 0이 됨). `sid` · `done` · `subject`는 손댈 필요 없음(`...rest`).
 9. `roomTransport.ts:253` `connectMesh({…})`와 `:222` `connectRelay({…})` — `engine: { onSessionEnd: (e) => trackSessionDone(this.me.slug, e.players, e.sid, quiz ? {about: e.about, answerers: e.answerers} : undefined), onSessionStart: (e) => e.again && trackRematch(this.me.slug, e.players, e.sid), onGameCreated: (e) => trackGameCreated(this.me.slug, e.source, e.gid) }`. `this.me.slug`는 방 id(`slug~CODE`)지만 헬퍼의 `appOf()`가 코드를 잘라낸다. 엔진 옵션 통로: `meshClient.js:77,250-251`, `relayClient.js:33,94`.
 10. `LiveApp.tsx:173-177` `openFriendRoom` — `trackRoomCreate(slug)`(코드 생성 직후, `navigate` 전).
-11. **연결됨(2026-10-13 핫픽스, `roomJoin.ts`):** 시도(`room.connect()` 또는 다시 시도) 1번마다 첫 `connected`에 `trackJoin(slug, true, {ms, room})`, 첫 `failed`에 `trackJoin(slug, false, {ms, room, reason: joinFailReason(m.d.reason)})`; LiveApp 15초 무응답은 `silence`. 아직 안 됨: 연결 전 실패(잘린 코드 → `bad_link`, 앱 로드 실패 → `not_found`/`network`).
+11. **연결됨(2026-10-13 핫픽스, `roomJoin.ts`):** 시도(`room.connect()` 또는 다시 시도) 1번마다 첫 `connected`에 `trackJoin(slug, true, {ms, room})`, 첫 `failed`에 `trackJoin(slug, false, {ms, room, reason: joinFailReason(m.d.reason)})`; LiveApp 47초 무응답은 `silence`. 아직 안 됨: 연결 전 실패(잘린 코드 → `bad_link`, 앱 로드 실패 → `not_found`/`network`).
 12. `LiveApp.tsx:178-195` `shareInvite` — 공유 시트 성공 `trackShare("web", "invite", slug)`, 클립보드 성공 `"copy"`, 화면 표시 `"other"`. 결과 공유 · 앱 공유는 버튼이 생기는 곳에서 `what: "result"`/`"app"`.
 13. 결과 화면 문항(새 UI) — 표시 때 `trackAskShown(slug, gameKey)`, 응답 때 `trackAskAnswer(slug, gameKey, a, why)`. `gameKey` = 이 기기에서 본 결과 화면 순번 등(보내지 않음).
 14. 위가 들어가는 커밋에서 `api/_lib/schema.js`의 `WIRED`를 `true`로 바꾼다.

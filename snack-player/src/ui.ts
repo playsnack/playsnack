@@ -8,6 +8,9 @@ export const BLOCK_CSS = `
 .blk:hover{ transform: translateY(2px); box-shadow: ${BEVEL}, 0 4px 0 ${C.shadow}; }
 .blk:active{ transform: translateY(6px); box-shadow: ${BEVEL}, 0 0 0 ${C.shadow}; }
 .blk:focus-visible{ outline: 3px solid ${C.ink}; outline-offset: 3px; }
+/* .blkn = a block whose press nudg plays (BlockButton): nudg moves it, CSS lands the shadow. */
+.blkn[data-nudg-state~="down"]{ box-shadow: ${BEVEL}, 0 0 0 ${C.shadow} !important; }
+.blkn:focus-visible{ outline: 3px solid ${C.ink}; outline-offset: 3px; }
 @keyframes snackBlink { 0%,100%{opacity:1} 50%{opacity:.25} }
 @media (prefers-reduced-motion: reduce){ .blk{ transition: none; } }
 `;

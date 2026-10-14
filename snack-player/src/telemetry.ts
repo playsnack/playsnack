@@ -30,7 +30,7 @@ export type TelemetryEvent =
   | { k: 'first_tap'; ms: number; app?: string }
   | { k: 'result'; app?: string }
   | { k: 'share'; method: ShareMethod; what?: ShareWhat; app?: string }
-  | { k: 'room_join'; ok: boolean; ms?: number; app?: string; room?: RoomKind; reason?: JoinFailReason }
+  | { k: 'room_join'; ok: boolean; ms?: number; app?: string; room?: RoomKind; reason?: JoinFailReason; tries?: number; slow?: true }
   | { k: 'err'; msg: string; where?: string; build?: string }
   /**
    * A game reached its result — sent by the host engine only; `p` = players who took part (acted this game; a quiz subject counts),
@@ -95,9 +95,18 @@ function privacySignal(): boolean {
   return dnt === '1' || dnt === 'yes' || nav?.globalPrivacyControl === true;
 }
 
+/** A test robot, not a person: WebDriver/Playwright/Puppeteer set navigator.webdriver; headless
+    browsers and crawlers say so in the user agent. Their visits are never counted. */
+export const AUTOMATED_UA = /HeadlessChrome|Headless|PhantomJS|Playwright|Puppeteer|Lighthouse|bot\b|crawler|spider|preview/i;
+export function automatedBrowser(nav: { webdriver?: boolean; userAgent?: string } | undefined = (globalThis as { navigator?: Navigator }).navigator): boolean {
+  if (!nav) return false;
+  return nav.webdriver === true || AUTOMATED_UA.test(nav.userAgent ?? '');
+}
+
 /** Whether events are currently collected. */
 export function telemetryEnabled(): boolean {
   if (privacySignal()) return false;
+  if (automatedBrowser()) return false;
   if (opts.enabled !== undefined) return opts.enabled;
   const env = viteEnv();
   if (env.DEV === true) return false;
@@ -235,7 +244,7 @@ export function appOf(slugOrRoomId: string): string {
 export function joinFailReason(raw: string | undefined): JoinFailReason {
   if (!raw) return 'other';
   // subscribe: connected to the broker but the room topic subscription failed (mqttBus);
-  // silence: LiveApp heard nothing from the room for 15 s.
+  // silence: LiveApp heard nothing from the room for ROOM_SILENCE_MS (47 s).
   if (raw === 'timeout' || raw === 'unreachable' || raw === 'disconnected' || raw === 'subscribe' || raw === 'silence') return raw;
   if (raw === 'broker') return 'unreachable';
   if (raw === 'load') return 'network';
@@ -281,11 +290,14 @@ export function trackGameCreated(app: string, source: GameSource, gid: string): 
 }
 
 /** One join attempt: ok, or the reason it failed. */
-export function trackJoin(app: string, ok: boolean, o: { ms?: number; room?: RoomKind; reason?: JoinFailReason } = {}): void {
+export function trackJoin(app: string, ok: boolean, o: { ms?: number; room?: RoomKind; reason?: JoinFailReason; tries?: number; slow?: true } = {}): void {
   const ev: Extract<TelemetryEvent, { k: 'room_join' }> = { k: 'room_join', ok, app: appOf(app) };
   if (o.ms !== undefined) ev.ms = Math.round(o.ms);
   if (o.room) ev.room = o.room;
   if (!ok) ev.reason = o.reason ?? 'other';
+  // Broker connect tries (1–20, the server keeps 4 buckets); slow = got in after the slow notice.
+  if (o.tries !== undefined) ev.tries = Math.min(20, Math.max(1, Math.round(o.tries)));
+  if (ok && o.slow) ev.slow = true;
   track(ev);
 }
 

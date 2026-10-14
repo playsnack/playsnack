@@ -1,0 +1,18 @@
+{
+  "nudg": "0.2",
+  "note": "A block that sinks while pressed. y goes to 6, the height of the hard shadow (TOKENS.shadow.hardY); CSS collapses the shadow from the state attribute nudg sets, so the block looks like it lands on the ground.",
+  "import": ["./snack.nudg.json"],
+  "targets": ["block"],
+  "values": { "block.y": 0 },
+  "animate": { "block.y": "release" },
+  "initial": "up",
+  "states": {
+    "up": {
+      "when": { "block.down": { "to": "down", "animate": { "block.y": "press" } } }
+    },
+    "down": {
+      "set": { "block.y": 6 },
+      "when": { "block.up": "up", "block.cancel": "up" }
+    }
+  }
+}

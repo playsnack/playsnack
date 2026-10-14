@@ -12,6 +12,7 @@
     "sync-data": "node scripts/sync-data.mjs"
   },
   "dependencies": {
+    "@nudg/core": "0.2.0",
     "@snack/bite": "workspace:*",
     "@snack/bite-layout": "workspace:*",
     "@snack/bite-pixi": "workspace:*",

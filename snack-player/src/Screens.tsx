@@ -70,6 +70,24 @@ export function RoomChip({ state, people }: { state: "connecting" | "connected";
   );
 }
 
+/**
+ * Still joining after a while (a slow broker): a calm line under the top row with the
+ * seconds, and the "혼자 하기" way out the failed sheet would offer — it keeps trying meanwhile.
+ */
+export function RoomSlowNotice({ text, solo }: { text: string; solo: Btn }) {
+  return (
+    <div style={slowDock} role="status" aria-live="polite">
+      <div style={slowCard}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ flex: "none", width: 8, height: 8, background: C.accent, animation: "snackBlink 0.9s infinite" }} />
+          {text}
+        </span>
+        <button className="blk" style={{ ...secondaryBtn, padding: S.s2, fontSize: TOKENS.size.bodyMd }} onClick={solo.onClick}>{solo.label}</button>
+      </div>
+    </div>
+  );
+}
+
 /** Bottom sheet when the shared room can't be joined. */
 /** Edge rooms past today's free-tier guard (docs/edge-rooms.md §무료 한도): limits reset 00:00 UTC = 09:00 KST. */
 export const ROOM_FULL_TODAY = "room_full_today";
@@ -105,6 +123,15 @@ const bodyStyle: React.CSSProperties = { color: C.inkMuted, fontSize: TOKENS.siz
 // the same part of the app on every phone.
 const homePos: React.CSSProperties = { position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", left: 12, zIndex: 40 };
 const chipPos: React.CSSProperties = { position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", right: 12, zIndex: 20, pointerEvents: "none" };
+// Under the top row (홈 · invite pill · people chip), like LiveApp's topDock.
+const slowDock: React.CSSProperties = {
+  position: "fixed", top: "calc(var(--snack-safe-top) + 66px)", left: 16, right: 16, maxWidth: 488, margin: "0 auto", zIndex: 16,
+};
+const slowCard: React.CSSProperties = {
+  display: "flex", flexDirection: "column", gap: S.s2, padding: `${S.s3}px ${S.s3}px`,
+  background: C.surface, color: C.ink, border: `2px solid ${C.borderBlock}`, borderRadius: R.block,
+  font: `600 ${TOKENS.size.bodyMd}px ${TOKENS.font.body}`, wordBreak: "keep-all",
+};
 const dim: React.CSSProperties = {
   position: "fixed", inset: 0, zIndex: 30, background: "rgba(0,0,0,0.6)",
   display: "flex", alignItems: "flex-end", justifyContent: "center",

@@ -7,14 +7,14 @@ import "pixi.js/browser";
 import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick, isNickAuto } from "./identity";
-import type { ConnState, RoomTransport } from "./roomTransport";
+import { CONNECT_TIMEOUT_MS, type ConnState, type RoomTransport } from "./roomTransport";
 import { createRoom, hrefTo, isFreshRoom, loadRoomDoc, markFreshRoom, navigate, SERVERLESS } from "./backend";
 import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
-import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
+import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, RoomSlowNotice, goHome } from "./Screens";
 import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
-import { joinTracker } from "./roomJoin";
+import { joinTracker, slowJoinText } from "./roomJoin";
 import { noteDeviceUsage, trackRoomCreate, trackShare } from "./telemetry";
 import {
   MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage, packPending,
@@ -24,6 +24,7 @@ import {
 const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m.QuizMaker })));
 import { makerLink, resultHooks, useResultExtras } from "./ResultExtras";
 import { InviteQrSheet, QrButton } from "./InviteQr";
+import Toast from "./Toast";
 import { lastResultWatcher, type SavedResult } from "./roomResult";
 // The room's last finished game (docs/room-results.md) — loaded only when there is one.
 const LastResult = lazy(() => import("./LastResult.tsx").then((m) => ({ default: m.LastResult })));
@@ -41,8 +42,11 @@ type Runtime = { setVar: (id: string, v: unknown) => void };
 // A real use, so the bundler keeps the renderer here (an unused import is dropped).
 Object.assign(globalThis, { __snackWebGLRenderer: WebGLRenderer });
 
-/** A room that stays silent this long counts as failed (nothing may hang). */
-const ROOM_SILENCE_MS = 15_000;
+/**
+ * A room that stays silent this long counts as failed (nothing may hang). Just past the
+ * transport's own deadline (45 s — a slow broker gets ≈ 4 connect tries), so its reason wins.
+ */
+const ROOM_SILENCE_MS = CONNECT_TIMEOUT_MS + 2_000;
 
 type LoadError = "notFound" | "network";
 const isNetworkError = (e: unknown) =>
@@ -163,6 +167,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         else clearTimeout(silence);
         return;
       }
+      // A new broker connect try (serverless): counted for room_join, not room traffic.
+      if (m.t === "connAttempt") return join.attempt(Number(m.d.n), m.d.reason as string | undefined);
       heard(); // any room traffic means we're in
       if (m.t === "state") {
         quizRef.current.live = true;
@@ -211,10 +217,27 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     };
   }, [doc, slug, withRoom, roomGen]);
 
-  // The closest one-person app, offered if the room can't be joined.
+  // A slow join (a public broker can take ~20 s): from SLOW_JOIN_MS on, the connecting UI
+  // says so with the seconds and already offers "혼자 하기"; the failed sheet comes only at
+  // the transport's deadline. Never "connected" before the room state arrives.
+  const [connectingFor, setConnectingFor] = useState(0);
   useEffect(() => {
-    if (conn === "failed") soloAlternative(slug).then(setSolo);
-  }, [conn, slug]);
+    setConnectingFor(0);
+    if (!withRoom || conn !== "connecting") return;
+    const t0 = performance.now();
+    const id = setInterval(() => setConnectingFor(performance.now() - t0), 1000);
+    return () => clearInterval(id);
+  }, [conn, withRoom, roomGen]);
+  const slowText = withRoom && conn === "connecting" ? slowJoinText(connectingFor) : null;
+  const slow = Boolean(slowText);
+
+  // The closest one-person app, offered if the room can't be joined (or is slow to).
+  useEffect(() => {
+    if (conn === "failed" || slow) soloAlternative(slug).then(setSolo);
+  }, [conn, slug, slow]);
+  const soloBtn = solo
+    ? { label: `혼자 하기 · ${solo.title}`, onClick: () => { location.href = hrefTo(`/p/tpl-${solo.id}`); } }
+    : { label: "혼자 하는 게임 고르기", onClick: goHome };
 
   // The quiz vars this shell reads (the template shows the rest itself).
   const onQuizVar = (id: string, value: unknown) => {
@@ -396,7 +419,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // What happened to the invite link (only what really happened is said).
   const inviteFeedback = (
     <>
-      {invite === "copied" && <div style={inviteNote} role="status">초대 링크를 복사했어요</div>}
+      <Toast shown={invite === "copied"} style={inviteNote} role="status">초대 링크를 복사했어요</Toast>
       {invite === "show" && (code || inResult) && (
         <div style={inviteNote} role="status">
           <span style={{ userSelect: "all", wordBreak: "break-all" }}>{inviteUrl()}</span>
@@ -466,14 +489,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         </Suspense>
       )}
       {withRoom && conn === "failed" && (
-        <RoomFailedSheet
-          reason={connReason}
-          onRetry={() => retryRef.current()}
-          solo={solo
-            ? { label: `혼자 하기 · ${solo.title}`, onClick: () => { location.href = hrefTo(`/p/tpl-${solo.id}`); } }
-            : { label: "혼자 하는 게임 고르기", onClick: goHome }}
-        />
+        <RoomFailedSheet reason={connReason} onRetry={() => retryRef.current()} solo={soloBtn} />
       )}
+      {slowText && <RoomSlowNotice text={slowText} solo={soloBtn} />}
       {withRoom && conn === "connected" && showSpectatorNotice(doc, spectator.me, spectator.phase) && (
         <div style={spectatorNotice} role="status">{SPECTATOR_NOTICE_TEXT}</div>
       )}

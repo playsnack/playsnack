@@ -26,9 +26,13 @@ export const KINDS = [
 ];
 export const SHARE_WHATS = new Set(['invite', 'result', 'app', 'other']);
 export const ROOM_KINDS = new Set(['public', 'friend']);
-// subscribe = broker reached but the room topic subscription failed; silence = no room traffic for 15 s.
+// subscribe = broker reached but the room topic subscription failed; silence = no room traffic for 47 s (LiveApp).
 export const JOIN_FAIL_REASONS = new Set(['bad_link', 'not_found', 'network', 'timeout', 'unreachable', 'disconnected', 'refused', 'subscribe', 'silence', 'other']);
-export const GAME_SOURCES = new Set(['editor', 'remake']);
+/** room_join `tries` (broker connect tries in one join): 1–MAX_JOIN_TRIES, kept as 4 buckets. */
+export const MAX_JOIN_TRIES = 20;
+export const JOIN_TRIES_BUCKETS = ['1', '2', '3', '4+'];
+export const triesBucket = (n) => (n >= 4 ? '4+' : String(n));
+export const GAME_SOURCES =new Set(['editor', 'remake']);
 export const ASK_ANSWERS = new Set(['yes', 'no', 'skip']);
 export const ASK_REASONS = new Set(['boring', 'hard', 'laggy', 'few', 'other']);
 export const MAX_PLAYERS = 1000;
@@ -210,11 +214,17 @@ export function normalizeEvent(raw) {
       if (ev.room !== undefined && !ROOM_KINDS.has(ev.room)) return null;
       // A reason only on a failure, and only from the list.
       if (ev.reason !== undefined && (ev.ok || !JOIN_FAIL_REASONS.has(ev.reason))) return null;
+      // tries: broker connect tries (whole number 1–MAX_JOIN_TRIES, stored as 4 buckets);
+      // slow: true only — a join that got in after the "slow, still trying" notice showed.
+      if (ev.tries !== undefined && !(Number.isInteger(ev.tries) && ev.tries >= 1 && ev.tries <= MAX_JOIN_TRIES)) return null;
+      if (ev.slow !== undefined && (ev.slow !== true || !ev.ok)) return null;
       const res = ev.ok ? 'joins_ok' : 'joins_failed';
       fields.push(res);
       if (validMs(ev.ms)) fields.push(`${ev.ok ? JOIN_MS_PREFIX : 'join_failed_ms_bucket:'}${timeBucket(ev.ms)}`);
       if (ev.room !== undefined) fields.push(`${res}_by_room:${ev.room}`);
       if (ev.reason !== undefined) fields.push(`join_failed_reason:${ev.reason}`);
+      if (ev.tries !== undefined) fields.push(`${res}_by_tries:${triesBucket(ev.tries)}`);
+      if (ev.slow) fields.push('joins_ok_after_slow_start');
       withApp();
       break;
     }

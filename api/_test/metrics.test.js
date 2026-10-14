@@ -478,3 +478,20 @@ test('Sec-GPC: 1 or DNT: 1 -> 204, nothing counted', async () => {
   assert.equal(memoryStore.data.size, 0);
   assert.equal((await h(post([{ k: 'room_create' }]))).status, 200);
 });
+
+test('automated browsers and crawlers -> 204, nothing counted; real phones still count', async () => {
+  const { h, memoryStore } = setup();
+  const bots = [
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    'facebookexternalhit/1.1 Playwright',
+  ];
+  for (const ua of bots) {
+    const r = await h(new Request(URL_EV, { method: 'POST', headers: { 'user-agent': ua }, body: JSON.stringify({ v: 1, events: [{ k: 'room_create' }] }) }));
+    assert.equal(r.status, 204, ua);
+  }
+  assert.equal(memoryStore.data.size, 0);
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.0';
+  const r = await h(new Request(URL_EV, { method: 'POST', headers: { 'user-agent': iphone }, body: JSON.stringify({ v: 1, events: [{ k: 'room_create' }] }) }));
+  assert.equal(r.status, 200);
+});

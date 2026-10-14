@@ -33,8 +33,13 @@ export interface RoomTransport {
 
 export type Identity = { slug: string; anonId: string; nick: string };
 
-/** No room state this long after connecting → "failed" (the screen offers retry). */
-export const CONNECT_TIMEOUT_MS = 15000;
+/**
+ * No room state this long after connecting → "failed" (the screen offers retry).
+ * Covers a slow public broker: mqttBus keeps trying for its JOIN_BUDGET_MS (42 s, ≈ 4 connect
+ * tries), then mesh discovery (≤ 1.5 s) and the room state. The screen says "slow, still
+ * trying" from SLOW_JOIN_MS (roomJoin.ts) on.
+ */
+export const CONNECT_TIMEOUT_MS = 45000;
 
 /**
  * Shared plumbing: listeners and the connection status every transport reports
@@ -46,6 +51,8 @@ abstract class BaseTransport implements RoomTransport {
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** Bumped on every connect/close, so callbacks of an abandoned attempt are ignored. */
   protected gen = 0;
+  /** "connecting" this long without the room state → failed "timeout". */
+  protected connectTimeoutMs = CONNECT_TIMEOUT_MS;
 
   abstract connect(): void;
   abstract close(): void;
@@ -88,7 +95,7 @@ abstract class BaseTransport implements RoomTransport {
       const gen = this.gen;
       this.timer = setTimeout(() => {
         if (gen === this.gen && this.state === "connecting") this.fail("timeout");
-      }, CONNECT_TIMEOUT_MS);
+      }, this.connectTimeoutMs);
     }
     this.emit({ t: "conn", d: reason ? { state, reason } : { state } });
   }
@@ -306,8 +313,11 @@ export class MeshTransport extends EngineTransport {
     private freshRoom = false,
     /** Edge room relay (VITE_ROOM_URL): rooms go through it instead of the MQTT broker. */
     private roomUrl?: string,
+    /** Tests only: shorter broker / join timings (a slow local broker in seconds, not minutes). */
+    private tuning: { bus?: MeshBusTuning; connectTimeoutMs?: number } = {},
   ) {
     super();
+    if (tuning.connectTimeoutMs) this.connectTimeoutMs = tuning.connectTimeoutMs;
   }
 
   /** The bus: the edge relay when roomUrl is set, else the MQTT broker (the default). */
@@ -319,15 +329,24 @@ export class MeshTransport extends EngineTransport {
     }
     const { mqttBus, DEFAULT_BROKER } = await import("@snack/room/mqtt-bus");
     if (debugEnabled()) dlog("broker", hostOf(this.brokerUrl || DEFAULT_BROKER));
-    return mqttBus({ room: this.me.slug, url: this.brokerUrl || undefined });
+    return mqttBus({ ...this.tuning.bus, room: this.me.slug, url: this.brokerUrl || undefined });
   }
 
   protected async open(gen: number) {
-    const [{ connectMesh }, createBus] = await Promise.all([import("@snack/room/mesh-client"), this.bus()]);
+    const [{ connectMesh }, busFor] = await Promise.all([import("@snack/room/mesh-client"), this.bus()]);
     if (gen !== this.gen) return null;
     let drops = 0;
     const fresh = this.freshRoom;
     this.freshRoom = false;
+    // Every broker connect try is passed on ({t: "connAttempt"}: the join tracker counts them).
+    const createBus = (peerId: string) => {
+      const bus = busFor(peerId) as Bus & { attempts?: number };
+      if (gen === this.gen && bus.attempts != null) this.emit({ t: "connAttempt", d: { n: bus.attempts } });
+      bus.onStatus?.((s) => {
+        if (s.state === "attempt" && gen === this.gen) this.emit({ t: "connAttempt", d: { n: s.attempt, reason: s.reason } });
+      });
+      return bus;
+    };
     return connectMesh({
       ...(fresh ? { timing: { discoveryMs: FRESH_DISCOVERY_MS } } : {}),
       createBus,
@@ -353,6 +372,9 @@ export class MeshTransport extends EngineTransport {
     });
   }
 }
+
+/** mqttBus timing overrides (tests): join budget, CONNACK wait per try, pause between tries. */
+export type MeshBusTuning = { failAfterMs?: number; dropAfterMs?: number; connectTimeoutMs?: number; reconnectMs?: number };
 
 /** Discovery wait in a room this device has just made (see MeshTransport). */
 export const FRESH_DISCOVERY_MS = 150;

@@ -252,3 +252,34 @@ test('room_join failure reasons from the live join tracker (subscribe, silence) 
   assert.equal(c['join_failed_ms_bucket:10s+'], 1);
   assert.equal(c['join_failed_ms_bucket:0-1s'], 1);
 });
+
+test('room_join tries (broker connect tries, 4 buckets) and slow (joined after the slow notice) are bounded', async () => {
+  const h = createHandler({ env: memEnv, limiter: createLimiter({ bucketSize: 100, dailyCap: 1e6 }) });
+  await h(
+    post({
+      v: 1,
+      events: [
+        { k: 'room_join', ok: true, ms: 900, room: 'friend', tries: 1 },
+        { k: 'room_join', ok: true, ms: 23100, room: 'friend', tries: 3, slow: true },
+        { k: 'room_join', ok: true, ms: 34000, tries: 4, slow: true },
+        { k: 'room_join', ok: false, ms: 45000, reason: 'timeout', tries: 20 },
+        { k: 'room_join', ok: true, ms: 800 }, // older clients: no tries -> no tries field
+        { k: 'room_join', ok: true, tries: 21 }, // over the cap -> dropped
+        { k: 'room_join', ok: true, tries: 2.5 }, // not a whole number -> dropped
+        { k: 'room_join', ok: true, tries: '2' }, // not a number -> dropped
+        { k: 'room_join', ok: false, reason: 'timeout', slow: true }, // slow only on success
+        { k: 'room_join', ok: true, slow: false }, // slow is true or absent
+      ],
+    }),
+  );
+  const c = (await (await h(get())).json()).counters;
+  assert.equal(c['rejected_events:room_join'], 5);
+  assert.equal(c.joins_ok, 4);
+  assert.equal(c['joins_ok_by_tries:1'], 1);
+  assert.equal(c['joins_ok_by_tries:3'], 1);
+  assert.equal(c['joins_ok_by_tries:4+'], 1);
+  assert.equal(c['joins_failed_by_tries:4+'], 1);
+  assert.equal(c.joins_ok_after_slow_start, 2);
+  const tryFields = Object.keys(c).filter((f) => f.includes('_by_tries:'));
+  assert.ok(tryFields.every((f) => /^joins_(ok|failed)_by_tries:(1|2|3|4\+)$/.test(f)), tryFields.join());
+});

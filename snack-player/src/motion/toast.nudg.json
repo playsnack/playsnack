@@ -1,0 +1,14 @@
+{
+  "nudg": "0.2",
+  "note": "A notice the app shows and hides (host.show / host.hide). It rises from below while fading in, and sinks back while fading out.",
+  "import": ["./snack.nudg.json"],
+  "targets": ["toast"],
+  "values": { "toast.y": 12, "toast.opacity": 0 },
+  "animate": { "toast.y": "standard", "toast.opacity": "fade" },
+  "initial": "hidden",
+  "when": { "host.show": "shown", "host.hide": "hidden" },
+  "states": {
+    "hidden": {},
+    "shown": { "set": { "toast.y": 0, "toast.opacity": 1 } }
+  }
+}
