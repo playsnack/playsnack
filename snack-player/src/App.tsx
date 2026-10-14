@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { currentRoute, hrefTo, navigate } from "./backend";
+import { currentRoute, hrefTo, markFreshRoom, navigate } from "./backend";
 import { newRoomCode, playPath, roomIdFor, ROOM_PARAM } from "./links";
 import { QUIZ_SLUG, deviceQuizStore, opensMakerPage } from "./quiz";
 import { BitePlayer } from "./BitePlayer.tsx";
@@ -93,6 +93,7 @@ function QuizMakerPage({ nick }: { nick: string }) {
         const store = deviceQuizStore();
         const params = new URLSearchParams({ [ROOM_PARAM]: newRoomCode() });
         store.rememberRoomPack(roomIdFor(QUIZ_SLUG, params), pack);
+        markFreshRoom(roomIdFor(QUIZ_SLUG, params)); // a new code: no host to wait for
         store.clearDraft();
         navigate(playPath(QUIZ_SLUG, params), { replace: true }); // Back goes where the maker was opened from, not into an empty maker
       }} />

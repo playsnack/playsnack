@@ -8,7 +8,7 @@ import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick, isNickAuto } from "./identity";
 import type { ConnState, RoomTransport } from "./roomTransport";
-import { createRoom, hrefTo, loadRoomDoc, navigate } from "./backend";
+import { createRoom, hrefTo, loadRoomDoc, markFreshRoom, navigate } from "./backend";
 import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
@@ -69,7 +69,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const [myPack, setMyPack] = useState<QuizPack | null>(() => (isQuiz ? deviceQuizStore().roomPack(roomId) : null));
   const [packFail, setPackFail] = useState<string | null>(null);
   const [makerOpen, setMakerOpen] = useState(false);
-  const quizRef = useRef({ phase: "lobby", info: null as QuizInfo | null, iAmSubject: undefined as boolean | undefined, lastSentAt: 0 });
+  const quizRef = useRef({ phase: "lobby", info: null as QuizInfo | null, iAmSubject: undefined as boolean | undefined, lastSentAt: 0, live: false });
   const withRoom = doc ? needsRoom(doc, params) : false;
   // A present-but-invalid ?room= (a code cut by a chat app) must never land in
   // the public room: nothing loads or joins, the screen says the link is bad.
@@ -141,6 +141,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     room.onMessage((m) => {
       if (m.t === "conn") {
         const state = m.d.state as ConnState;
+        quizRef.current.live = state === "connected"; // a pack sent before this is dropped (and burns a resend gap)
         join.conn(state, m.d.reason as string | undefined);
         setConn(state);
         if (state === "connecting") waitForRoom();
@@ -149,6 +150,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       }
       heard(); // any room traffic means we're in
       if (m.t === "state") {
+        quizRef.current.live = true;
         sharedRef.current = m.d.sharedState as Record<string, unknown>;
         applyShared(sharedRef.current);
         if (typeof m.d.participants === "number") setParticipants(m.d.participants);
@@ -222,7 +224,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     const state = { phase: q.phase, info: q.info, iAmSubject: q.iAmSubject, entry, lastSentAt: q.lastSentAt, now: Date.now() };
     // Until the room takes my pack its lobby must not offer the quiz it has now (packPending).
     if (isQuiz) runtimeRef.current?.setVar("packPending", pack && packPending(state) ? pack.title : "");
-    if (!pack || !room) return;
+    if (!pack || !room || !q.live) return;
     const action = packAction(state);
     if (action === "confirm") {
       store.confirmRoomPack(roomId);
@@ -317,6 +319,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const openFriendRoom = () => {
     const p = shareableParams(params);
     p.set("room", newRoomCode());
+    markFreshRoom(roomIdFor(slug, p));
     navigate(playPath(slug, p));
   };
   // The result screen's "친구 초대" can run in the public room too: there it hands out the
