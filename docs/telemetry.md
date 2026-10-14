@@ -285,7 +285,7 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 ### 9.7 엣지 방 서버가 보내는 판 이벤트 (#96)
 엣지 방(`VITE_ROOM_URL`, `edge/room`)에서는 방 엔진이 **방의 Durable Object(DO)** 안에서 돈다 — 호스트 폰이 없으므로 판 이벤트도 DO가 **서버에서 서버로** 보낸다(`edge/room/src/results.js` `StatsSender`).
 - **같은 스키마, 같은 필드만**: `session_done{app, p, sid, about?, ans?}` · `rematch{app, p, sid}` · `game_created{app, source, gid}`. `app`은 `appOf(방 id)`(코드 · 만든 앱 해시는 안 나감 — `telemetry.ts appOf`와 같은 규칙), 참여 0명인 판은 안 보냄(`trackSessionDone`과 같음). 그 밖의 식별자는 없다(IP는 Cloudflare 것, 기기 · 닉네임 · 방 코드 없음).
-- **어디로**: Worker 변수 `STATS_URL`(기본 `https://playsnack.vercel.app/api/ev`, 사이트를 옮기면 `wrangler.jsonc`에서 바꿈 — 예: `https://playsnack.pages.dev/api/ev`; `""`면 끔).
+- **어디로**: Worker 변수 `STATS_URL`(지금 `https://playsnack.pages.dev/api/ev`, 사이트를 옮기면 `wrangler.jsonc`에서 바꿈 — 예: `https://playsnack.pages.dev/api/ev`; `""`면 끔).
 - **묶어서, 판마다 한 번**: 큐에 쌓아 **10초마다**(또는 20개가 차면, 또는 방이 빌 때) `POST {v:1, events}` 1번(본문 ≤ 4,000 B · ≤ 20개). DO 안에서 종류+`sid`/`gid`로 한 번만(재접속 · 좌석 넘겨받기에도), 동면 후 깨어나도 엔진이 결과 단계에서 복원되면 다시 부르지 않는다(`room.js` `first`), 마지막으로 서버의 `stats:dedupe`(§9.3)가 한 번 더 막는다.
 - **게임을 막지 않음**: 엔진 훅은 큐에 넣기만 한다. POST는 기다리지 않고(`ctx.waitUntil`), 실패(네트워크 · 4xx/5xx)는 **버리고 센다**(`counts.failed` · `counts.dropped`) — 다시 보내지 않으므로 API가 죽어도 반복 호출이 없다.
 - **봇 필터**: `User-Agent: PlaySnack-RoomServer/1` — `api/ev.js AUTOMATED_UA`에 안 걸린다(`api/_test/room-server.test.js`가 확인).
@@ -294,7 +294,7 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 - 서버 모드(snack-server `/ws`)는 여전히 판 이벤트를 보내지 않는다(§9 머리말).
 
 ## 10. `/stats` 페이지 (누구나)
-`https://playsnack.vercel.app/stats` — 플레이어 빌드 안의 정적 화면(`vercel.json` 리라이트, `StatsPage.tsx`). 홈 맨 아래 조용한 "📊 통계" 링크(새로고침 없이 이동), 페이지 맨 위 "← 홈". 숫자만 보여 주므로 인증 없음(주인 결정 2026-10-14: 누구나 봐도 됨).
+`https://playsnack.pages.dev/stats` — 플레이어 빌드 안의 정적 화면(Pages `_redirects`, `StatsPage.tsx`). 홈 맨 아래 조용한 "📊 통계" 링크(새로고침 없이 이동), 페이지 맨 위 "← 홈". 숫자만 보여 주므로 인증 없음(주인 결정 2026-10-14: 누구나 봐도 됨).
 - 읽는 것: `?growth=1` · `?day=<오늘>` · `?week=` 1–2개(최근 7일이 걸친 주). 명령 수는 §5a.
 - 순서: **지금까지**(끝난 판 · 만들어진 퀴즈 · 같이 논 사람(연인원) · 함께한 기기 약 N대(추정), "기록 시작: <첫 달>", 누적 꺾은선 — 120일까지 하루 한 점, 더 길면 한 달 한 점; 기록 0 = "아직 기록이 없어요", 한 점 = 점 하나와 안내; 눌러서 값 보기 · "표로 보기") → **최근 7일**(3명 이상 끝난 판, 날마다 표 — 기록 없는 날은 "아직 기록이 없어요") → **자주 쓰는 사람**(오늘 들어온 기기 중 처음 온 / 다시 온 비율, 10판 이상 한 기기 비율, 퀴즈 5개 이상 만든 기기 수) → 방 입장(성공률 · 실패 이유) → 입장 시간 6구간 + 짐작 p50/p75/p95 + 목표(4번 중 3번 2초 안) 판정 → 공유 → "다음에도 하고 싶나요?" → 앱에서 난 문제(오늘 상위 5개, `/api/ev`가 이미 지운 문구) → 이번 달 무료 한도.
 - 정직: 판 · 입장은 "횟수", 기기는 "(추정)"과 "폰과 PC면 2대" 안내, `wired: false`면 "아직 연결 전", 메모리 저장소면 "임시 숫자", 예산 도달이면 "다음 달 1일까지 새로 세지 않아요". 개발 용어(p75, KV, 명령 …)는 화면에 쓰지 않는다(`statsView.test.ts`).

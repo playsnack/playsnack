@@ -58,20 +58,19 @@ pnpm player:build    # → snack-player/dist; any static host that serves index.
 `…/p/tpl-tap-battle?room=K7MNP2QRS4` a friends-only room (the 🤝 친구끼리 pill makes the
 code: 10 symbols from a 32-letter alphabet, 50 bits), and a made app travels inside its
 link's fragment (`/p/app-<hash>#d=…`, never sent to a server). The static host must serve
-`index.html` for `/p/*` (`vercel.json` rewrites; snack-server has the same fallback). Old
+`index.html` for `/p/*` (Cloudflare Pages `_redirects`, see `cloudflare/pages/`; snack-server has the same fallback). Old
 `#/p/…` links still open and are rewritten to the path form in place.
 
-A friends-only room is **unlisted, not private**: the code keeps strangers from stumbling
-in, nothing more. Serverless rooms ride a public MQTT broker and the room id is the
-topic, so anyone subscribing to the prefix sees every code and all room traffic
-(nicknames, actions). Treat it like a link you would not post publicly. Real protection
-(token auth) is the U1 step of `docs/master-plan.md`.
+A friends-only room is **unlisted, not private** unless it has a PIN: the code keeps
+strangers from stumbling in. Rooms run on the room server (Cloudflare Durable Objects,
+`edge/room/`, `docs/edge-rooms.md`): the server runs the game and judges answers, so
+answers never reach phones before the reveal.
 
-Deployed on Vercel from this repo (`vercel.json`): a push to `main` rebuilds the site
-when the commit's author is the repo owner; other merges go live with the owner's next
-one (see [Contributing](#contributing)).
-
-Deploy hook test: 2026-10-12.
+Live at **https://playsnack.pages.dev** (Cloudflare Pages + Pages Functions for `/api/*`;
+rooms on `snack-room.playsnack.workers.dev`; stats in Upstash). Deploy: `node
+scripts/pages-build.mjs` then `wrangler pages deploy --project-name playsnack --branch
+main` (see `docs/cloudflare-pages.md`). `playsnack.vercel.app` only redirects there
+(`vercel.json`), keeping the path and query.
 
 **With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
 
