@@ -38,6 +38,16 @@ export const MAX_PLAYERS = 1000;
  */
 export const WIRED = true;
 const KNOWN = new Set(KINDS);
+/**
+ * A browser's own usage, sent only as buckets in its once-a-day `seen` report (the counters stay
+ * in that browser — snack-player/src/deviceStats.ts uses the same lists). Event field -> stored prefix.
+ */
+export const USAGE_BUCKETS = {
+  uses: { prefix: 'devices_by_active_days:', values: new Set(['1', '2-3', '4-7', '8-14', '15-30', '31+']) },
+  games: { prefix: 'devices_by_games:', values: new Set(['0', '1', '2-4', '5-9', '10-19', '20-49', '50+']) },
+  made: { prefix: 'devices_by_made:', values: new Set(['0', '1', '2-4', '5+']) },
+  age: { prefix: 'devices_by_age:', values: new Set(['0', '1-6', '7-29', '30-89', '90+']) },
+};
 /** A browser's random id for the unique-device estimate: 128 bits, base64url, no padding. */
 export const DEVICE_ID_RE = /^[A-Za-z0-9_-]{22}$/;
 /** A host-engine id (`sid` game, `gid` made quiz): 16–32 URL-safe chars (docs/telemetry.md §9). */
@@ -51,7 +61,7 @@ const STRICT_KEYS = {
   game_created: new Set(['k', 'app', 'source', 'gid']),
   ask_shown: new Set(['k', 'app']),
   ask_answer: new Set(['k', 'app', 'a', 'why']),
-  seen: new Set(['k', 'd']),
+  seen: new Set(['k', 'd', 'uses', 'games', 'made', 'age']),
 };
 
 /** Player-count bucket: 1 · 2 · 3 · 4-5 · 6-8 · 9+. */
@@ -168,6 +178,7 @@ export function normalizeEvent(raw) {
   let errAt; // { where, build } of an err event (for the server's live log line)
   let once;
   let device;
+  const usage = []; // `seen` usage buckets: also kept per month (device-days)
   if (Object.hasOwn(STRICT_KEYS, k) && Object.keys(ev).some((f) => !STRICT_KEYS[k].has(f))) return null;
   const withApp = () => {
     const app = normApp(ev.app);
@@ -251,6 +262,12 @@ export function normalizeEvent(raw) {
       // `d` = the browser's random id (22 base64url chars = 128 bits). It is only ever
       // salted-hashed into a HyperLogLog (api/ev.js) — never stored, logged or counted as is.
       if (!DEVICE_ID_RE.test(ev.d)) return null;
+      for (const [key, b] of Object.entries(USAGE_BUCKETS)) {
+        if (ev[key] === undefined) continue;
+        if (!b.values.has(ev[key])) return null;
+        fields.push(`${b.prefix}${ev[key]}`);
+        usage.push([`${b.prefix}${ev[key]}`, 1]);
+      }
       device = ev.d;
       break;
     case 'ask_shown':
@@ -281,6 +298,7 @@ export function normalizeEvent(raw) {
   fields.unshift(F.n);
   const monthly = all.filter(([f]) => MONTHLY_FIELDS.includes(f));
   if (fields.includes('joins_ok')) monthly.push(['joins_ok', 1]);
+  monthly.push(...usage);
   return { kind: k, fields, err, all, monthly, once, ...(device ? { device } : {}), ...(errAt ? errAt : {}) };
 }
 
@@ -392,6 +410,12 @@ export function summarize(c) {
     askSkip: n('answered_again_skip'),
     askNoReasons: byPrefix(c, 'answered_again_no_reason:'),
     errors: n('errors_total'),
+    // Once-a-day browser reports and their usage buckets (devices, not people).
+    devicesSeen: n('device_checkins'),
+    devicesByAge: byPrefix(c, USAGE_BUCKETS.age.prefix),
+    devicesByUses: byPrefix(c, USAGE_BUCKETS.uses.prefix),
+    devicesByGames: byPrefix(c, USAGE_BUCKETS.games.prefix),
+    devicesByMade: byPrefix(c, USAGE_BUCKETS.made.prefix),
     bad: byPrefix(c, REJECTED_PREFIX),
   };
 }

@@ -7,8 +7,9 @@
 // Both expire 90 days after the last write of the instance that set them.
 //   stats:all_time                 hash  all-time counters for a fixed field list (no expiry; §9)
 //   stats:monthly:<YYYY-MM KST>    hash  the month's headline totals (schema.js MONTHLY_FIELDS) and the
-//                                        same per day, "<field>:day_<DD>" — no expiry (12 keys a year,
-//                                        ≤ 7 × 32 fields each): the /stats growth chart
+//                                        same per day, "<field>:day_<DD>", + the month's usage histograms
+//                                        ("devices_by_games:10-19" …, device-days) — no expiry (12 keys a
+//                                        year, ≤ 7 × 32 + 22 fields each): the /stats growth chart
 //   stats:devices:all_time · stats:devices:<YYYY-MM> · stats:devices:daily:<YYYY-MM-DD>
 //                                  HyperLogLog sketches of salted device-id hashes (≈1% error):
 //                                  only PFADD / PFCOUNT — the ids cannot be listed or reversed.
@@ -124,7 +125,11 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       for (const [f, n] of all) cmds.push(['HINCRBY', ALL_KEY, f, n]);
       // The month's headline totals + the same per day (never expire; the growth chart).
       const mk = monthlyKey(month || day.slice(0, 7));
-      for (const [f, n] of monthly) cmds.push(['HINCRBY', mk, f, n], ['HINCRBY', mk, monthlyDayField(f, day), n]);
+      // (Histogram fields — "devices_by_…:<bucket>" — are month totals only, no per-day copy.)
+      for (const [f, n] of monthly) {
+        cmds.push(['HINCRBY', mk, f, n]);
+        if (!f.includes(':')) cmds.push(['HINCRBY', mk, monthlyDayField(f, day), n]);
+      }
       // Unique devices: one PFADD per sketch, however many (already salted-hashed) ids.
       const dk = devicesDayKey(day);
       if (devices.length) {
@@ -216,7 +221,7 @@ export function createMemoryStore({ now = Date.now } = {}) {
         const m = hash(monthlyKey(month || day.slice(0, 7)));
         for (const [f, n] of monthly) {
           bump(m, f, n);
-          bump(m, monthlyDayField(f, day), n);
+          if (!f.includes(':')) bump(m, monthlyDayField(f, day), n);
         }
       }
       const total = bump(h, TOTAL_FIELD, accepted);

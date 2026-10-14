@@ -152,3 +152,35 @@ test('devices without EV_DEVICE_SALT: not counted, and GET says so', async () =>
   assert.equal(day.counters['devices_not_counted:no_salt'], 1);
   assert.ok(!JSON.stringify([...memoryStore.data]).includes('browserIdForTest'));
 });
+
+test('usage buckets in the daily `seen` report: daily + monthly histograms, bounded, nothing per device', async () => {
+  const t = Date.parse('2026-10-14T03:00:00Z');
+  const up = fakeUpstash();
+  const h = createHandler({ env: { ...KV, EV_DEVICE_SALT: SALT }, fetch: up.fetch, now: () => t, limiter: roomy });
+  const r = await h(post([
+    { k: 'seen', d: ID(1), uses: '1', games: '0', made: '0', age: '0' }, // a first visit
+    { k: 'seen', d: ID(2), uses: '8-14', games: '10-19', made: '5+', age: '30-89' }, // a regular
+    { k: 'seen', d: ID(3), uses: '8-14', games: '20-49', made: '1', age: '7-29' },
+    { k: 'seen', d: ID(4), games: '12' }, // not a bucket -> dropped
+    { k: 'seen', d: ID(5), uses: '1', gamesFinished: 3 }, // raw counter field -> dropped
+  ]));
+  assert.deepEqual(await r.json(), { ok: true, accepted: 3, dropped: 2 });
+  const day = Object.fromEntries(up.db.get('stats:daily:2026-10-14'));
+  assert.equal(day.device_checkins, 3);
+  assert.equal(day['devices_by_age:0'], 1);
+  assert.equal(day['devices_by_active_days:8-14'], 2);
+  assert.equal(day['devices_by_games:10-19'], 1);
+  assert.equal(day['devices_by_made:5+'], 1);
+  const month = Object.fromEntries(up.db.get('stats:monthly:2026-10'));
+  assert.equal(month['devices_by_games:20-49'], 1);
+  assert.ok(!Object.keys(month).some((f) => f.startsWith('devices_by_') && f.includes(':day_')), 'no per-day copy of histograms');
+  // The apply pipeline — every command metered: INCRBY + EXPIRE(budget) + events_total + device_checkins
+  // + 11 distinct day buckets + rejected_events:seen + 11 month buckets + 3 PFADD + EXPIRE(daily devices) + EXPIRE(day).
+  const apply = up.calls[0];
+  assert.equal(apply[0][2], apply.length);
+  assert.equal(apply.length, 2 + 1 + 1 + 11 + 1 + 11 + 3 + 1 + 1);
+  const g = await (await h(get())).json();
+  assert.deepEqual(g.summary.devicesByGames, { '0': 1, '10-19': 1, '20-49': 1 });
+  assert.equal(g.summary.devicesSeen, 3);
+  assert.ok(!JSON.stringify(up.calls).includes('browserIdForTest'));
+});

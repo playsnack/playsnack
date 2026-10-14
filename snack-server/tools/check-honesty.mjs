@@ -59,6 +59,11 @@ const ALLOW = [
     why: "true: the nickname is kept in this browser's localStorage only",
   },
   {
+    file: /^snack-player\/src\/StatsLink\.tsx$/,
+    re: /이 브라우저에 무작위 번호를 저장해요/,
+    why: "true: the anonymous-stats browser id is kept in this browser's localStorage (deviceStats.ts snack.did)",
+  },
+  {
     file: /^snack-player\/src\/backend\.ts$/,
     re: /서버(가 응답하지 않아요| 응답을 읽지 못했어요)/,
     why: "error shown after a REAL request to the AI builder failed (not a claim of a server feature)",

@@ -15,7 +15,7 @@ import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, go
 import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
 import { joinTracker } from "./roomJoin";
-import { trackRoomCreate, trackShare } from "./telemetry";
+import { noteDeviceUsage, trackRoomCreate, trackShare } from "./telemetry";
 import {
   MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage, packPending,
   type QuizInfo, type QuizPack, type RoomEntry,
@@ -229,6 +229,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     const action = packAction(state);
     if (action === "confirm") {
       store.confirmRoomPack(roomId);
+      if (!entry.confirmed) noteDeviceUsage("made"); // first confirm only; this browser's own counter (deviceStats.ts); only buckets ever leave
       setPackFail(null);
     } else if (action === "forget") {
       // Someone else's quiz is the room's now: stop sending mine here (it stays in the recent list).

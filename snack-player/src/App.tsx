@@ -16,13 +16,15 @@ import { LoadingScreen, MessageScreen, goHome } from "./Screens";
 // hides it: #/create goes home, and the builder code is not part of the build.
 // The "나 맞히기" maker, loaded only when opened (play links do not pay for it).
 const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m.QuizMaker })));
+// The anonymous stats page (/stats), loaded only when opened.
+const StatsPage = lazy(() => import("./StatsPage.tsx").then((m) => ({ default: m.StatsPage })));
 const CreateApp = import.meta.env.VITE_SERVER_URL
   ? lazy(() => import("./CreateApp.tsx").then((m) => ({ default: m.CreateApp })))
   : null;
 
 // Routing (no router dep, see backend.currentRoute / links.ts): ?bite=<name> ->
 // Bite dev player (public/bite/<name>.bite.json); /create -> builder (server
-// builds only); /p/:slug -> live player; otherwise -> Discover home. Old hash
+// builds only); /p/:slug -> live player; /stats -> anonymous stats; otherwise -> Discover home. Old hash
 // links (#/p/:slug) are read the same way and rewritten to the path form.
 export function App() {
   // In-app moves (navigate(), back/forward, an old hash link changing) re-read the route.
@@ -69,6 +71,8 @@ export function App() {
     if (isLive) { const g = randomNick(); saveNick(g, { auto: true }); return g; }
     return null;
   });
+  // /stats shows counts only and needs no nickname.
+  if (route.name === "stats") return <Suspense fallback={<LoadingScreen />}><StatsPage onHome={() => navigate("/")} /></Suspense>;
   if (route.name !== "bite" && !isLive && !nick) return <NicknameGate onDone={setNick} />;
 
   if (route.name === "bite") return <BiteFilePlayer />;

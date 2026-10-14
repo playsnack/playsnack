@@ -109,6 +109,7 @@ test('each new kind is accepted and aggregated (day counters, summary, all-time)
     joinMs: { '0-1s': 1, '1-2s': 0, '2-3s': 0, '3-5s': 0, '5-10s': 0, '10s+': 0 },
     share: 2, shareWhat: { invite: 1 },
     askShown: 1, askYes: 1, askNo: 1, askSkip: 1, askNoReasons: { laggy: 1 }, errors: 0,
+    devicesSeen: 0, devicesByAge: {}, devicesByUses: {}, devicesByGames: {}, devicesByMade: {},
     bad: {},
   });
   assert.equal(a.wired, true, 'the app sends these (docs/telemetry.md §9.5)');
