@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createBite, type BiteApp, type BiteDoc } from "@snack/bite";
 import { absBoxes, type Instance } from "@snack/bite-layout";
 import { mountBite, type BiteView } from "@snack/bite-pixi";
 import { loadAppData } from "./backend";
+import { canvasDrop } from "./canvasFit";
 
 export type TextSelection = { layerId: string; rect: DOMRect; text: string; editable: boolean } | null;
 export type EditableRect = { layerId: string; editable: boolean; rect: { left: number; top: number; width: number; height: number } };
@@ -50,6 +51,24 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
   selectRef.current = onSelectText;
   const rectsRef = useRef(onEditableRects);
   rectsRef.current = onEditableRects;
+  // On a short phone the canvas starts a little lower so the shell's top row
+  // never covers the app's top line (canvasFit.ts).
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [drop, setDrop] = useState(0);
+  const fw = doc.frame?.[0] ?? 390;
+  const fh = doc.frame?.[1] ?? 844;
+  useEffect(() => {
+    const area = areaRef.current!;
+    const measure = () => setDrop(canvasDrop(area.clientWidth, area.clientHeight, [fw, fh]));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(area);
+    return () => ro.disconnect();
+  }, [fw, fh]);
+  const viewRef = useRef<BiteView | null>(null);
+  useEffect(() => {
+    viewRef.current?.pixi.resize(); // Pixi follows window resizes only
+  }, [drop]);
 
   useEffect(() => {
     const el = ref.current!;
@@ -97,6 +116,7 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
         return;
       }
       view = v;
+      viewRef.current = v;
       if (editable) {
         el.addEventListener("pointerdown", onEditPointer, true);
         el.addEventListener("mousedown", onEditMouseDown, true);
@@ -106,6 +126,7 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
     });
     return () => {
       disposed = true;
+      viewRef.current = null;
       el.removeEventListener("pointerdown", onEditPointer, true);
       el.removeEventListener("mousedown", onEditMouseDown, true);
       view?.destroy();
@@ -114,5 +135,9 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
 
   // Below the notch (safe-area inset, see index.html) — the shell pills use the
   // same inset, so they never cover the app's top row on a notch phone.
-  return <div ref={ref} style={{ position: "fixed", top: "var(--snack-safe-top)", left: 0, right: 0, bottom: 0, background: "#0b0c0e" }} />;
+  return (
+    <div ref={areaRef} style={{ position: "fixed", top: "var(--snack-safe-top)", left: 0, right: 0, bottom: 0, background: "#0b0c0e" }}>
+      <div ref={ref} style={{ position: "absolute", top: drop, left: 0, right: 0, bottom: 0 }} />
+    </div>
+  );
 }
