@@ -86,7 +86,7 @@ export function GrowthChart({ series, unit, label }: { series: GrowthSeries; uni
   return (
     <div style={frame}>
       <div style={readout} aria-live="polite">
-        <span style={{ color: C.inkMuted }}>{pts[at].label}{series.by === "month" ? " 까지" : ""}</span>{" "}
+        <span style={{ color: C.inkMuted }}>{pts[at].label}{series.by === "month" ? "까지" : ""}</span>{" "}
         누적 <b style={{ color: C.ink }}>{fmtInt(pts[at].value)}{unit}</b>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`${label} 누적 그래프, ${pts[0].label}부터 ${pts[pts.length - 1].label}까지 ${fmtInt(pts[pts.length - 1].value)}${unit}`}
@@ -109,6 +109,7 @@ export function GrowthChart({ series, unit, label }: { series: GrowthSeries; uni
         {hover !== null && <line x1={x(at)} x2={x(at)} y1={PAD.t} y2={PAD.t + ih} stroke={C.inkMuted} strokeWidth={1} strokeDasharray="3 3" />}
         <circle cx={x(at)} cy={y(pts[at].value)} r={5} fill={C.accent} stroke={C.surface} strokeWidth={2} />
       </svg>
+      {pts.length === 1 && <p style={{ ...help, margin: `${S.s1}px 0 0` }}>첫 기록이에요 — 다음 날부터 선으로 이어져요.</p>}
       <details style={{ marginTop: S.s2 }}>
         <summary style={{ color: C.inkMuted, fontSize: TOKENS.size.bodySm, cursor: "pointer", minHeight: 32 }}>표로 보기</summary>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: TOKENS.size.bodySm }}>

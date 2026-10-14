@@ -96,7 +96,7 @@ test("rendered page: plain Korean, honest notes, no fake-live words", async () =
   const html = renderToStaticMarkup(createElement(StatsBody, { m, g: growth, at: null, onReload: () => {} }));
   for (const s of ["날마다", "최근 7일", "자주 쓰는 사람", "오늘 들어온 기기", "5대", "처음 온 기기", "40%", "다시 온 기기", "60%", "10판 이상 한 기기", "퀴즈를 5개 이상 만든 기기", "1대", "10/14 (수)", "오늘", "방 입장", "입장까지 걸린 시간", "4번 중 3번은", "1초 이하", "10초 넘음",
     "공유", "다음에도 하고 싶나요?", "좋아요", "아니요", "건너뜀", "사람이 적어요", "앱에서 난 문제", "이번 달 무료 한도", "400,000",
-    "잠깐만 남는 임시 숫자", "처음부터 지금까지"]) assert.ok(html.includes(s), s);
+    "잠깐만 남는 임시 숫자"]) assert.ok(html.includes(s), s);
   assert.ok(!html.includes("아직 연결 전"), "wired: no 'not connected' note");
   assert.ok(!html.includes("아직 기록이 없어요"), "every fixture day has records");
   // No developer words for a visitor.
@@ -214,5 +214,6 @@ test("growth from the real API: totals, since-month, devices (추정) and the ch
   const chart = renderToStaticMarkup(createElement(GrowthChart, { series: one, unit: "판", label: "끝난 판" }));
   assert.match(chart, /<circle/);
   assert.ok(!chart.includes("<polyline"), "one point: a dot, no line");
+  assert.ok(chart.includes("첫 기록이에요"));
   assert.ok(renderToStaticMarkup(createElement(GrowthChart, { series: { by: "day", points: [] }, unit: "판", label: "끝난 판" })).includes("아직 기록이 없어요"));
 });

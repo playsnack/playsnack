@@ -238,18 +238,6 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
         </p>
       </section>
 
-      {Object.keys(m.cumulative).length > 0 && (
-        <>
-          <H2>처음부터 지금까지</H2>
-          <section style={card}>
-            <Row label="끝난 판" value={fmtInt(m.cumulative.games_finished || 0)} small />
-            <Row label="3명 이상 끝난 판" value={fmtInt(m.cumulative.games_finished_3plus || 0)} small />
-            <Row label="퀴즈 만들어짐" value={fmtInt(m.cumulative.quizzes_created || 0)} small />
-            <Row label="친구 방 만들어짐" value={fmtInt(m.cumulative.rooms_created || 0)} small />
-          </section>
-        </>
-      )}
-
       <p style={{ ...help, marginTop: S.s5 }}>
         숫자는 최대 30초 늦을 수 있어요.{at && ` 마지막으로 읽은 시각 ${at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}.`}
       </p>
