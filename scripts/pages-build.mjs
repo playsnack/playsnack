@@ -4,8 +4,8 @@
 //   PAGES_ROOM_URL= node scripts/pages-build.mjs   → rollback build: rooms back on the MQTT mesh
 // = `pnpm player:build` with VITE_ROOM_URL set for this build only (the Vercel build is
 // untouched: it never sets it), then the Pages routing files from cloudflare/pages/ are
-// copied into the output (_redirects = vercel.json rewrites, _routes.json = only /api/* runs
-// Functions so static files never spend the free 100k requests/day).
+// copied into the output (_redirects = vercel.json rewrites, _routes.json = only /api/* and the /p/*
+// HTML (link previews, #106) run Functions, so static files never spend the free 100k requests/day).
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";

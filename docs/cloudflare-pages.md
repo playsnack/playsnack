@@ -10,7 +10,8 @@
 | `wrangler.jsonc` (루트) | Pages 프로젝트 설정: `pages_build_output_dir = snack-player/dist`, `nodejs_compat`(api가 `node:crypto`·`Buffer` 사용). 비밀값은 여기 없음 |
 | `scripts/pages-build.mjs` | `pnpm player:build` + 이 빌드에만 `VITE_ROOM_URL=wss://snack-room.playsnack.workers.dev` + `cloudflare/pages/*`를 `dist`에 복사. `PAGES_ROOM_URL=`(빈 값)이면 방 = 기존 MQTT 메시 |
 | `cloudflare/pages/_redirects` | `vercel.json` rewrites와 같은 SPA 경로: `/p/*`, `/create`, `/stats` → 앱(200 rewrite, 주소 유지). 대상은 `/` — `/index.html`로 쓰면 Pages의 `.html` 제거 리다이렉트와 맞물려 무한 루프(wrangler가 경고하고 규칙을 버림) |
-| `cloudflare/pages/_routes.json` | Functions는 `/api/ev`, `/api/room-result`만. 정적 파일은 Functions를 거치지 않아 Workers 무료 10만 요청/일을 안 쓴다 |
+| `cloudflare/pages/_routes.json` | Functions는 `/api/ev`, `/api/room-result`, `/p/*`(링크 미리보기 메타, #106 — docs/link-previews.md)만. 정적 파일(JS·폰트·그림)은 Functions를 거치지 않아 Workers 무료 10만 요청/일을 안 쓴다 |
+| `functions/p/[[path]].js` | `/p/*` HTML: 같은 index.html에 그 링크의 og:/twitter: 메타(HTMLRewriter). 한도 초과 시 fail open → `_redirects` 정적 rewrite로 앱은 그대로 |
 | `functions/api/ev.js`, `functions/api/room-result.js` | Pages Functions. 로직 없음 — `api/ev.js` · `api/room-result.js`의 `createHandler`를 그대로 `api/_lib/pages.js` 어댑터로 감쌈 (Vercel과 한 소스) |
 | `api/_lib/pages.js` | 어댑터: ① env = `context.env`의 문자열 값만(바인딩 제외), 한 객체에 복사해 isolate 안에서 제한기·캐시·메모리 저장소 상태 유지 ② 클라이언트 주소 = `cf-connecting-ip`만 신뢰 — 클라이언트가 보낸 `x-vercel-forwarded-for`/`x-forwarded-for`/`x-real-ip`는 지움(Vercel 밖에선 위조 가능, telemetry.md §5) — 여전히 메모리에서 해시만 ③ 공식 앱 목록: Workers는 런타임에 `index.json`을 못 읽으므로 함수가 번들(JSON import)해 `apps.js`의 `primeAppIds()`로 넣음 |
 | `api/_test/pages.test.js` | 어댑터 단위 테스트(위조 헤더로 제한 회피 불가, env/상태, 함수 배선, appsKnown) |
@@ -93,5 +94,6 @@ edge/room/node_modules/.bin/wrangler pages secret put EV_DEVICE_SALT           -
 
 ## 6. 무료 한도 메모
 - Pages 정적: 요청 무제한. `_routes.json` 덕분에 정적 파일은 함수 호출 0.
+- `/p/*` 페이지 열기 1번 = 함수 요청 1건(#106 링크 미리보기; 사람·크롤러 모두). 하루 5천 번 열면 5%. 넘으면 fail open(정적 rewrite, 미리보기만 기본) — docs/link-previews.md §5.
 - Functions = Workers 요청 **10만/일**, **엣지 방 서버(snack-room)와 공유**(edge-rooms.md 무료 표). `/api/ev`는 페이지당 비콘 몇 건 + /stats 읽기; 지금 규모에선 여유지만, 방 서버 사용량(`GET https://snack-room.playsnack.workers.dev/usage`)과 합쳐서 본다. 넘으면 그날 함수가 에러 → 텔레메트리는 응답을 안 기다리므로 앱 동작엔 영향 없음.
 - Cloudflare 자체 요청 로그(IP 포함 가능)는 이 코드 밖이다(Vercel과 같은 성격, telemetry.md §8).
