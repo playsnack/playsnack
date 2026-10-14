@@ -33,7 +33,7 @@ node snack-server/tools/pages-e2e.mjs https://test.playsnack.pages.dev --joins 5
 
 로컬: `edge/room/node_modules/.bin/wrangler pages dev --port 4570 --ip 127.0.0.1 --inspector-port 4571` (workerd에서 함수까지 실행; 확인됨: appsKnown 44, POST 200).
 
-## 3. 1단계 검증 결과 (2026-10-14, 배포 `d12bface` = 커밋 9b32ab6)
+## 3. 1단계 검증 결과 (2026-10-14, 배포 `6902e900` = 커밋 c572a2d)
 
 `node snack-server/tools/pages-e2e.mjs https://test.playsnack.pages.dev --joins 5` → **14/14**.
 
@@ -43,14 +43,14 @@ node snack-server/tools/pages-e2e.mjs https://test.playsnack.pages.dev --joins 5
 
 | 회 | 방장(링크→방) | 친구(링크→방) | 친구(페이지 준비→방) |
 |---|---|---|---|
-| 1 | 1274 | 1313 | 1049 |
-| 2 | 1203 | 1540 | 991 |
-| 3 | 1474 | 1417 | 1058 |
-| 4 | 1388 | 1392 | 963 |
-| 5 | 1054 | 1125 | 903 |
-| 중앙값 | 1274 | 1392 | 991 |
+| 1 | 1839 | 1337 | 1090 |
+| 2 | 1183 | 1166 | 940 |
+| 3 | 1038 | 1266 | 1026 |
+| 4 | 945 | 1253 | 982 |
+| 5 | 1288 | 1248 | 951 |
+| 중앙값 | 1183 | 1253 | 982 |
 
-  (앞선 같은 실행 1회: 방장 1076–2262, 친구 1186–1748.) 회사 Mac → 서울 근처 엣지 기준이며 폰/LTE 수치는 아니다.
+  (앞선 배포 `d12bface`에서 두 번 더 돌린 10회: 방장 1054–2262, 친구 1125–1748, 14/14.) 회사 Mac → 서울 근처 엣지 기준이며 폰/LTE 수치는 아니다.
 - 1:1 기본 퀴즈를 실제 탭으로 결과 화면까지(두 브라우저 모두 `result`).
 - 자동화 표시: Playwright가 `navigator.webdriver`를 켜 플레이어가 텔레메트리를 안 보냄 — 두 브라우저에서 `POST /api/ev` **0건** 확인. 서버도 자동화 UA를 버린다. 시험 주소는 비밀값이 없어 어차피 Upstash에 안 닿는다.
 
