@@ -124,7 +124,7 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
     }
     y += 40;
   } else if (view.mode === "rank") {
-    const rowH = 104;
+    const rowH = 106;
     const maxRows = 5;
     const rows = view.ranks.slice(0, maxRows);
     for (const r of rows) {
@@ -135,15 +135,20 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
       const rankStyle = { font: "body" as const, weight: 800, size: 34 };
       const nickStyle = { font: "body" as const, weight: 700, size: 40 };
       const scoreStyle = { font: "body" as const, weight: 700, size: 40 }; // "4,111점" has Korean: body face
-      const ty = y + (rowH - 10 - lineH(nickStyle)) / 2;
-      text(r.rankLabel, PAD + 28, ty + 4, rankStyle, sub, "left", 170);
-      // Points (speed counts) on the right; under the name: hit rate and average time.
-      const scoreW = Math.min(300, measure(r.scoreLabel, scoreStyle));
-      text(r.scoreLabel, PAD + INNER - 28, ty - 14, scoreStyle, ink, "right", 300);
-      if (r.accuracyLabel) text(r.accuracyLabel, PAD + INNER - 28, ty + 34, { font: "body", weight: 600, size: 26 }, sub, "right", 420);
+      const accStyle = { font: "body" as const, weight: 600, size: 26 };
+      // Two lines (#92): rank · nick · points on top; under the nick, out to the
+      // right edge, the hit rate and average time ("5/6 맞힘 · 83% · 평균 2.0초").
+      const accY = Math.round(nickStyle.size * 1.25); // the nick's line minus its bottom leading
+      // Centre the glyphs (textBaseline top: a line's ink is about its font size tall).
+      const ty = y + (rowH - 10 - (r.accuracyLabel ? accY + accStyle.size * 1.15 : lineH(nickStyle))) / 2;
       const nickX = PAD + 28 + 180;
+      const right = PAD + INNER - 28;
+      text(r.rankLabel, PAD + 28, ty + 4, rankStyle, sub, "left", 170);
+      const scoreW = Math.min(300, measure(r.scoreLabel, scoreStyle));
+      text(r.scoreLabel, right, ty, scoreStyle, ink, "right", 300);
       const leftTag = r.left ? " (나감)" : "";
-      text(r.nick + leftTag, nickX, ty, nickStyle, ink, "left", PAD + INNER - 28 - scoreW - 24 - nickX);
+      text(r.nick + leftTag, nickX, ty, nickStyle, ink, "left", right - scoreW - 24 - nickX);
+      if (r.accuracyLabel) text(r.accuracyLabel, nickX, ty + accY, accStyle, sub, "left", right - nickX);
       y += rowH;
     }
     if (view.ranks.length > maxRows) {

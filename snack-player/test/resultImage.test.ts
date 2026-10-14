@@ -50,6 +50,33 @@ test("group picture: ranking with honest ties and the leaver marked; ≤ 3 highl
   assertInside(ops);
 });
 
+test("ranking rows: the hit-rate line sits under the nick, whole, clear of the nick and the points (#92)", () => {
+  const v = buildResultView({ ...group, myNick: "하늘" });
+  const widest = { ...v, ranks: v.ranks.map((r) => ({ ...r, scoreLabel: "10,000점", accuracyLabel: "10/10 맞힘 · 100% · 평균 8.9초" })) };
+  for (const view of [v, widest]) {
+    const ops = texts(planResultImage(view, measure));
+    const box = (o: (typeof ops)[number]) => {
+      const w = measure(o.text, o.style);
+      const x = o.align === "left" ? o.x : o.align === "right" ? o.x - w : o.x - w / 2;
+      return { x, y: o.y, w, h: o.style.size * 1.25 }; // textBaseline top: the glyphs, without the line's bottom leading
+    };
+    const hit = (a: ReturnType<typeof box>, b: ReturnType<typeof box>) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const accs = ops.filter((o) => view.ranks.some((r) => r.accuracyLabel && o.text.startsWith(r.accuracyLabel.slice(0, 4))));
+    const nicks = ops.filter((o) => o.style.size === 40 && o.align === "left");
+    assert.equal(accs.length, view.ranks.length);
+    view.ranks.forEach((r, i) => {
+      const acc = accs[i];
+      assert.equal(acc.text, r.accuracyLabel, `"${r.accuracyLabel}" drawn whole`);
+      const nick = nicks[i];
+      assert.ok(nick.text.startsWith(r.nick));
+      assert.equal(acc.x, nick.x, "under the nick");
+      assert.ok(acc.y > nick.y, "below the nick");
+      for (const o of ops) if (o !== acc) assert.ok(!hit(box(acc), box(o)), `"${r.accuracyLabel}" overlaps "${o.text}"`);
+    });
+    assertInside(planResultImage(view, measure));
+  }
+});
+
 test("the top answerer row is the lime hero; others are dark", () => {
   const v = buildResultView({ ...group });
   const rects = planResultImage(v, measure).filter((o) => o.kind === "rect") as Extract<Op, { kind: "rect" }>[];
