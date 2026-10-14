@@ -23,6 +23,7 @@ import {
 // The maker is loaded only when opened (play links do not pay for it).
 const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m.QuizMaker })));
 import { makerLink, resultHooks, useResultExtras } from "./ResultExtras";
+import { InviteQrSheet, QrButton } from "./InviteQr";
 
 // "나도 만들기" on the quiz result screen opens the maker over this room (lane B).
 resultHooks.makeQuiz = () => openQuizMaker();
@@ -317,6 +318,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // reported. A present-but-invalid code never falls back to the public room.
   const code = roomParam.kind === "code" ? roomParam.code : null;
   const [invite, setInvite] = useState<"copied" | "show" | null>(null);
+  const [qrOpen, setQrOpen] = useState(false); // the same link as a QR, for friends right here
   const openFriendRoom = () => {
     const p = shareableParams(params);
     p.set("room", newRoomCode());
@@ -398,10 +400,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} />}
       {quizInvite && (
         <div style={quizInviteBand}>
-          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: 52 } : { ...pill, height: 52 }}
+          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: 52, flex: 1 } : { ...pill, height: 52 }}
             onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">
             {alone ? "🔗 친구 초대하기" : "🔗 친구 더 부르기"}
           </button>
+          <QrButton style={{ height: 52, minWidth: 52 }} onClick={() => setQrOpen(true)} />
         </div>
       )}
       {/* Quiz notices (top, under the home row): the invite result while the
@@ -427,9 +430,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       {withRoom && conn !== "failed" && !quizInvite && (
         <div style={inResult ? resultNoteDock : inviteDockTop}>
           {inviteFeedback}
-          {/* On the result screen its own "친구 초대" button replaces the pill (MP-09). */}
+          {/* On the result screen its own "친구 초대" button replaces the pill (MP-09).
+              QR once connected: the wide "방에 들어가는 중" chip needs the room on a 360 px screen. */}
           {inResult ? null : code
-            ? <button className="blk" style={pill} onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">🔗 친구 초대</button>
+            ? <div style={{ display: "flex", gap: 6 }}><button className="blk" style={pill} onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">🔗 친구 초대</button>{conn === "connected" && <QrButton onClick={() => setQrOpen(true)} />}</div>
             : <button className="blk" style={pill} onClick={openFriendRoom} aria-label="친구끼리 하는 방 만들기">🤝 친구끼리</button>}
         </div>
       )}
@@ -450,6 +454,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       )}
       <div ref={fxRef} style={fxOverlay} />
       {extras.overlay}
+      {/* The result screen's own "친구 초대" is the template's; its QR sits in the top row. */}
+      {withRoom && conn !== "failed" && inResult && <div style={inviteDockTop}><QrButton onClick={() => setQrOpen(true)} /></div>}
+      {qrOpen && <InviteQrSheet url={inviteUrl()} onClose={() => setQrOpen(false)} onCopied={() => trackShare("copy", code ? "invite" : "app", slug)} />}
       {/* Reactions are a "someone else is watching" feature, so the button only
           appears once another person is in the room. Solo play never shows it,
           so it can't cover the app's own bottom content. */}
@@ -501,7 +508,7 @@ const closeBtn: React.CSSProperties = {
 // once others are in, takes the bottom-right corner).
 const quizInviteBand: React.CSSProperties = {
   position: "fixed", left: 16, right: 16, bottom: "calc(var(--snack-safe-bottom) + 34px)", maxWidth: 488, margin: "0 auto",
-  display: "flex", justifyContent: "flex-start", zIndex: 13,
+  display: "flex", justifyContent: "flex-start", gap: 8, zIndex: 13,
 };
 // Notices over the top of the play area, under the home / people row.
 const topDock: React.CSSProperties = {

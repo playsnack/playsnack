@@ -139,8 +139,9 @@ export function appApiPath(slug: string, params: URLSearchParams): string {
 /** `?make=1`: open the quiz maker (quiz.ts). Only for the device that has it —
     never carried into a link handed to someone else. */
 export const MAKE_PARAM = "make";
-/** Params that act on this device only (dropped from every shared/derived link). */
-const DEVICE_ONLY_PARAMS = [MAKE_PARAM];
+/** Params that act on this device only (dropped from every shared/derived link).
+    `debug` turns the on-device test log on (debugLog.ts); a friend never gets it. */
+const DEVICE_ONLY_PARAMS = [MAKE_PARAM, "debug"];
 
 /** A link's params without the device-only ones, safe to hand out. */
 export function shareableParams(params: URLSearchParams): URLSearchParams {
