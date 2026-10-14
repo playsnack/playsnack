@@ -15,6 +15,7 @@ import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, go
 import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
 import { joinTracker } from "./roomJoin";
+import { trackRoomCreate, trackShare } from "./telemetry";
 import {
   MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage,
   type QuizInfo, type QuizPack, type RoomEntry,
@@ -313,6 +314,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const openFriendRoom = () => {
     const p = shareableParams(params);
     p.set("room", newRoomCode());
+    trackRoomCreate(slug); // the code itself is never sent
     navigate(playPath(slug, p));
   };
   // The result screen's "친구 초대" can run in the public room too: there it hands out the
@@ -320,9 +322,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const inviteUrl = () => (code ? friendLink(location.origin, slug, params, code) : makerLink(location.origin));
   const shareInvite = async () => {
     const url = inviteUrl();
+    const what = code ? "invite" : "app"; // the public room hands out the maker link
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({ url });
+        trackShare("web", what, slug);
         return;
       } catch (e) {
         if ((e as { name?: string })?.name === "AbortError") return; // the person closed the sheet: nothing happened
@@ -330,9 +334,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     }
     try {
       await navigator.clipboard.writeText(url);
+      trackShare("copy", what, slug);
       setInvite("copied");
       setTimeout(() => setInvite((s) => (s === "copied" ? null : s)), 2500);
     } catch {
+      trackShare("other", what, slug);
       setInvite("show"); // stays until ✕ — a long link needs time to long-press
     }
   };

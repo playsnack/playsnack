@@ -1,8 +1,8 @@
 # 익명 측정 (`/api/ev`) — Q0 레인 D
 
 > 마스터 플랜 §4 Q0 레인 D(측정 기반) · §6 개인정보. Q2 레인 D(공유 ID `?s=`, 이벤트 10개 이하, 대시보드, 안내 페이지)가 이 위에 붙는다.
-> 상태: 엔드포인트 + 클라이언트 + 테스트 완료. 앱 연결(2026-10-13 핫픽스): `main.tsx`가 오류 비컨(`window.error`·`unhandledrejection`)을 켜고, `LiveApp`이 방 입장 시도마다 `room_join` 1건을 보낸다(`roomJoin.ts` → `trackJoin`). 다른 이벤트(`open`·`first_tap`·`result`·`share`)는 아직 호출부 없음.
-> 무료 베타 지표(§9)는 **정의됨 · 앱 연결 전** — 서버 수신·집계와 클라이언트 헬퍼만 있고, 어떤 화면·엔진도 아직 보내지 않는다(`room_join`만 위 핫픽스로 연결됨).
+> 상태: 엔드포인트 + 클라이언트 + 테스트 완료. 앱 연결(2026-10-13 핫픽스): `main.tsx`가 오류 비컨(`window.error`·`unhandledrejection`)을 켜고, `LiveApp`이 방 입장 시도마다 `room_join` 1건을 보낸다(`roomJoin.ts` → `trackJoin`). `open`·`first_tap`·`result`는 아직 호출부 없음.
+> 무료 베타 지표(§9)는 **연결됨(2026-10-14, `claude/wire-metrics`)** — 엔진 훅(판 완료 · 재경기 · 게임 생성), 방 생성, 초대 · 결과 공유, 반응 문항. `WIRED = true`(§9.5).
 > **무료 전용**: Upstash 월 명령 예산을 KV 안에 두고 넘으면 멈춘다 — §5a.
 
 ## 1. 구성
@@ -55,7 +55,7 @@
 ```
 `budget.used` = 이 읽기 파이프라인의 `INCRBY` 응답(추가 명령 없음, 메모리 저장소면 `null`). 월 예산을 넘은 뒤엔 KV를 건드리지 않고 이 인스턴스가 마지막으로 읽은 본문(`"stale": true`) 또는 `{ "ok": false, "error": "budget_reached", "budget": {…} }`를 준다.
 모든 응답에 `x-ev-store: kv|memory` 헤더. `appsKnown`이 0이면 함수 번들에 `index.json`이 안 들어간 것(§8).
-응답에는 `wired`(§9 이벤트를 앱이 보내기 시작했는지 — 지금 `false`, 연결 커밋에서 `schema.js`의 `WIRED`를 바꾼다), `summary`(§9 숫자 요약), `cumulative`(누적 `ev:all`)도 들어 있다(위 예시는 생략). `wired: false`인 동안 0은 "0판"이 아니라 "안 잼"이다.
+응답에는 `wired`(§9 이벤트를 앱이 보내는지 — 2026-10-14 연결 커밋부터 `true`; 그 전 날짜의 0은 "안 잼"), `summary`(§9 숫자 요약), `cumulative`(누적 `ev:all`)도 들어 있다(위 예시는 생략). `wired: false`인 동안 0은 "0판"이 아니라 "안 잼"이다.
 
 ### GET `/api/ev?week=YYYY-Www`
 ISO 주(월–일, KST 날짜) 7일의 카운터를 더해 `{week, days, total, summary, counters, cumulative}`로 돌려준다(오류 문구는 날짜별 `?day=`로). 빈 값 = 이번 주. 읽을 수 있는 날짜(오늘−90 … 오늘+1)만 읽으므로 받는 주는 최대 15개, 한 번 = `/pipeline` 1요청(`HGETALL` ≤ 8개), 같은 30초 캐시. 형식 오류·없는 주(`2025-W53`) → `400 bad_week`, 범위 밖 → `400 week_out_of_range`.
@@ -136,10 +136,10 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 - **Upstash 명령 과금**: 무료 월 500K(가격 페이지 확인). pipeline 안 명령을 하나씩 세는지는 문서에 없음 → 하나씩 센다고 보고 KV 안 월 예산(§5a)으로 막았다(claim · release 포함 모든 파이프라인). 콘솔 수치와 `budget.used` 비교로 확인할 것.
 - Vercel 요청 로그의 IP 보관 정책, 함수 리전(KST 사용자 기준 지연), 인스턴스 수에 따른 메모리 제한기의 실효성.
 
-## 9. 무료 베타 지표 — 정의됨 · 앱 연결 전
+## 9. 무료 베타 지표 — 연결됨
 
 > 출처: [사업 계획](business-plan-2026.md) "무료 베타에서 볼 숫자" · 표 3단계(측정), [제품 기획서](product-brief-live-party-game.md) "사용자 반응 확인". 첫 게임 = **나 맞히기 퀴즈**(`speed-trivia-score`).
-> **상태: 서버 수신 · 집계 · 테스트와 클라이언트 헬퍼(`telemetry.ts`)만 있다. 엔진 · 화면 어디에서도 아직 보내지 않으므로 지금 이 숫자는 전부 0이고, GET 응답의 `wired: false`가 그걸 말한다.** 연결 위치는 §9.5.
+> **상태: 연결됨(2026-10-14).** 엔진 훅 → `telemetry.ts engineMetrics` → 메시 · 릴레이 전송, 화면(방 생성 · 초대 공유 · 결과 화면)에서 보낸다. GET 응답 `wired: true`. 연결 위치는 §9.5 끝 "연결 결과". **서버 모드 방(`ServerTransport`, snack-server가 엔진을 돌림)은 판 이벤트를 보내지 않는다** — 기본인 서버리스 메시 · `?host` 릴레이만 센다.
 
 ### 9.1 이벤트
 공통: `app` = 앱 id(§2 정규화, 공식 44개 · `custom` · `other`), 인원 버킷 `p` = `1 · 2 · 3 · 4-5 · 6-8 · 9+`(서버가 정수 1–1000을 버킷으로 바꿈). 아래 종류는 **필드 목록 밖의 키가 하나라도 있으면 이벤트째 버리고** `<종류>|bad`로 센다.
@@ -201,6 +201,12 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 13. 결과 화면 문항(새 UI) — 표시 때 `trackAskShown(slug, gameKey)`, 응답 때 `trackAskAnswer(slug, gameKey, a, why)`. `gameKey` = 이 기기에서 본 결과 화면 순번 등(보내지 않음).
 14. 위가 들어가는 커밋에서 `api/_lib/schema.js`의 `WIRED`를 `true`로 바꾼다.
 15. `telemetry.ts`의 `installErrorBeacon` · 측정 켜기 자체는 이 계획 밖(별도 결정).
+
+**연결 결과 (2026-10-14, 위 계획과 다른 점만):**
+- 엔진(`packages/snack-room/src/room.js`): `createRoom` 옵션 `onSessionStart` · `onSessionEnd` · `onGameCreated`(기본 no-op, 던지면 로그만). `onSessionEnd`는 `setPhase`에서 결과로 처음 넘어갈 때(`S.sid`가 있을 때만) `{sid, players: S.acted.size, quiz, about?, answerers?}`. `onGameCreated`의 `remake` 조건은 **`S.done > 0 && 보낸 사람 ≠ 직전 판 주인공(S.quizSubject)`**(결과 화면 · 로비 어디서 보내도 같음 — 7번의 대안 조건). 테스트: `packages/snack-room/test/metrics.test.js`.
+- 전송: 엔진 옵션 통로는 이미 있었다(`meshClient`/`relayClient`의 `engine`). `roomTransport.ts`가 `engine: engineMetrics(this.me.slug)`를 넘기고, `telemetry.ts engineMetrics`가 `again`일 때만 `trackRematch`, 퀴즈일 때만 `about` · `ans`를 붙인다.
+- 화면: `LiveApp.tsx` `openFriendRoom` → `trackRoomCreate`; `shareInvite` → `trackShare(web|copy|other, 친구방이면 "invite" · 공개방(만들기 링크)이면 "app")`. 결과 화면: `resultController`가 보고마다 `gameKey`(방 + `sessionNo`)를 같이 넘기고 `ResultExtras.reportResultEvent` → `telemetry.ts trackResultEvent`(`ask_shown` · `ask_answer` 판마다 1번, 결과 공유는 공유 시트 완료만).
+- 끝에서 끝: `api/_test/wiring.test.js`(메모리 버스 위 실제 메시 방 → 엔진 → 헬퍼 → 실제 `/api/ev` 핸들러; 1:1 퀴즈 = `session_done` 1건, 호스트가 판 중간에 나가도 1건).
 
 ### 9.6 누적(`ev:all`) 바로잡기
 날짜 키는 90일이면 사라지지만 `ev:all`은 영원하므로, 버그 · 시험 트래픽으로 부푼 누적은 손으로 고친다(단순함 우선, 기준선 계산 없음).

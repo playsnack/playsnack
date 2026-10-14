@@ -6,6 +6,7 @@
 // "participants", "reaction", "actionAck"; outbound actions and reactions.
 
 import { debugEnabled, dlog, noteRoomMessage } from "./debugLog";
+import { engineMetrics } from "./telemetry";
 
 export type RoomMessage = { t: string; d: Record<string, unknown> };
 
@@ -235,6 +236,7 @@ export class RelayTransport extends EngineTransport {
       WebSocket,
       me: this.me,
       eventsUrl: this.eventsUrl,
+      engine: engineMetrics(this.me.slug), // games are reported by the host only (docs/telemetry.md §9.5)
       onMessage: (m: RoomMessage) => {
         if (gen !== this.gen) return;
         if (m.t === "disconnected") this.fail(this.connState === "connected" ? "disconnected" : "unreachable");
@@ -267,6 +269,7 @@ export class MeshTransport extends EngineTransport {
       createBus: mqttBus({ room: this.me.slug, url: this.brokerUrl || undefined }),
       me: this.me,
       getPack: this.getPack,
+      engine: engineMetrics(this.me.slug), // games are reported by the host only (docs/telemetry.md §9.5)
       onRole: (isHost) => dlog("host", isHost ? "this device hosts the room" : "another player hosts"),
       // Mesh internals for the test log: line adoption / discovery; stale-host drops only counted.
       debug: debugEnabled()

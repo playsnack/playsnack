@@ -4,13 +4,14 @@
 //   made by the host engine); the server keeps only its hash, for 6 h (docs/telemetry.md §9).
 // - Off in dev, with VITE_TELEMETRY=off, or when Do Not Track / Global Privacy Control is set.
 // - Batches every 5 s / 20 events / when the page is hidden; sendBeacon, fetch keepalive fallback.
-// Wired: main.tsx (installErrorBeacon) and LiveApp via roomJoin.ts (trackJoin). The other
-// free-beta helpers at the end of this file are not called from the app yet.
+// Wired: main.tsx (installErrorBeacon), LiveApp via roomJoin.ts (trackJoin), room create and
+// invite share (LiveApp), the room engine's hooks (engineMetrics → roomTransport.ts) and the
+// result screen (ResultExtras.tsx reportResultEvent: ask_shown / ask_answer / result share).
 // Erasable TypeScript only (Node can run this file directly for tests).
 
 export type Route = 'home' | 'app' | 'room' | 'create' | 'other';
 export type ShareMethod = 'web' | 'kakao' | 'copy' | 'save' | 'other';
-// Free-beta metrics (docs/telemetry.md §9). Defined, not yet called from the app.
+// Free-beta metrics (docs/telemetry.md §9).
 export type ShareWhat = 'invite' | 'result' | 'app' | 'other';
 export type RoomKind = 'public' | 'friend';
 export type JoinFailReason =
@@ -213,7 +214,7 @@ export function installErrorBeacon(build?: string): void {
   });
 }
 
-// ── free-beta metrics (docs/telemetry.md §9 — defined, not yet wired) ──
+// ── free-beta metrics (docs/telemetry.md §9) ──
 
 /**
  * The app part of a slug or room id, so a friends-room code or a made app's hash is
@@ -303,4 +304,42 @@ export function trackAskAnswer(app: string, gameKey: string, a: AskAnswer, why?:
   const ev: Extract<TelemetryEvent, { k: 'ask_answer' }> = { k: 'ask_answer', app: appOf(app), a };
   if (a === 'no' && why) ev.why = why;
   track(ev);
+}
+
+/** A result-screen report (resultController.ts `ResultEvent`, structurally). */
+export type ResultReport =
+  | { k: 'ask_shown' }
+  | { k: 'ask_answer'; a: AskAnswer; why?: AskReason }
+  | { k: 'share'; method: ShareMethod; what: ShareWhat };
+
+/**
+ * The result screen's reports (ResultExtras.tsx reportResultEvent): the reaction question,
+ * once per game on this device (`gameKey`, never sent), and a result share that happened.
+ */
+export function trackResultEvent(e: ResultReport, slug: string, gameKey: string): void {
+  if (e.k === 'ask_shown') trackAskShown(slug, gameKey);
+  else if (e.k === 'ask_answer') trackAskAnswer(slug, gameKey, e.a, e.a === 'no' ? e.why : undefined);
+  else if (e.k === 'share') trackShare(e.method, e.what, slug);
+}
+
+/** What the room engine (@snack/room createRoom) reports on the host (docs/telemetry.md §9.5). */
+export type SessionStartInfo = { sid: string; players: number; again: boolean };
+export type SessionEndInfo = { sid: string; players: number; quiz: boolean; about?: boolean; answerers?: number };
+export type GameCreatedInfo = { gid: string; source: GameSource };
+
+/**
+ * The room engine's metrics hooks for a room (`slug` may be the room id `slug~CODE`):
+ * passed as `engine` to the mesh / relay client, so only the device running the room
+ * (the host) reports games — `session_done`, `rematch`, `game_created`.
+ */
+export function engineMetrics(slug: string) {
+  return {
+    onSessionStart: (e: SessionStartInfo) => {
+      if (e.again) trackRematch(slug, e.players, e.sid);
+    },
+    onSessionEnd: (e: SessionEndInfo) => {
+      trackSessionDone(slug, e.players, e.sid, e.quiz ? { about: Boolean(e.about), answerers: e.answerers ?? 0 } : undefined);
+    },
+    onGameCreated: (e: GameCreatedInfo) => trackGameCreated(slug, e.source, e.gid),
+  };
 }
