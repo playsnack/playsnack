@@ -49,6 +49,9 @@ const QUIZ_ANSWER_MS = [3000, 20000]; // answer window bounds (ms)
 // A device starts its answer clock when the question reaches it — after the host's —
 // so an honest claim never exceeds the window by much; beyond this it is not believed.
 const ANSWER_GRACE_MS = 500;
+// Early reveal: once every present answerer has answered, the round is revealed this long
+// later instead of at the end of the window (a beat to see "모두 골랐어요" — not a dead wait).
+export const EARLY_REVEAL_MS = 600;
 const RECAP_PLAYERS_MAX = 20; // answerers listed per round in quizRecap (snapshot size)
 // The subject switching apps (e.g. to share the invite in KakaoTalk) drops out of the
 // roster after ~3.5 s of silence; only this long away counts as "left" for the quiz rules.
@@ -131,6 +134,15 @@ const buildMatchups = (cands) => {
  * @param {() => number} [o.random]
  * @param {(fn: () => void, ms: number) => any} [o.setTimer]
  * @param {(handle: any) => void} [o.clearTimer]
+ * Free-beta metrics hooks (docs/telemetry.md §9.5) — fired on the engine that runs the
+ * room (the host), at most once per game / pack on that engine; ids come from the
+ * triggering action's clientMsgId, so a host hand-over that replays it reports the same id.
+ * @param {(e: {sid: string, players: number, again: boolean}) => void} [o.onSessionStart]
+ *   content loaded, countdown about to start; players = on the roster now; again = a game in this room reached its result before
+ * @param {(e: {sid: string, players: number, quiz: boolean, about?: boolean, answerers?: number}) => void} [o.onSessionEnd]
+ *   first move into "result"; players = took part (S.acted, a quiz subject counts); quiz only: about, answerers (subject excluded)
+ * @param {(e: {gid: string, source: "editor" | "remake"}) => void} [o.onGameCreated]
+ *   a valid quiz pack was accepted; remake = sent after a finished game by someone who was not its subject
  */
 export function createRoom(o) {
   const {
@@ -147,7 +159,18 @@ export function createRoom(o) {
     random = Math.random,
     setTimer = (fn, ms) => setTimeout(fn, ms),
     clearTimer = (h) => clearTimeout(h),
+    onSessionStart = () => {},
+    onSessionEnd = () => {},
+    onGameCreated = () => {},
   } = o;
+  // A metrics hook must never break the room.
+  const report = (hook, e) => {
+    try {
+      hook(e);
+    } catch (err) {
+      console.error("[snack-room] metrics hook failed", err);
+    }
+  };
 
   const r = {
     voters,
@@ -250,8 +273,10 @@ export function createRoom(o) {
     if (r.vars.has(id)) setVar(id, value);
   };
   const setPhase = (phase, extra = {}) => {
-    if (phase === "result" && S.phase !== "result") S.done += 1; // sessions finished in this room (telemetry §9.3)
+    const ended = phase === "result" && S.phase !== "result";
+    if (ended) S.done += 1; // sessions finished in this room (telemetry §9.3)
     S.phase = phase;
+    if (ended && S.sid) report(onSessionEnd, sessionEnded());
     setVar("sessionPhase", phase);
     for (const [k, v] of Object.entries(extra)) {
       if (k === "sessionCountdown") S.num = v;
@@ -264,6 +289,12 @@ export function createRoom(o) {
     setPhase("result");
     setKnown("raceBoard", raceBoard()); // a vote / co-op session has no board to show
     setKnown("leaderboard", board());
+  };
+  // session_done (telemetry §9.1): who took part, and for a quiz whether it was about someone + who answered.
+  const sessionEnded = () => {
+    const e = { sid: S.sid, players: S.acted ? S.acted.size : 0, quiz: Boolean(S.quiz) };
+    if (S.quiz) Object.assign(e, { about: Boolean(S.quizSubject), answerers: S.answerers ? S.answerers.size : 0 });
+    return e;
   };
   const inWindow = () => S.phase === "play" || (S.phase === "result" && now() <= (S.lateUntil ?? 0));
 
@@ -310,7 +341,31 @@ export function createRoom(o) {
   const quizProgress = () => {
     const here = [...r.roster.keys()].filter((id) => !isSubject(id));
     const picks = S.picks?.[S.roundIdx] ?? {};
-    return { answered: here.filter((id) => picks[id]).length, of: here.length };
+    // round / sessionNo: which round this count is for — a device that has the new round's
+    // values but not yet its fresh count must not read the last round's "everyone answered".
+    return { answered: here.filter((id) => picks[id]).length, of: here.length, round: S.roundIdx, sessionNo: S.round };
+  };
+  // Early reveal: everyone present (quizProgress — the subject and leavers excluded) has
+  // answered → reveal in EARLY_REVEAL_MS. Only an answer or a leave can complete a round;
+  // a join (someone new, or back without an answer) can only reopen it, back to the
+  // window's own end. The reveal timer is data, so the beat survives a hand-over
+  // (timers[].remaining); S.early says it was pulled in.
+  const syncReveal = ({ mayPull = true } = {}) => {
+    if (!S.quiz || S.phase !== "play" || !S.accepting) return;
+    const t = S.timers.find((x) => x.step === "revealQuizRound");
+    if (!t) return;
+    const p = quizProgress();
+    const allIn = p.of > 0 && p.answered >= p.of;
+    const fullIn = S.roundStart + S.answerMs - now();
+    if (allIn && !S.early && mayPull && fullIn > EARLY_REVEAL_MS) {
+      S.early = true;
+      cancel("revealQuizRound");
+      later("revealQuizRound", S.roundIdx, EARLY_REVEAL_MS);
+    } else if (!allIn && S.early) {
+      S.early = false;
+      cancel("revealQuizRound");
+      later("revealQuizRound", S.roundIdx, Math.max(0, fullIn));
+    }
   };
   const quizInfo = (count, answerMs) => {
     const p = S.quizPack;
@@ -358,6 +413,7 @@ export function createRoom(o) {
     S.roundIdx = i;
     S.answered = new Set();
     S.accepting = true;
+    S.early = false;
     S.roundStart = now();
     const { answer, ...pub } = S.rounds[i]; // clients must not see the answer
     void answer;
@@ -542,6 +598,7 @@ export function createRoom(o) {
     const custom = opts.quiz ? S.quizPack : null; // a player's own quiz: nothing to fetch
     let pack = custom ? null : await getPack(opts.game, opts);
     if (r.destroyed || S.gen !== myGen) return; // room gone or superseded during the fetch
+    report(onSessionStart, { sid: S.sid, players: r.roster.size, again: S.done > 0 });
     // A themed pack may come as {title, questions}.
     const packTitle = pack && !Array.isArray(pack) && typeof pack.title === "string" ? pack.title : "";
     if (pack && !Array.isArray(pack)) pack = Array.isArray(pack.questions) ? pack.questions : null;
@@ -759,6 +816,7 @@ export function createRoom(o) {
         r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + points);
         onPoints(anonId, nick, correct ? 2 : 1);
         setVar("quizProgress", quizProgress());
+        syncReveal();
       }
       ack(peerId, d?.clientMsgId);
     } else if (name === "quizPack") {
@@ -772,9 +830,12 @@ export function createRoom(o) {
       const pack = sanitizeQuizPack(d?.payload);
       if (!pack) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_pack" });
       const about = typeof d.payload.about === "string" ? capText(cleanNick(d.payload.about), NICK_MAX) : ""; // a display name, capped like a nickname
+      // 참가자→개설 (telemetry §9.1): after a finished game, from anyone but that game's subject.
+      const source = S.done > 0 && anonId !== S.quizSubject?.anonId ? "remake" : "editor";
       S.quizPack = { ...pack, id: idOf(d.clientMsgId), subject: { anonId, nick: about || peerNick(peer) || "게스트" } };
       S.subject = anonId;
       S.packDone = S.phase === "result" ? S.done : -1;
+      report(onGameCreated, { gid: S.quizPack.id, source });
       S.subjectAwayAt = null;
       watchSubjectAway();
       setVar("quizInfo", quizInfo());
@@ -830,7 +891,10 @@ export function createRoom(o) {
       setPhotos();
       if (S.quiz && (S.phase === "countdown" || S.phase === "play")) {
         addQuizPlayer(anonId, r.roster.get(anonId)); // a late joiner answers from now on
-        if (S.phase === "play") setVar("quizProgress", quizProgress());
+        if (S.phase === "play") {
+          setVar("quizProgress", quizProgress());
+          syncReveal({ mayPull: false }); // a newcomer who has not answered reopens the round
+        }
       }
       if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard()); // back after a flap: unmarked (MP-12)
       onActivity("join", "입장");
@@ -848,7 +912,10 @@ export function createRoom(o) {
       setPhotos();
       if (gone && r.scores.has(peer.anonId)) setKnown("raceBoard", raceBoard()); // now marked as left
       if (gone) maybeAdvanceMatchup(); // everyone still here may already have voted
-      if (gone && S.quiz && S.phase === "play") setVar("quizProgress", quizProgress());
+      if (gone && S.quiz && S.phase === "play") {
+        setVar("quizProgress", quizProgress());
+        syncReveal(); // the last one still to answer left: everyone here has
+      }
       if (gone && S.quizPack && peer.anonId === S.quizPack.subject.anonId) {
         S.subjectAwayAt = now(); // counts as left only after SUBJECT_GRACE_MS
         watchSubjectAway();

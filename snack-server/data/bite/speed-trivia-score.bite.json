@@ -46,9 +46,12 @@
     },
     "quizProgress": {
       "answered": 0,
-      "of": 0
+      "of": 0,
+      "round": -1,
+      "sessionNo": 0
     },
     "iAmSubject": false,
+    "packPending": "",
     "seenRound": -1,
     "seenAt": 0,
     "myMs": -1,
@@ -383,7 +386,7 @@
             "id": "navL",
             "use": "NavBar",
             "props": {
-              "title": "{quizInfo.custom ? (quizInfo.about + ' 맞히기') : '스피드 퀴즈'}",
+              "title": "{packPending != '' ? packPending : (quizInfo.custom ? (quizInfo.about + ' 맞히기') : '스피드 퀴즈')}",
               "subtitle": "대기실"
             }
           },
@@ -406,7 +409,7 @@
               },
               {
                 "id": "lobbyTitle",
-                "text": "{quizInfo.custom ? (quizInfo.about + ' 맞히기 · ' + quizInfo.count + '문제' + (iAmSubject ? '' : ' · 곧 시작해요')) : '스피드 퀴즈'}",
+                "text": "{packPending != '' ? (packPending + ' · 준비 중…') : (quizInfo.custom ? (quizInfo.about + ' 맞히기 · ' + quizInfo.count + '문제' + (iAmSubject ? '' : ' · 곧 시작해요')) : '스피드 퀴즈')}",
                 "width": 320,
                 "size": 22,
                 "font": "display",
@@ -416,7 +419,7 @@
               },
               {
                 "id": "lobbySub",
-                "text": "{quizInfo.custom ? (iAmSubject ? '친구를 초대해서 나를 얼마나 아는지 보자!' : '빠를수록 고득점') : '같은 문제를 동시에 풀어요 · 빠를수록 고득점'}",
+                "text": "{packPending != '' ? '내 퀴즈를 방에 올리는 중이에요' : (quizInfo.custom ? (iAmSubject ? '친구를 초대해서 나를 얼마나 아는지 보자!' : '빠를수록 고득점') : '같은 문제를 동시에 풀어요 · 빠를수록 고득점')}",
                 "width": 320,
                 "size": 15,
                 "weight": 600,
@@ -465,7 +468,7 @@
             "weight": 700,
             "color": "{quizInfo.custom ? '#d9ff00' : '#9aa3af'}",
             "align": "center",
-            "show": "phase == 'lobby' ? ((quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject) || (quizInfo.custom && iAmSubject && roster.length >= 2) || (!quizInfo.custom && !(roster.length >= 2))) : true"
+            "show": "phase == 'lobby' ? packPending == '' && ((quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject) || (quizInfo.custom && iAmSubject && roster.length >= 2) || (!quizInfo.custom && !(roster.length >= 2))) : true"
           },
           {
             "id": "startBtn",
@@ -475,7 +478,7 @@
             },
             "onTap": [
               {
-                "if": "phase == 'lobby' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject))",
+                "if": "phase == 'lobby' && packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject))",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -494,15 +497,15 @@
                 ]
               }
             ],
-            "show": "phase == 'lobby' ? (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) : true"
+            "show": "phase == 'lobby' ? packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) : true"
           },
           {
             "id": "waitBtn",
             "use": "GhostButton",
             "props": {
-              "label": "{quizInfo.custom && !iAmSubject ? (quizInfo.about + ' 님이 시작하면 바로 시작돼요') : '친구를 기다리는 중…'}"
+              "label": "{packPending != '' ? '준비 중…' : (quizInfo.custom && !iAmSubject ? (quizInfo.about + ' 님이 시작하면 바로 시작돼요') : '친구를 기다리는 중…')}"
             },
-            "show": "phase == 'lobby' ? !(!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) : false"
+            "show": "phase == 'lobby' ? (packPending != '' || !(!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject))) : false"
           },
           {
             "id": "inviteBand",
@@ -614,14 +617,14 @@
                     "x": 0,
                     "y": 0,
                     "height": 10,
-                    "width": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx ? round(298 * max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / (quizInfo.answerMs || 9000)) : 0}",
+                    "width": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx && !(quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? round(298 * max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / (quizInfo.answerMs || 9000)) : 0}",
                     "fill": "#d9ff00"
                   }
                 ]
               },
               {
                 "id": "timerSecs",
-                "text": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx ? ('' + ceil(max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / 1000)) : ''}",
+                "text": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx && !(quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('' + ceil(max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / 1000)) : ''}",
                 "width": 48,
                 "size": 22,
                 "font": "display",
@@ -642,7 +645,7 @@
           },
           {
             "id": "statusText",
-            "text": "{phase == 'play' ? (roundAnswer >= 0 ? (iAmSubject ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : (iAmSubject ? ('친구들이 고르는 중… (' + quizProgress.answered + '/' + quizProgress.of + ')') : (myAnswerRound === roundIdx ? '선택 완료! 공개를 기다려요' : (seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!'))))) : ''}",
+            "text": "{phase == 'play' ? (roundAnswer >= 0 ? (iAmSubject ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : (iAmSubject || myAnswerRound === roundIdx ? ((quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('다 골랐어요! 곧 공개 (' + quizProgress.answered + '/' + quizProgress.of + ')') : (iAmSubject ? ('친구들이 고르는 중… (' + quizProgress.answered + '/' + quizProgress.of + ')') : '선택 완료! 공개를 기다려요')) : ((seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!'))))) : ''}",
             "width": "fill",
             "size": 15,
             "weight": 700,
@@ -1500,7 +1503,7 @@
           {
             "id": "nextBanner",
             "box": "row",
-            "show": "resultView.next == 'waiting'",
+            "show": "resultView.next == 'waiting' || packPending != ''",
             "pad": [
               12,
               16
@@ -1511,7 +1514,7 @@
             "children": [
               {
                 "id": "nextBannerTxt",
-                "text": "{resultView.nextText}",
+                "text": "{packPending != '' ? (packPending + ' · 준비 중…') : resultView.nextText}",
                 "width": 326,
                 "size": 15,
                 "weight": 700,
@@ -1524,13 +1527,13 @@
           {
             "id": "startMineBtn",
             "use": "PrimaryButton",
-            "show": "resultView.next == 'startMine'",
+            "show": "packPending == '' && resultView.next == 'startMine'",
             "props": {
               "label": "내 퀴즈 시작하기 🚀"
             },
             "onTap": [
               {
-                "if": "phase == 'result' && roster.length >= 2",
+                "if": "packPending == '' && phase == 'result' && roster.length >= 2",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -1553,13 +1556,13 @@
           {
             "id": "againBtn",
             "use": "PrimaryButton",
-            "show": "resultView.next == 'again'",
+            "show": "packPending == '' && resultView.next == 'again'",
             "props": {
               "label": "다시 하기 🔁"
             },
             "onTap": [
               {
-                "if": "phase == 'result'",
+                "if": "packPending == '' && phase == 'result'",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -1582,7 +1585,7 @@
           {
             "id": "makeBtn",
             "use": "PrimaryButton",
-            "show": "canMake && resultView.next == 'make'",
+            "show": "packPending == '' && canMake && resultView.next == 'make'",
             "props": {
               "label": "나도 만들기 ✏️"
             },

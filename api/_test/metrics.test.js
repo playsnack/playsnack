@@ -79,7 +79,7 @@ test('each new kind is accepted and aggregated (day counters, summary, all-time)
     gamesCreated: 2, gamesRemade: 1, joinOk: 1, joinFail: 2, share: 2, askShown: 1, askYes: 1, askNo: 1, askSkip: 1,
     bad: {},
   });
-  assert.equal(a.wired, false, 'nothing sends these yet: zeros are not measurements');
+  assert.equal(a.wired, true, 'the app sends these (docs/telemetry.md §9.5)');
   assert.deepEqual(a.cumulative, {
     session_done: { n: 2, p3: 1 }, rematch: { n: 1 }, room_create: { n: 1 },
     game_created: { n: 2, source: { editor: 1, remake: 1 } },

@@ -32,7 +32,7 @@ export const MAX_PLAYERS = 1000;
  * Flip to true in the commit that makes the app send the free-beta kinds (§9.5), so a
  * reader of GET /api/ev never takes "0 games" for a measurement while nothing is wired.
  */
-export const WIRED = false;
+export const WIRED = true;
 const KNOWN = new Set(KINDS);
 /** A host-engine id (`sid` game, `gid` made quiz): 16–32 URL-safe chars (docs/telemetry.md §9). */
 export const SID_RE = /^[A-Za-z0-9_-]{16,32}$/;

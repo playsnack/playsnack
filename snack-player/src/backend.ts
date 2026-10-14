@@ -150,8 +150,12 @@ export async function getPack(game: string, opts: { theme?: string } = {}): Prom
 // (hivemq), or VITE_BROKER_URL set at build time (the gate points it at a local broker).
 // Never per client — players on different brokers would never meet.
 export const BROKER_URL = (import.meta.env.VITE_BROKER_URL as string | undefined) || undefined;
+// Room ids this page has just made a new code for (nobody can be in them yet): their
+// first join skips the mesh's wait for an existing host. In memory, used once.
+const freshRooms = new Set<string>();
+export const markFreshRoom = (roomId: string) => void freshRooms.add(roomId);
 export function createRoom(me: Identity, params: URLSearchParams): RoomTransport {
-  if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts));
+  if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts), freshRooms.delete(me.slug));
   const ws = (SERVER_URL || location.origin).replace(/^http/, "ws");
   return params.has("host") ? new RelayTransport(`${ws}/relay`, me, `${SERVER_URL}/api/pack`, `${SERVER_URL}/api/events`) : new ServerTransport(`${ws}/ws`, me);
 }

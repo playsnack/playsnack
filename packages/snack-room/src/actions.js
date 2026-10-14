@@ -58,6 +58,9 @@ export const HOST_ACTIONS = Object.freeze({
   // + 50 ms. One answer per player per round, only while a round is open; the quiz's subject
   // (pack sender) is ignored. round / sessionNo = what the device answered (roundIdx /
   // sessionNo): another round or game → actionAck {accepted:false, reason:"stale_round"}.
+  // Early reveal: the answer that completes quizProgress (every present answerer, the subject
+  // excluded) brings the reveal to EARLY_REVEAL_MS (600 ms) from now; so does the leave of the
+  // last one still to answer. A join never does — a newcomer reopens it to the window's end.
   answer: {
     payload: "object",
     fields: { option: { type: "number", required: true }, ms: { type: "number" }, round: { type: "number" }, sessionNo: { type: "number" } },
