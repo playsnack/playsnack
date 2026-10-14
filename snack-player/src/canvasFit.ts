@@ -31,3 +31,31 @@ export function canvasDrop(w: number, h: number, frame: Frame = [390, 844]): num
   while (drop < PILLS_BOTTOM && bandBottom(w, h, drop, frame) < PILLS_BOTTOM) drop++;
   return drop;
 }
+
+/** Where the frame lands in a `w`×`h` area: scale and top-left (px), as the renderer fits it below `canvasDrop`. */
+export function frameFit(w: number, h: number, frame: Frame = [390, 844]): { s: number; x: number; y: number } {
+  const [fw, fh] = frame;
+  const drop = canvasDrop(w, h, frame);
+  const ch = Math.max(0, h - drop);
+  const s = Math.min(w / fw, ch / fh); // renderer.js fit
+  return { s, x: (w - fw * s) / 2, y: drop + (ch - fh * s) / 2 };
+}
+
+// The quiz lobby's invite band (#94): the template leaves y 758–810 × x 16–374
+// of its 390×844 frame empty for the shell's invite button. The shell draws it
+// in CSS px, so it is placed through the same fit as the canvas — at a fixed
+// "34px above the bottom, 52 tall" it sat over 시작하기 on a short phone
+// (360×640: the frame shrinks to 0.74 and its band starts at 576, not 554).
+/** The band the quiz lobby leaves for the invite button, in frame units. */
+export const QUIZ_INVITE_BAND = { x: 16, y: 758, w: 358, h: 52 } as const;
+/** Smallest tap height for the band's buttons (CSS px); they never grow past the band's 52. */
+export const MIN_TAP = 44;
+
+/** The invite band on screen (px from the area's top-left) in a `w`×`h` area. */
+export function quizInviteBandRect(w: number, h: number, frame: Frame = [390, 844]): { x: number; y: number; w: number; h: number } {
+  const { s, x, y } = frameFit(w, h, frame);
+  const b = QUIZ_INVITE_BAND;
+  // Anchored at the band's top: on a short phone the 44px floor reaches a few px
+  // into the frame's bottom margin (34 units, empty), never up into the app.
+  return { x: x + b.x * s, y: y + b.y * s, w: b.w * s, h: Math.min(b.h, Math.max(MIN_TAP, b.h * s)) };
+}

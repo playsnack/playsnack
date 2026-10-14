@@ -1,0 +1,10 @@
+// Cloudflare Pages project `playsnack` (docs/cloudflare-pages.md). Build with
+// `node scripts/pages-build.mjs`, deploy with `wrangler pages deploy` from the repo root
+// (the Pages Functions live in ./functions). Secrets are NOT here — `wrangler pages secret put`.
+{
+  "name": "playsnack",
+  "pages_build_output_dir": "./snack-player/dist",
+  "compatibility_date": "2026-09-15",
+  // api/*.js use node:crypto (HMAC/SHA-256) and Buffer.
+  "compatibility_flags": ["nodejs_compat"]
+}
