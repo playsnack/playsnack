@@ -90,6 +90,8 @@ results.push(run("player-tests", "pnpm", ["-s", "player:test"]));
 results.push(run("server-tests", "pnpm", ["-s", "server:test"]));
 // /api/ev telemetry function (offline, always): schema, limits, privacy, client.
 results.push(run("api-tests", "node", ["--test", "api/_test/"]));
+// Link previews (offline, always): every catalog app has its 1200×630 og image, index.html meta current (#106).
+results.push(run("og-images", "node", ["scripts/og-images.mjs", "--check"]));
 // "되는 척" 문구 검사 (offline, always): Q0 merge criterion = 0 hits (master-plan §4).
 results.push(run("honesty", "node", ["snack-server/tools/check-honesty.mjs"]));
 

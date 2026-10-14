@@ -1,6 +1,8 @@
 # Cloudflare Pages: the same SPA routes as vercel.json "rewrites" (200 = rewrite, the URL stays).
 # The target is "/" and not "/index.html": Pages strips ".html"/"/index" with a redirect, so a
 # rewrite to /index.html loops (wrangler warns "Infinite loop detected" and drops the rule).
+# /p/* is normally answered by functions/p/[[path]].js (per-link preview meta, #106); this rule
+# is the fallback when the Function is skipped (Workers Free quota → fail open).
 /p/*     /  200
 /create  /  200
 /stats   /  200
