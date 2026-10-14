@@ -78,11 +78,21 @@ export function engineResults(roomId: string, fetchImpl?: Fetch) {
 const isSaved = (x: unknown): x is SavedResult =>
   !!x && typeof x === "object" && (x as SavedResult).v === 1 && Array.isArray((x as SavedResult).board);
 
+/**
+ * Where a room's last game is read: the edge room server when rooms run there (VITE_ROOM_URL,
+ * its Durable Object keeps the result — `GET <room server>/room/<id>/result`, docs/edge-rooms.md),
+ * else the site's `/api/room-result` (the host phone posted it — MQTT mesh / edge relay).
+ */
+export function roomResultUrl(roomId: string, roomServer?: string): string {
+  const id = encodeURIComponent(roomId);
+  return roomServer ? `${roomServer.replace(/^ws/, "http").replace(/\/+$/, "")}/room/${id}/result` : `${ROOM_RESULT_API}?room=${id}`;
+}
+
 /** GET the room's last finished game; null when there is none (or anything failed). */
-export async function fetchRoomResult(roomId: string, fetchImpl: Fetch = (u, i) => fetch(u, i)): Promise<SavedResult | null> {
+export async function fetchRoomResult(roomId: string, fetchImpl: Fetch = (u, i) => fetch(u, i), roomServer?: string): Promise<SavedResult | null> {
   if (!isFriendRoom(roomId)) return null;
   try {
-    const res = await fetchImpl(`${ROOM_RESULT_API}?room=${encodeURIComponent(roomId)}`);
+    const res = await fetchImpl(roomResultUrl(roomId, roomServer));
     if (!res.ok) return null;
     const j = (await res.json()) as { ok?: boolean; result?: unknown };
     return j.ok && isSaved(j.result) ? j.result : null;

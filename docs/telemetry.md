@@ -135,6 +135,7 @@ ISO 주(월–일, KST 날짜) 7일의 카운터를 더해 `{week, days, total, 
 ## 5. 속도 제한 (아무것도 저장 안 함)
 1. 클라이언트별 토큰 버킷(인스턴스 메모리): 키 = `SHA-256(인스턴스 랜덤 솔트 + KST날짜 + 주소)` 앞 24자. 주소(`x-vercel-forwarded-for` → `x-forwarded-for` 첫 값 → `x-real-ip`)는 메모리에서 해시만 하고 저장 · 기록하지 않는다. `x-vercel-forwarded-for`를 **그대로 신뢰**한다 — Vercel이 자기 프록시에서 채우는 헤더라 Vercel 위에서는 클라이언트가 위조할 수 없다(다른 호스팅으로 옮기면 이 헤더는 위조 가능 → 그 환경의 신뢰 헤더로 바꿔야 함). Cloudflare Pages에서는 어댑터(`api/_lib/pages.js`)가 클라이언트가 보낸 세 헤더를 지우고 `cf-connecting-ip`만 `x-forwarded-for`로 넘긴다(docs/cloudflare-pages.md). 날짜가 바뀌면 솔트 재생성 + 버킷 비움. 기본 버스트 20, 초당 0.5 충전(분당 30). 최대 1만 키.
 2. 인스턴스 분당 600요청.
+   - 엣지 방 서버(`X-Room-Server`가 맞을 때, §9.7)는 1의 클라이언트 버킷 대신 자기 버킷(버스트 120 · 초당 4, 인스턴스 분당 600)을 쓴다. 틀린 비밀 = 403.
 3. 일일 이벤트 상한 `EV_DAILY_CAP`(기본 **1500**): 쓰기마다 돌려받는 `events_total`(KV에 있는 그날 전체 합계)로 판단 → 넘으면 그날 `429 daily_cap`. 인스턴스별로 마지막 본 값을 쓰므로 새 인스턴스마다 첫 쓰기 1회(≤20 이벤트)만큼 넘칠 수 있다. **무료 보장은 이 상한이 아니라 아래 월 예산이다.**
 
 ## 5a. 무료 보장 (Upstash Free, 카드 없음)
@@ -189,6 +190,7 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 4. 빌드에서 끄려면 `VITE_TELEMETRY=off`.
 5. **기기 수 추정 켜기(§4a):** Vercel → Settings → Environment Variables → `EV_DEVICE_SALT` = 무작위 긴 값(16자 이상). 터미널에서 `openssl rand -base64 32`로 만들어 붙여 넣고 Production · Preview에 저장 → 재배포. 이 값은 남에게 보이지 말고, 바꾸지 않는다(바꾸면 기기가 처음부터 다시 세어짐). 없으면 기기 수는 "—"(세지 않음).
 6. (선택) 옛 `ev:*` 키 지우기 — §3 끝.
+7. (엣지 방을 쓸 때) `ROOM_SERVER_SECRET` = `openssl rand -base64 32` 값을 Vercel(Production · Preview)에 **먼저** 넣고 재배포, 같은 값을 Worker에 `npx wrangler secret put ROOM_SERVER_SECRET` — §9.7.
 
 ## 8. 미검증 (프리뷰 배포가 있어야 확인 가능)
 - **`/api` 자동 인식**: `framework: null` + `outputDirectory: snack-player/dist`에서 루트 `api/ev.js`가 함수로 배포되는지, `api/_lib/` · `api/_test/` **디렉터리**가 함수로 안 잡히는지(문서는 `_` 파일만 명시).
@@ -200,7 +202,7 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 ## 9. 무료 베타 지표 — 연결됨
 
 > 출처: [사업 계획](business-plan-2026.md) "무료 베타에서 볼 숫자" · 표 3단계(측정), [제품 기획서](product-brief-live-party-game.md) "사용자 반응 확인". 첫 게임 = **나 맞히기 퀴즈**(`speed-trivia-score`).
-> **상태: 연결됨(2026-10-14).** 엔진 훅 → `telemetry.ts engineMetrics` → 메시 · 릴레이 전송, 화면(방 생성 · 초대 공유 · 결과 화면)에서 보낸다. GET 응답 `wired: true`. 연결 위치는 §9.5 끝 "연결 결과". **서버 모드 방(`ServerTransport`, snack-server가 엔진을 돌림)은 판 이벤트를 보내지 않는다** — 기본인 서버리스 메시 · `?host` 릴레이만 센다.
+> **상태: 연결됨(2026-10-14).** 엔진 훅 → `telemetry.ts engineMetrics` → 메시 · 릴레이 전송, 화면(방 생성 · 초대 공유 · 결과 화면)에서 보낸다. GET 응답 `wired: true`. 연결 위치는 §9.5 끝 "연결 결과". **서버 모드 방(`ServerTransport`, snack-server가 엔진을 돌림)은 판 이벤트를 보내지 않는다** — 기본인 서버리스 메시 · `?host` 릴레이, 그리고 엣지 방(`VITE_ROOM_URL` — 방 DO가 서버에서 보냄, §9.7)만 센다.
 
 ### 9.1 이벤트
 공통: `app` = 앱 id(§2 정규화, 공식 44개 · `custom` · `other`), 인원 버킷 `p` = `1 · 2 · 3 · 4-5 · 6-8 · 9+`(서버가 정수 1–1000을 버킷으로 바꿈). 아래 종류는 **필드 목록 밖의 키가 하나라도 있으면 이벤트째 버리고** `rejected_events:<종류>`로 센다.
@@ -279,6 +281,17 @@ track({ k: 'room_join', ok: true, ms: 1800 });
 | 날짜 | 필드 | 변경 | 이유 |
 |---|---|---|---|
 | (아직 없음) | | | |
+
+### 9.7 엣지 방 서버가 보내는 판 이벤트 (#96)
+엣지 방(`VITE_ROOM_URL`, `edge/room`)에서는 방 엔진이 **방의 Durable Object(DO)** 안에서 돈다 — 호스트 폰이 없으므로 판 이벤트도 DO가 **서버에서 서버로** 보낸다(`edge/room/src/results.js` `StatsSender`).
+- **같은 스키마, 같은 필드만**: `session_done{app, p, sid, about?, ans?}` · `rematch{app, p, sid}` · `game_created{app, source, gid}`. `app`은 `appOf(방 id)`(코드 · 만든 앱 해시는 안 나감 — `telemetry.ts appOf`와 같은 규칙), 참여 0명인 판은 안 보냄(`trackSessionDone`과 같음). 그 밖의 식별자는 없다(IP는 Cloudflare 것, 기기 · 닉네임 · 방 코드 없음).
+- **어디로**: Worker 변수 `STATS_URL`(기본 `https://playsnack.vercel.app/api/ev`, 사이트를 옮기면 `wrangler.jsonc`에서 바꿈 — 예: `https://playsnack.pages.dev/api/ev`; `""`면 끔).
+- **묶어서, 판마다 한 번**: 큐에 쌓아 **10초마다**(또는 20개가 차면, 또는 방이 빌 때) `POST {v:1, events}` 1번(본문 ≤ 4,000 B · ≤ 20개). DO 안에서 종류+`sid`/`gid`로 한 번만(재접속 · 좌석 넘겨받기에도), 동면 후 깨어나도 엔진이 결과 단계에서 복원되면 다시 부르지 않는다(`room.js` `first`), 마지막으로 서버의 `stats:dedupe`(§9.3)가 한 번 더 막는다.
+- **게임을 막지 않음**: 엔진 훅은 큐에 넣기만 한다. POST는 기다리지 않고(`ctx.waitUntil`), 실패(네트워크 · 4xx/5xx)는 **버리고 센다**(`counts.failed` · `counts.dropped`) — 다시 보내지 않으므로 API가 죽어도 반복 호출이 없다.
+- **봇 필터**: `User-Agent: PlaySnack-RoomServer/1` — `api/ev.js AUTOMATED_UA`에 안 걸린다(`api/_test/room-server.test.js`가 확인).
+- **`X-Room-Server` 공유 비밀(선택, 권장)**: Worker 비밀 `ROOM_SERVER_SECRET`과 Vercel 환경 변수 `ROOM_SERVER_SECRET`(같은 값, 16자 이상)을 둘 다 두면 API가 이 요청을 **방 서버**로 본다 → 클라이언트 버킷(주소당 버스트 20 · 분당 30) 대신 방 서버 버킷(버스트 120 · 초당 4 — 모든 방이 Cloudflare의 몇 안 되는 주소에서 오므로). 일일 상한 · 월 예산 · 스키마 검사 · 중복 제거는 그대로. **값이 틀리면 403 `bad_room_server`**(KV 명령 0). API에 비밀이 없으면 헤더는 무시되고 보통 클라이언트로 취급(그래서 Vercel 쪽을 **먼저** 설정한다).
+- 테스트: `packages/snack-room/test/edge-results.test.js`(묶음 · UA · 비밀 헤더 · 재접속과 동면 후에도 판마다 1번 · 실패 시 재시도 없음 · 다음 판 `rematch`), `api/_test/room-server.test.js`(UA · 버킷 · 403 · 중복 제거).
+- 서버 모드(snack-server `/ws`)는 여전히 판 이벤트를 보내지 않는다(§9 머리말).
 
 ## 10. `/stats` 페이지 (누구나)
 `https://playsnack.vercel.app/stats` — 플레이어 빌드 안의 정적 화면(`vercel.json` 리라이트, `StatsPage.tsx`). 홈 맨 아래 조용한 "📊 통계" 링크(새로고침 없이 이동), 페이지 맨 위 "← 홈". 숫자만 보여 주므로 인증 없음(주인 결정 2026-10-14: 누구나 봐도 됨).

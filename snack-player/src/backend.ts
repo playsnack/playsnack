@@ -156,6 +156,8 @@ export const BROKER_URL = (import.meta.env.VITE_BROKER_URL as string | undefined
 // Unset (the default) → the MQTT broker above. Build time only, never per client.
 export const ROOM_URL = (import.meta.env.VITE_ROOM_URL as string | undefined) || undefined;
 const ROOM_MODE = (import.meta.env.VITE_ROOM_MODE as string | undefined) || "game";
+/** The room engine runs on the edge room server (not on a player's phone): it saves results itself. */
+export const EDGE_ROOM_SERVER = ROOM_URL && ROOM_MODE !== "relay" ? ROOM_URL : undefined;
 // Room ids this page has just made a new code for (nobody can be in them yet): their
 // first join skips the mesh's wait for an existing host. In memory, used once.
 const freshRooms = new Set<string>();
@@ -163,7 +165,7 @@ export const markFreshRoom = (roomId: string) => void freshRooms.add(roomId);
 /** Whether this page made the room a moment ago (read before createRoom, which uses it up). */
 export const isFreshRoom = (roomId: string) => freshRooms.has(roomId);
 export function createRoom(me: Identity, params: URLSearchParams): RoomTransport {
-  if (ROOM_URL && ROOM_MODE !== "relay") return new EdgeRoomTransport(ROOM_URL, me);
+  if (EDGE_ROOM_SERVER) return new EdgeRoomTransport(EDGE_ROOM_SERVER, me);
   if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts), freshRooms.delete(me.slug), ROOM_MODE === "relay" ? ROOM_URL : undefined);
   const ws = (SERVER_URL || location.origin).replace(/^http/, "ws");
   return params.has("host") ? new RelayTransport(`${ws}/relay`, me, `${SERVER_URL}/api/pack`, `${SERVER_URL}/api/events`) : new ServerTransport(`${ws}/ws`, me);

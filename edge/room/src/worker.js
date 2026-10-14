@@ -1,11 +1,13 @@
 // Cloudflare Worker + Durable Objects: snack rooms at the edge (spike, not deployed).
 //   GET /room/<roomId>   (WebSocket) → GameRoom DO: the room engine runs here (server-authoritative)
+//   GET /room/<roomId>/result         → that friends room's last saved game (7 days) or 404
 //   GET /relay/<roomId>  (WebSocket) → Relay DO: a dumb relay for the serverless mesh
 //   anything else        → 404 (there is no room listing)
 // One DO per room id. The logic is game.js / core.js — the same modules the Node hub runs.
 import { DurableObject } from "cloudflare:workers";
 import { RoomRelay, UsageMeter, ROOM_ID_RE } from "./core.js";
-import { GameRoom } from "./game.js";
+import { GameRoom, roomAlarm } from "./game.js";
+import { StatsSender, isFriendRoom } from "./results.js";
 
 const num = (v) => (v === undefined || v === "" || Number.isNaN(Number(v)) ? undefined : Number(v));
 // Test knobs (wrangler dev --var …); unset in production → the LIMITS in core.js / game.js.
@@ -18,6 +20,8 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (url.pathname === "/usage" && req.method === "GET") return usage(req, env, ctx);
+    const res = /^\/room\/([^/]+)\/result$/.exec(url.pathname);
+    if (res) return result(req, env, res[1]);
     const m = /^\/(room|relay)\/([^/]+)$/.exec(url.pathname);
     if (!m || !ROOM_ID_RE.test(m[2])) return new Response("not found", { status: 404 });
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("websocket only", { status: 426 });
@@ -44,6 +48,19 @@ async function usage(req, env, ctx) {
   const res = usageResponse(body);
   ctx.waitUntil(cache.put(key, res.clone()));
   return res;
+}
+// GET /room/<id>/result: friends rooms only (anything else is 404 without waking a DO).
+// Unlisted like /api/room-result: whoever has the link may read it. Cached 10 s.
+const CORS = { "access-control-allow-origin": "*" };
+async function result(req, env, roomId) {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...CORS, "access-control-allow-methods": "GET", "access-control-max-age": "86400" } });
+  if (req.method !== "GET") return new Response("method not allowed", { status: 405, headers: { ...CORS, allow: "GET" } });
+  const notFound = () => new Response(JSON.stringify({ ok: false, error: "not_found" }), { status: 404, headers: { ...CORS, "content-type": "application/json", "cache-control": "public, max-age=10" } });
+  if (!isFriendRoom(roomId)) return notFound(); // ids are URL-unreserved chars: nothing to decode
+  if (!env.ROOM_TOKEN_SECRET) return new Response("not configured", { status: 503, headers: CORS });
+  const fwd = new Request(req);
+  fwd.headers.set("x-room-id", roomId);
+  return env.GAMES.get(env.GAMES.idFromName(roomId)).fetch(fwd);
 }
 const usageResponse = (body) => new Response(body, { headers: { "content-type": "application/json", "cache-control": "public, max-age=60", "access-control-allow-origin": "*" } });
 
@@ -111,7 +128,11 @@ export class Game extends DurableObject {
   }
   core(roomId) {
     const base = this.env.PACK_BASE_URL;
+    const waitUntil = (p) => this.ctx.waitUntil(p.catch(() => {}));
     this.room ??= new GameRoom({
+      waitUntil,
+      // Game stats → the site's /api/ev (docs/telemetry.md §9.7). STATS_URL "" turns them off.
+      statsSender: this.env.STATS_URL ? new StatsSender({ url: this.env.STATS_URL, secret: this.env.ROOM_SERVER_SECRET || "", waitUntil }) : null,
       roomId,
       store: this.ctx.storage,
       secret: this.env.ROOM_TOKEN_SECRET,
@@ -133,6 +154,12 @@ export class Game extends DurableObject {
   }
   async fetch(req) {
     const roomId = req.headers.get("x-room-id");
+    if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      // GET /room/<id>/result (worker.js result: friends rooms only)
+      const rec = await this.core(roomId).readResult();
+      const headers = { "content-type": "application/json", "cache-control": "public, max-age=10", "access-control-allow-origin": "*" };
+      return new Response(JSON.stringify(rec ? { ok: true, result: rec } : { ok: false, error: "not_found" }), { status: rec ? 200 : 404, headers });
+    }
     const { client, s } = this.socks.accept(roomId);
     this.core(roomId).onOpen(s);
     s.save({ ...s.state, room: roomId });
@@ -149,7 +176,9 @@ export class Game extends DurableObject {
     await this.webSocketClose(ws);
   }
   async alarm() {
-    if (!this.ctx.getWebSockets().length) await this.ctx.storage.deleteAll();
+    if (this.ctx.getWebSockets().length) return;
+    if (this.room) await this.room.onAlarm();
+    else await roomAlarm({ store: this.ctx.storage, setAlarm: (at) => this.ctx.storage.setAlarm(at) }); // keeps a saved result (7 days)
   }
 }
 
