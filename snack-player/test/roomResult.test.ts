@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { createRoom } from "@snack/room";
 import { parseRoomResult, RR_MAX_BODY_BYTES } from "../../api/_lib/roomResult.js";
 import {
-  agoLabel, engineResults, fetchRoomResult, fitResult, isFriendRoom, KEEP_NOTE, lastResultWatcher, postRoomResult, savedResultView, shouldLookUp,
+  agoLabel, engineResults, fetchRoomResult, fitResult, isFriendRoom, KEEP_NOTE, lastResultWatcher, postRoomResult, roomResultUrl, savedResultView, shouldLookUp,
   type EngineResult, type SavedResult,
 } from "../src/roomResult.ts";
 
@@ -176,6 +176,17 @@ test("fetchRoomResult: 200 → the result; 404 / bad JSON / network → null; pu
   let called = false;
   assert.equal(await fetchRoomResult("tpl-x", async () => ((called = true), new Response("{}"))), null);
   assert.equal(called, false);
+});
+
+test("edge room server (VITE_ROOM_URL): the result is read from the room's Durable Object", async () => {
+  assert.equal(roomResultUrl(ROOM), `/api/room-result?room=${encodeURIComponent(ROOM)}`);
+  assert.equal(roomResultUrl(ROOM, "wss://snack-room.playsnack.workers.dev/"), `https://snack-room.playsnack.workers.dev/room/${ROOM}/result`);
+  assert.equal(roomResultUrl(ROOM, "ws://127.0.0.1:4551"), `http://127.0.0.1:4551/room/${ROOM}/result`);
+  const seen: string[] = [];
+  const got = await fetchRoomResult(ROOM, async (u) => (seen.push(u), new Response(JSON.stringify({ ok: true, result: saved() }))), "wss://rooms.test");
+  assert.deepEqual(seen, [`https://rooms.test/room/${ROOM}/result`]);
+  assert.equal(got?.board.length, 2);
+  assert.equal(await fetchRoomResult(ROOM, async () => new Response(JSON.stringify({ ok: false, error: "not_found" }), { status: 404 }), "wss://rooms.test"), null);
 });
 
 test("view: the quiz view for a quiz, a plain ranking otherwise; the honest note; age", () => {

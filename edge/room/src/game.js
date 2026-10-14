@@ -23,8 +23,13 @@
 // DO awake through a game. Idle (lobby / result), the DO may hibernate and lose memory, so
 // the engine snapshot is kept in storage while the room is occupied and deleted when the
 // last player leaves (then the 24 h alarm deletes the rest).
+//
+// What the host phone did in mesh mode, the DO does here (results.js, #96): a friends room's
+// scored game is kept 7 days (`result`, write-once per game, GET /room/<id>/result) and the
+// engine's game stats go to the stats API server to server (StatsSender), never blocking play.
 import { createRoom } from "../../../packages/snack-room/src/room.js";
 import { RoomGate, UsageReporter, LIMITS, ROOM_FULL_TODAY } from "./core.js";
+import { resultRecord, RESULT_TTL_MS } from "./results.js";
 
 export const GAME_LIMITS = {
   ...LIMITS,
@@ -44,15 +49,34 @@ const COALESCED = new Set(["roster", "rosterPhotos", "quizProgress"]);
 const ANON_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const rid = () => Math.random().toString(36).slice(2, 10);
 
+/**
+ * The room's cleanup alarm (also the Worker's, which may run with no GameRoom in memory):
+ * nobody came back → delete the room; a saved result younger than 7 days stays (everything
+ * else goes) and the alarm moves to its expiry. → true when the storage is now empty.
+ */
+export async function roomAlarm({ store, now = Date.now, setAlarm }) {
+  const res = await store.get("result");
+  if (res && res.exp > now()) {
+    for (const k of ["meta", "lock", "snap"]) await store.delete(k);
+    await setAlarm(res.exp);
+    return false;
+  }
+  await store.deleteAll();
+  return true;
+}
+
 export class GameRoom {
   /**
    * @param {object} o
    * @param {() => Array<{state: object, save(s: object): void, send(s: string): void, close(c?: number, r?: string): void}>} o.sockets  every socket of the room, now
    * @param {(game: string, opts: object) => Promise<any[] | null>} [o.getPack]
+   * @param {import("./results.js").StatsSender | null} [o.statsSender]  game stats to the stats API (null = none)
+   * @param {(p: Promise<any>) => void} [o.waitUntil]  keeps the DO alive for a write / POST in flight
    */
-  constructor({ roomId, store, secret, usage, setAlarm = () => {}, now = Date.now, limits = {}, sockets, getPack = async () => null, setTimer, clearTimer }) {
+  constructor({ roomId, store, secret, usage, setAlarm = () => {}, now = Date.now, limits = {}, sockets, getPack = async () => null, setTimer, clearTimer, statsSender = null, waitUntil = () => {} }) {
     if (!secret) throw new Error("ROOM_TOKEN_SECRET is required");
-    Object.assign(this, { roomId, store, secret, usage, setAlarm, now, sockets, getPack });
+    Object.assign(this, { roomId, store, secret, usage, setAlarm, now, sockets, getPack, statsSender, waitUntil });
+    this.resultChain = Promise.resolve();
     this.L = { ...GAME_LIMITS, ...limits };
     this.timers = { setTimer: setTimer ?? ((fn, ms) => setTimeout(fn, ms)), clearTimer: clearTimer ?? ((h) => clearTimeout(h)) };
     this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs });
@@ -163,6 +187,8 @@ export class GameRoom {
       this.stats.bytesOut += str.length;
     };
     this.engine = createRoom({
+      ...(this.statsSender ? this.statsSender.hooks(this.roomId) : {}),
+      onResult: (r) => void this.saveResult(r),
       getPack: this.getPack,
       now: this.now,
       claimWindowMs: this.L.claimWindowMs,
@@ -215,6 +241,38 @@ export class GameRoom {
     this.meter.count("rows");
     this.stats.snapWrites = (this.stats.snapWrites ?? 0) + 1;
     Promise.resolve(this.store.put("snap", { at: this.now(), s: snap })).catch(() => {});
+  }
+
+  /**
+   * A scored game reached its result (engine onResult): a friends room keeps it 7 days for its
+   * link — once per game (a game already stored is not written again), off the game's path.
+   */
+  saveResult(r) {
+    const rec = resultRecord(this.roomId, r, this.now());
+    if (!rec) return Promise.resolve();
+    const run = this.resultChain.then(async () => {
+      const old = await this.store.get("result");
+      if (old?.sid === r.sid) {
+        this.stats.resultDupes = (this.stats.resultDupes ?? 0) + 1;
+        return;
+      }
+      await this.store.put("result", { sid: r.sid, exp: this.now() + RESULT_TTL_MS, rec });
+      this.meter.count("rows", 3); // the write, the alarm moved to its expiry, and its delete then
+      this.stats.resultWrites = (this.stats.resultWrites ?? 0) + 1;
+    });
+    this.resultChain = run.catch((e) => console.error("[edge-room] result", e));
+    this.waitUntil(this.resultChain);
+    return this.resultChain;
+  }
+
+  /** GET /room/<id>/result: the room's last saved game (null = none, or older than 7 days). */
+  async readResult() {
+    this.meter.count("conns"); // one Worker + one DO request
+    if (!this.sockets().length) this.meter.flush(true);
+    else this.meter.tick();
+    await this.resultChain;
+    const res = await this.store.get("result");
+    return res && res.exp > this.now() ? res.rec : null;
   }
 
   /** After a wake from hibernation: memory is empty but players are still connected. */
@@ -374,13 +432,14 @@ export class GameRoom {
       this.meter.count("rows", 1 + 3); // the alarm, and its deleteAll later (meta, lock?, snap?)
       await this.setAlarm(this.now() + this.L.roomTtlMs);
       this.meter.flush(true);
+      this.statsSender?.flush(); // the room is idle: send its games now (not awaited)
     }
   }
 
   async onAlarm() {
     if (this.sockets().length) return false;
-    await this.store.deleteAll();
-    return true;
+    await this.resultChain;
+    return roomAlarm({ store: this.store, now: this.now, setAlarm: this.setAlarm });
   }
 
   /** Tests: drop everything in memory, as an evicted (hibernated) DO would. */

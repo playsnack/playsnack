@@ -50,6 +50,7 @@
 | `meta` | `{epoch, created, org?, salt?, iter?, hash?}` | 마지막 사람이 나가고 24시간 뒤 알람 |
 | `lock` | 틀린 PIN 카운터(타임스탬프) | 〃 |
 | `snap` | 엔진 스냅샷(닉네임·점수 포함) — **방에 사람이 있는 동안만** | 마지막 사람이 나갈 때 즉시 |
+| `result` | 친구 방의 마지막 판 결과 `{sid, exp, rec}`(닉네임·점수·퀴즈 회고 — `docs/room-results.md`의 레코드) | 저장 7일 뒤 알람(24시간 알람은 이것만 남기고 나머지를 지움) |
 | Meter `usage` | 오늘 숫자(요청·메시지·GB-s·rows) — 개인정보 없음 | 날짜 바뀌면 덮어씀 |
 
 IP·메시지 내용은 저장 안 함. `snap`은 동면(hibernation) 대비: 진행 중(엔진 타이머가 있으면 DO는 동면 불가)에는 안 쓰고, 한가할 때·바뀌었을 때만 쓴다(200명 퀴즈 1판 = **1회**).
@@ -106,7 +107,7 @@ Free 한도 (developers.cloudflare.com/durable-objects/platform/pricing/): DO �
 
 - 계량: 방마다 `UsageReporter`가 로컬에서 세고 **30초에 한 번(트래픽이 있을 때) + 방이 빌 때** Meter DO에 묶어 보냄. Meter 호출·쓰기 자체도 계산에 넣음. 단계 판정은 "어느 한도든 가장 높은 %".
 - `GET /usage` → `{day, stage, used, percent, free, refusedRooms, refusedJoins, resetsAt}` (60초 캐시 — workers.dev에선 Cache API가 안 먹어서 isolate 메모리에도 60초).
-- 단계 기준은 `STAGE_NEW_ROOMS`/`STAGE_NEW_JOINS` 변수로 조정. 비필수 작업 먼저 끔: 엣지 방에는 결과 저장·통계 비콘이 원래 없음(엔진 훅 미연결) → 줄일 첫 대상은 스냅샷 쓰기(동면 시 복구 포기, 진행엔 영향 없음).
+- 단계 기준은 `STAGE_NEW_ROOMS`/`STAGE_NEW_JOINS` 변수로 조정. 비필수 작업 먼저 끔: 줄일 첫 대상은 스냅샷 쓰기(동면 시 복구 포기, 진행엔 영향 없음). 결과 저장(판마다 rows 3)·통계 POST(Cloudflare 한도 밖 — 하위 요청, 10초에 1번)는 계속(§12).
 - 테스트: `edge-usage.test.js` — 단계 계산·UTC 날짜 리셋·1단계 새 방 거절/진행 중 방 입장 허용·2단계 새 입장 거절/좌석 토큰 재접속 허용·스냅샷 중단·중계 방도 같은 규칙·`/usage`·30초 묶음 보고.
 
 ### 업그레이드 기준 (제안 — 자동 업그레이드 절대 안 함)
@@ -128,6 +129,8 @@ openssl rand -base64 32 | npx wrangler secret put ROOM_TOKEN_SECRET
 npx wrangler deploy                           # → wss://snack-room.playsnack.workers.dev
 curl https://snack-room.playsnack.workers.dev/usage
 ```
+- **결과 · 통계(#96) 배포**: ① (권장) `S=$(openssl rand -base64 32)` → Vercel 환경 변수 `ROOM_SERVER_SECRET=$S`(Production · Preview) 넣고 재배포 → ② `cd edge/room && printf %s "$S" | npx wrangler secret put ROOM_SERVER_SECRET` → ③ `npx wrangler deploy`. 순서가 바뀌면(Worker 먼저) API는 비밀이 없어 헤더를 무시하고 보통 클라이언트로 받는다(동작은 함, 주소 버킷 공유). 확인: `curl -i https://snack-room.playsnack.workers.dev/room/tpl-speed-trivia-score~ABCDEFGH/result` → 404 `not_found`(빈 방).
+- 사이트를 옮기면 `wrangler.jsonc`의 `STATS_URL` · `PACK_BASE_URL`을 새 주소로(예: `https://playsnack.pages.dev/...`).
 - 라운드 콘텐츠는 `wrangler.jsonc`의 `PACK_BASE_URL`(= playsnack.vercel.app의 정적 `data/multi-content`).
 - 플레이어 시험 빌드만: `VITE_ROOM_URL=wss://snack-room.playsnack.workers.dev pnpm player:build` (프로덕션 기본값은 그대로 MQTT).
 - 되돌리기: `npx wrangler delete snack-room` (방은 휘발성이라 잃을 데이터 없음).
@@ -153,4 +156,18 @@ curl https://snack-room.playsnack.workers.dev/usage
 
 ¹ 첫 실행에서 majority-guess 8명 행 1개가 countdown에 멈춤 — 그 시각에 `wrangler.jsonc`를 고쳐 wrangler가 핫리로드(DO 재시작)한 탓(로그로 확인), 재실행 11/11.
 - 명령: `SIM_EDGE_ROOM=1 node snack-server/tools/multiclient-sim.mjs` (허브 자동) / `+ SIM_EDGE_URL=ws://127.0.0.1:4551`(wrangler dev, 콘텐츠는 `--var PACK_BASE_URL:http://127.0.0.1:4550` + 정적 서버).
+- 결과 · 통계(#96): `edge-results`(7) — 허브에서 통과. 포트 `EDGE_TEST_PORT_RESULTS`(기본 4556).
 - 포트: 4550 허브(sim) · 4551 wrangler dev · 4552 relay 테스트 · 4553 room 테스트 · 4554 usage 테스트 · 4555 wrangler inspector. wrangler sim 때 콘텐츠 정적 서버는 4550(허브 안 쓸 때).
+
+## 12. 결과 · 통계 — 호스트 폰이 하던 일을 DO가 (#96)
+메시 방에서는 방 엔진을 돌리는 **호스트 폰**이 ① 친구 방의 판 결과를 `/api/room-result`에 올리고 ② 판 이벤트를 `/api/ev`에 보냈다. 엣지 방에는 호스트 폰이 없으므로 같은 엔진 훅을 DO에 연결했다(`edge/room/src/results.js`, `game.js`).
+
+| 일 | 어떻게 | 문서 |
+|---|---|---|
+| 결과 7일 | 엔진 `onResult` → 친구 방만 `result` = `{sid, exp, rec}` 저장(판마다 1번, 같은 `sid`면 안 씀). `GET /room/<id>/result`(CORS, 10초 캐시)로 읽음 — 플레이어는 `VITE_ROOM_URL`이면 여기서(`roomResult.ts roomResultUrl`), 혼자 로비일 때만 보여 줌. 24시간 정리 알람은 `result`만 남기고 `exp`로 알람을 옮김(`roomAlarm`). | `docs/room-results.md` §1 "엣지 방" |
+| 판 통계 | 엔진 `onSessionStart`/`onSessionEnd`/`onGameCreated` → `StatsSender` 큐 → 10초마다(또는 20개 · 방이 빌 때) `POST STATS_URL`. `User-Agent: PlaySnack-RoomServer/1`, `X-Room-Server: <ROOM_SERVER_SECRET>`. 실패는 버리고 셈(재시도 없음), 게임은 기다리지 않음(`ctx.waitUntil`). | `docs/telemetry.md` §9.7 |
+
+- **무료 한도**: 결과 저장 = rows 3(쓰기 · 알람 이동 · 나중 삭제), 결과 읽기 = Worker 1 + DO 1 요청 — 방의 `UsageReporter`가 Meter에 보고. 통계 POST는 DO의 하위 요청(Cloudflare 요청 한도에 안 들어감, 10초에 최대 1번).
+- **동면**: 통계 큐는 메모리. 대기 중인 10초 타이머가 있는 동안 DO는 동면하지 않고, 방이 비면 바로 보낸다. 그래도 사라지면 그 이벤트만 빠진다(통계, 게임 아님). 결과는 저장소에 있으므로 동면과 무관.
+- **변수 · 비밀**: `STATS_URL`(wrangler.jsonc vars, 기본 `https://playsnack.vercel.app/api/ev`, `""` = 끔) · `ROOM_SERVER_SECRET`(선택 비밀, Vercel과 같은 값). §9 배포 순서 참고.
+- 테스트: `packages/snack-room/test/edge-results.test.js` · `api/_test/room-server.test.js` · `snack-player/test/roomResult.test.ts`(`roomResultUrl`).

@@ -8,7 +8,7 @@ import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick, isNickAuto } from "./identity";
 import { CONNECT_TIMEOUT_MS, type ConnState, type RoomTransport } from "./roomTransport";
-import { createRoom, hrefTo, isFreshRoom, loadRoomDoc, markFreshRoom, navigate, SERVERLESS } from "./backend";
+import { createRoom, EDGE_ROOM_SERVER, hrefTo, isFreshRoom, loadRoomDoc, markFreshRoom, navigate, SERVERLESS } from "./backend";
 import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, RoomSlowNotice, goHome } from "./Screens";
@@ -25,7 +25,7 @@ const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m
 import { makerLink, resultHooks, useResultExtras } from "./ResultExtras";
 import { InviteQrSheet, QrButton } from "./InviteQr";
 import Toast from "./Toast";
-import { lastResultWatcher, type SavedResult } from "./roomResult";
+import { fetchRoomResult, lastResultWatcher, type SavedResult } from "./roomResult";
 // The room's last finished game (docs/room-results.md) — loaded only when there is one.
 const LastResult = lazy(() => import("./LastResult.tsx").then((m) => ({ default: m.LastResult })));
 import { SPECTATOR_NOTICE_BOX, SPECTATOR_NOTICE_TEXT, forTemplate, showSpectatorNotice } from "./spectate";
@@ -142,7 +142,13 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     // friends-only link (links.ts). The transport passes it through unchanged.
     // Alone in the lobby of a friends room: its last finished game, if any (docs/room-results.md).
     // A room this page has just made has no past game: no lookup (saves a KV read).
-    const last = lastResultWatcher({ roomId: roomIdFor(slug, params), skip: !SERVERLESS || isFreshRoom(roomIdFor(slug, params)), show: setLastResult });
+    // Edge rooms (VITE_ROOM_URL): the room server keeps the result, so it is read there.
+    const last = lastResultWatcher({
+      roomId: roomIdFor(slug, params),
+      skip: !(SERVERLESS || EDGE_ROOM_SERVER) || isFreshRoom(roomIdFor(slug, params)),
+      show: setLastResult,
+      ...(EDGE_ROOM_SERVER ? { fetchResult: (id: string) => fetchRoomResult(id, undefined, EDGE_ROOM_SERVER) } : {}),
+    });
     const room: RoomTransport = createRoom({ slug: roomIdFor(slug, params), anonId: getAnonId(), nick: getNick() ?? "" }, params);
     roomRef.current = room;
     const join = joinTracker({ slug, room: roomIdFor(slug, params) }); // room_join telemetry + ?debug=1 log

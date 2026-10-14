@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import { WebSocketServer } from "ws";
 import { RoomRelay, UsageMeter, memoryStore, ROOM_ID_RE } from "../../../edge/room/src/core.js";
 import { GameRoom } from "../../../edge/room/src/game.js";
+import { StatsSender, isFriendRoom } from "../../../edge/room/src/results.js";
 
 const PACKS = new URL("../../../snack-server/data/multi-content/", import.meta.url);
 /** Round content as the static player serves it (data/multi-content/<game>.json). */
@@ -24,9 +25,11 @@ export const filePack = async (game) => {
 const ROUTE = /^\/(room|relay)\/([^/]+)$/;
 
 /**
- * @param {{port?: number, host?: string, secret?: string, limits?: object, now?: () => number, stages?: object, free?: object, getPack?: Function}} [o]
+ * `stats`: game stats as the Worker sends them (results.js StatsSender) — {url, secret?, fetch?,
+ * flushMs?}; unset → none (the sims never post to a real stats API).
+ * @param {{port?: number, host?: string, secret?: string, limits?: object, now?: () => number, stages?: object, free?: object, getPack?: Function, stats?: object}} [o]
  */
-export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "hub-test-secret", limits = {}, now = Date.now, stages, free, getPack = filePack } = {}) {
+export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "hub-test-secret", limits = {}, now = Date.now, stages, free, getPack = filePack, stats = null } = {}) {
   const meterStore = memoryStore();
   const meter = new UsageMeter({ store: meterStore, now, ...(stages ? { stages } : {}), ...(free ? { free } : {}) });
   const rooms = new Map(); // "kind:id" → { kind, core, store, sockets: Set<adapter>, alarm }
@@ -46,7 +49,7 @@ export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "
     };
     r.core =
       kind === "room"
-        ? new GameRoom({ roomId: id, store, secret, usage: meter, now, limits, setAlarm, getPack, sockets: () => [...r.sockets] })
+        ? new GameRoom({ roomId: id, store, secret, usage: meter, now, limits, setAlarm, getPack, sockets: () => [...r.sockets], statsSender: stats?.url ? new StatsSender(stats) : null })
         : new RoomRelay({ roomId: id, store, secret, usage: meter, now, limits, setAlarm });
     rooms.set(key, r);
     history.set(key, { ...r.core.stats, first: now(), last: now() });
@@ -77,6 +80,14 @@ export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "
     }
     if (path === "/usage") {
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(await meter.report({ countRequest: true })));
+      return;
+    }
+    // GET /room/<id>/result — as worker.js (friends rooms only, CORS, 10 s cache).
+    const rr = /^\/room\/([^/]+)\/result$/.exec(path);
+    if (rr && req.method === "GET") {
+      const rec = isFriendRoom(rr[1]) ? await roomFor("room", rr[1]).core.readResult() : null;
+      res.writeHead(rec ? 200 : 404, { "content-type": "application/json", "cache-control": "public, max-age=10", "access-control-allow-origin": "*" });
+      res.end(JSON.stringify(rec ? { ok: true, result: rec } : { ok: false, error: "not_found" }));
       return;
     }
     const m = ROUTE.exec(path);

@@ -1,5 +1,7 @@
-// Not deployed yet — see docs/edge-rooms.md §owner steps.
+// Deployed at https://snack-room.playsnack.workers.dev — owner steps: docs/edge-rooms.md §9.
 // ROOM_TOKEN_SECRET is a secret: `wrangler secret put ROOM_TOKEN_SECRET` (never in this file).
+// ROOM_SERVER_SECRET (optional secret, the same value as the stats API's env): sent as
+// X-Room-Server with the rooms' game stats (docs/telemetry.md §9.7).
 {
   "name": "snack-room",
   "main": "src/worker.js",
@@ -14,6 +16,7 @@
   // Free plan: Durable Objects must be SQLite-backed.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Game", "Room", "Meter"] }],
   // Round content: the player's static data/multi-content/<game>.json (same files the mesh host uses).
-  "vars": { "PACK_BASE_URL": "https://playsnack.vercel.app/data/multi-content" },
+  // STATS_URL: where the rooms' game stats go (the site's /api/ev; "" = none).
+  "vars": { "PACK_BASE_URL": "https://playsnack.vercel.app/data/multi-content", "STATS_URL": "https://playsnack.vercel.app/api/ev" },
   "observability": { "enabled": false }
 }

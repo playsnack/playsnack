@@ -13,7 +13,11 @@
 // Free-plan guard: every KV pipeline is metered into stats:budget:<KST month> (store.js); once
 // the month's count reaches EV_MONTHLY_BUDGET (default 400000 = 80% of Upstash Free's 500K
 // commands/month) this instance sends no more KV commands that month (docs/telemetry.md §5a).
-import { createHmac } from 'node:crypto';
+// The edge room server (edge/room, Cloudflare Durable Objects) posts its rooms' game events
+// here server to server with `X-Room-Server: <ROOM_SERVER_SECRET>` (docs/telemetry.md §9.7):
+// a right secret gets its own rate bucket (every room shares a few Cloudflare egress
+// addresses), a wrong one is 403; the same schema, caps, budget and de-dup apply.
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { kstDay, kstMonth, isDay, daysAgo, isoWeek, weekDays } from './_lib/day.js';
 import { appIds } from './_lib/apps.js';
 import { MAX_BODY_BYTES, MONTHLY_FIELDS, parseBatch, settleOnce, summarize, WIRED } from './_lib/schema.js';
@@ -26,6 +30,24 @@ const privacySignal = (request) => request.headers.get('sec-gpc') === '1' || req
     The player already stays silent when navigator.webdriver is set; this covers the rest. */
 export const AUTOMATED_UA = /HeadlessChrome|Headless|PhantomJS|Playwright|Puppeteer|Lighthouse|bot\b|crawler|spider|preview/i;
 const automated = (request) => AUTOMATED_UA.test(request.headers.get('user-agent') ?? '');
+
+/** The room server's shared secret (ROOM_SERVER_SECRET, ≥ 16 chars) or null = not configured. */
+const roomServerSecret = (env) => (typeof env.ROOM_SERVER_SECRET === 'string' && env.ROOM_SERVER_SECRET.length >= 16 ? env.ROOM_SERVER_SECRET : null);
+const digest = (s) => createHash('sha256').update(String(s)).digest();
+/**
+ * 'trusted' = the edge room server with the right secret; 'bad' = a secret header that does
+ * not match (403, no KV command); null = an ordinary client (also when no secret is configured
+ * here yet: then the header means nothing and the request is limited like any other).
+ */
+export function roomServer(request, env) {
+  const got = request.headers.get('x-room-server');
+  if (got === null) return null;
+  const secret = roomServerSecret(env);
+  if (!secret) return null;
+  return timingSafeEqual(digest(got), digest(secret)) ? 'trusted' : 'bad';
+}
+/** The room server's own bucket: every room posts at most every 10 s, all from a few addresses. */
+export const ROOM_SERVER_LIMITS = { bucketSize: 120, refillPerSec: 4, minuteCap: 600 };
 
 const GET_CACHE_MS = 30_000;
 // Readable days (≤ 92) + readable ISO weeks (≤ 15) all fit, so the cache never thrashes.
@@ -115,6 +137,7 @@ export function createHandler(opts = {}) {
   const now = opts.now || Date.now;
   const memory = opts.memoryStore || createMemoryStore({ now });
   let limiter = opts.limiter || null;
+  const serverLimiter = opts.serverLimiter || createLimiter(ROOM_SERVER_LIMITS);
   let limiterCap = null;
   let kv = null;
   let kvId = null;
@@ -155,8 +178,10 @@ export function createHandler(opts = {}) {
     const t = now();
     const today = kstDay(t);
     const month = kstMonth(t);
+    const server = roomServer(request, env);
+    if (server === 'bad') return json(403, { ok: false, error: 'bad_room_server' }, store.kind);
     if (privacySignal(request) || automated(request)) return new Response(null, { status: 204, headers: { 'cache-control': 'no-store', 'x-ev-store': store.kind } });
-    if (lim.check(request, t)) return json(429, { ok: false, error: 'rate_limited' }, store.kind, { 'retry-after': '60' });
+    if (server === 'trusted' ? serverLimiter.check(request, t) : lim.check(request, t)) return json(429, { ok: false, error: 'rate_limited' }, store.kind, { 'retry-after': '60' });
     const text = await readLimited(request, MAX_BODY_BYTES);
     if (text === null) return json(413, { ok: false, error: 'too_large' }, store.kind);
     const parsed = parseBatch(text);
