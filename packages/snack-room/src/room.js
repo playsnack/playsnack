@@ -131,6 +131,15 @@ const buildMatchups = (cands) => {
  * @param {() => number} [o.random]
  * @param {(fn: () => void, ms: number) => any} [o.setTimer]
  * @param {(handle: any) => void} [o.clearTimer]
+ * Free-beta metrics hooks (docs/telemetry.md §9.5) — fired on the engine that runs the
+ * room (the host), at most once per game / pack on that engine; ids come from the
+ * triggering action's clientMsgId, so a host hand-over that replays it reports the same id.
+ * @param {(e: {sid: string, players: number, again: boolean}) => void} [o.onSessionStart]
+ *   content loaded, countdown about to start; players = on the roster now; again = a game in this room reached its result before
+ * @param {(e: {sid: string, players: number, quiz: boolean, about?: boolean, answerers?: number}) => void} [o.onSessionEnd]
+ *   first move into "result"; players = took part (S.acted, a quiz subject counts); quiz only: about, answerers (subject excluded)
+ * @param {(e: {gid: string, source: "editor" | "remake"}) => void} [o.onGameCreated]
+ *   a valid quiz pack was accepted; remake = sent after a finished game by someone who was not its subject
  */
 export function createRoom(o) {
   const {
@@ -147,7 +156,18 @@ export function createRoom(o) {
     random = Math.random,
     setTimer = (fn, ms) => setTimeout(fn, ms),
     clearTimer = (h) => clearTimeout(h),
+    onSessionStart = () => {},
+    onSessionEnd = () => {},
+    onGameCreated = () => {},
   } = o;
+  // A metrics hook must never break the room.
+  const report = (hook, e) => {
+    try {
+      hook(e);
+    } catch (err) {
+      console.error("[snack-room] metrics hook failed", err);
+    }
+  };
 
   const r = {
     voters,
@@ -250,8 +270,10 @@ export function createRoom(o) {
     if (r.vars.has(id)) setVar(id, value);
   };
   const setPhase = (phase, extra = {}) => {
-    if (phase === "result" && S.phase !== "result") S.done += 1; // sessions finished in this room (telemetry §9.3)
+    const ended = phase === "result" && S.phase !== "result";
+    if (ended) S.done += 1; // sessions finished in this room (telemetry §9.3)
     S.phase = phase;
+    if (ended && S.sid) report(onSessionEnd, sessionEnded());
     setVar("sessionPhase", phase);
     for (const [k, v] of Object.entries(extra)) {
       if (k === "sessionCountdown") S.num = v;
@@ -264,6 +286,12 @@ export function createRoom(o) {
     setPhase("result");
     setKnown("raceBoard", raceBoard()); // a vote / co-op session has no board to show
     setKnown("leaderboard", board());
+  };
+  // session_done (telemetry §9.1): who took part, and for a quiz whether it was about someone + who answered.
+  const sessionEnded = () => {
+    const e = { sid: S.sid, players: S.acted ? S.acted.size : 0, quiz: Boolean(S.quiz) };
+    if (S.quiz) Object.assign(e, { about: Boolean(S.quizSubject), answerers: S.answerers ? S.answerers.size : 0 });
+    return e;
   };
   const inWindow = () => S.phase === "play" || (S.phase === "result" && now() <= (S.lateUntil ?? 0));
 
@@ -542,6 +570,7 @@ export function createRoom(o) {
     const custom = opts.quiz ? S.quizPack : null; // a player's own quiz: nothing to fetch
     let pack = custom ? null : await getPack(opts.game, opts);
     if (r.destroyed || S.gen !== myGen) return; // room gone or superseded during the fetch
+    report(onSessionStart, { sid: S.sid, players: r.roster.size, again: S.done > 0 });
     // A themed pack may come as {title, questions}.
     const packTitle = pack && !Array.isArray(pack) && typeof pack.title === "string" ? pack.title : "";
     if (pack && !Array.isArray(pack)) pack = Array.isArray(pack.questions) ? pack.questions : null;
@@ -772,9 +801,12 @@ export function createRoom(o) {
       const pack = sanitizeQuizPack(d?.payload);
       if (!pack) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_pack" });
       const about = typeof d.payload.about === "string" ? capText(cleanNick(d.payload.about), NICK_MAX) : ""; // a display name, capped like a nickname
+      // 참가자→개설 (telemetry §9.1): after a finished game, from anyone but that game's subject.
+      const source = S.done > 0 && anonId !== S.quizSubject?.anonId ? "remake" : "editor";
       S.quizPack = { ...pack, id: idOf(d.clientMsgId), subject: { anonId, nick: about || peerNick(peer) || "게스트" } };
       S.subject = anonId;
       S.packDone = S.phase === "result" ? S.done : -1;
+      report(onGameCreated, { gid: S.quizPack.id, source });
       S.subjectAwayAt = null;
       watchSubjectAway();
       setVar("quizInfo", quizInfo());
