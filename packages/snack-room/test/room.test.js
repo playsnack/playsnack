@@ -258,7 +258,7 @@ test("snapshot → restore on another engine resumes a quiz mid-round (host hand
     { q: "2+2?", options: ["2", "3", "4", "5"], answer: 2 },
   ];
   const a = harness({ pack, random: () => 0.99 }); // shuffle keeps order
-  [1, 2].forEach(a.join);
+  [1, 2, 3].forEach(a.join); // p3 never answers: the full window runs
   a.act(1, "start", { game: "trivia", quiz: true, rounds: 2, answerMs: 8000, revealMs: 2000 });
   await a.advance(3000 + 2000); // 2s into round 1
   a.act(1, "answer", { option: 1 });
@@ -269,7 +269,7 @@ test("snapshot → restore on another engine resumes a quiz mid-round (host hand
   const b = harness({ pack });
   await b.advance(123456);
   assert.equal(b.room.restore(snap, 500), true);
-  [1, 2].forEach(b.join);
+  [1, 2, 3].forEach(b.join);
   b.act(2, "answer", { option: 1 }); // still inside the window
   b.act(1, "answer", { option: 0 }); // already answered → ignored
   await b.advance(8000 - 2000 - 500 - 1);
@@ -597,7 +597,12 @@ const shownAnswer = (h) => {
   return rc.options.indexOf(src.options[src.answer]);
 };
 const QUIZ_START = { game: "trivia", quiz: true, rounds: 6, answerMs: 8000, revealMs: 2000 };
-const pts = (ms, win = 8000) => Math.max(100, 1000 - Math.round((ms / win) * 800));
+// quizProgress counts (its round / sessionNo are checked on their own)
+const prog = (h) => {
+  const { answered, of } = h.v("quizProgress");
+  return { answered, of };
+};
+const pts = (ms, win = 8000) =>Math.max(100, 1000 - Math.round((ms / win) * 800));
 const info = (h) => {
   const { packId, ...rest } = h.v("quizInfo");
   return rest;
@@ -782,7 +787,7 @@ test("answers: one per player per round; an invalid option is not an answer; the
   h.act(2, "answer", { option: (a + 1) % 4, ms: 500 }); // wrong
   h.act(2, "answer", { option: a, ms: 600 }); // second answer ignored
   h.act(3, "answer", { option: a, ms: 900 });
-  assert.deepEqual(h.v("quizProgress"), { answered: 2, of: 2 });
+  assert.deepEqual(prog(h), { answered: 2, of: 2 });
   assert.ok(!h.out.some((m) => m.d?.id === "raceBoard" && m.d.value.some((x) => x.score > 0)), "no score shown before the reveal");
   await h.advance(7000);
   assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉3", score: pts(900) }, { nick: "닉2", score: 0 }]);
@@ -933,10 +938,10 @@ test("2 players (1:1): subject + one friend play a whole quiz to the result", as
   h.act(1, "start", QUIZ_START);
   await h.advance(3000);
   for (let i = 0; i < 3; i++) {
-    assert.deepEqual(h.v("quizProgress"), { answered: 0, of: 1 });
+    assert.deepEqual(prog(h), { answered: 0, of: 1 });
     await h.advance(500);
     h.act(2, "answer", { option: shownAnswer(h), ms: 500 });
-    assert.deepEqual(h.v("quizProgress"), { answered: 1, of: 1 });
+    assert.deepEqual(prog(h), { answered: 1, of: 1 });
     await h.advance(7500 + 2000);
   }
   assert.equal(h.v("sessionPhase"), "result");
@@ -1281,9 +1286,159 @@ test("R11: quizProgress counts present answerers only — a leaver's answer does
   h.act(1, "start", QUIZ_START);
   await h.advance(3000 + 500);
   h.act(2, "answer", { option: 0, ms: 100 });
-  assert.deepEqual(h.v("quizProgress"), { answered: 1, of: 3 });
+  assert.deepEqual(prog(h), { answered: 1, of: 3 });
   h.room.leave("p2");
-  assert.deepEqual(h.v("quizProgress"), { answered: 0, of: 2 });
+  assert.deepEqual(prog(h), { answered: 0, of: 2 });
   h.act(3, "answer", { option: 0, ms: 100 });
-  assert.deepEqual(h.v("quizProgress"), { answered: 1, of: 2 });
+  assert.deepEqual(prog(h), { answered: 1, of: 2 });
+});
+
+// ── Early reveal: everyone present has answered → reveal in EARLY_REVEAL_MS ──
+const revealed = (h) => h.v("roundAnswer") >= 0;
+
+test("early reveal: every present answerer answered (the subject never does) → reveal 600 ms later, then revealMs, then the next round", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 2) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 1000);
+  const a = shownAnswer(h);
+  h.act(2, "answer", { option: a, ms: 900 });
+  await h.advance(500);
+  h.act(3, "answer", { option: a, ms: 1400 }); // the last one (the subject p1 only watches)
+  await h.advance(599);
+  assert.equal(revealed(h), false, "a beat before the reveal");
+  await h.advance(1);
+  assert.equal(h.v("roundAnswer"), a, "revealed 600 ms after the last answer — not at 8 s");
+  assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉2", score: pts(900) }, { nick: "닉3", score: pts(1400) }], "device-measured scoring unchanged");
+  await h.advance(1999);
+  assert.equal(h.v("roundNum"), 1);
+  await h.advance(1);
+  assert.equal(h.v("roundNum"), 2, "the next round after the normal reveal duration");
+  assert.equal(revealed(h), false);
+  assert.deepEqual(h.v("quizProgress"), { answered: 0, of: 2, round: 1, sessionNo: 1 }, "the count says which round / game it is for");
+  // a late resend of round 1's answer is still refused in round 2
+  h.room.action("p2", { name: "answer", payload: { option: 0, ms: 100, round: 0, sessionNo: 1 }, clientMsgId: "late" });
+  assert.equal(h.out.filter((m) => m.type === "actionAck" && m.d.clientMsgId === "late").at(-1).d.reason, "stale_round");
+});
+
+test("early reveal: one answerer missing → the full window", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 1000);
+  h.act(2, "answer", { option: shownAnswer(h), ms: 900 });
+  h.act(1, "answer", { option: shownAnswer(h), ms: 900 }); // the subject: ignored, does not count
+  assert.deepEqual(prog(h), { answered: 1, of: 2 });
+  await h.advance(8000 - 1000 - 1);
+  assert.equal(revealed(h), false);
+  await h.advance(1);
+  assert.equal(revealed(h), true, "revealed at the end of the 8 s window");
+});
+
+test("early reveal: the last one still to answer leaves mid-round → reveal 600 ms after the leave", async () => {
+  const h = harness();
+  [1, 2, 3, 4].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 1000);
+  h.act(2, "answer", { option: 0, ms: 900 });
+  h.act(3, "answer", { option: 0, ms: 900 });
+  await h.advance(1000);
+  assert.equal(revealed(h), false);
+  h.room.leave("p4");
+  assert.deepEqual(prog(h), { answered: 2, of: 2 });
+  await h.advance(599);
+  assert.equal(revealed(h), false);
+  await h.advance(1);
+  assert.equal(revealed(h), true);
+});
+
+test("early reveal: an answerer who already answered leaving does not reveal while others are missing", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 1000);
+  h.act(2, "answer", { option: 0, ms: 900 });
+  h.room.leave("p2");
+  assert.deepEqual(prog(h), { answered: 0, of: 1 });
+  await h.advance(5000);
+  assert.equal(revealed(h), false);
+  await h.advance(2000);
+  assert.equal(revealed(h), true, "full window");
+});
+
+test("early reveal: someone joining during the beat reopens the round to the window's own end", async () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 1000);
+  h.act(2, "answer", { option: 0, ms: 900 });
+  await h.advance(300);
+  h.join(3); // mid-beat: a new answerer is now on the roster
+  assert.deepEqual(prog(h), { answered: 1, of: 2 });
+  await h.advance(8000 - 1300 - 1);
+  assert.equal(revealed(h), false, "not revealed early — p3 may still answer");
+  h.act(3, "answer", { option: 0, ms: 100 }); // 1 ms before the end: nothing to pull in
+  await h.advance(1);
+  assert.equal(revealed(h), true);
+  // a reload of someone who already answered does not reopen it
+  const g = harness();
+  [1, 2].forEach(g.join);
+  g.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  g.act(1, "start", QUIZ_START);
+  await g.advance(3000 + 1000);
+  g.act(2, "answer", { option: 0, ms: 900 });
+  g.room.join("p2b", { anonId: "a2", nick: "닉2" });
+  await g.advance(600);
+  assert.equal(revealed(g), true);
+});
+
+test("early reveal: a hand-over during the beat keeps it (timer as remaining ms); rejoins do not reopen it", async () => {
+  const a = harness();
+  [1, 2, 3].forEach(a.join);
+  a.act(1, "quizPack", { title: "나", questions: QS.slice(0, 2) });
+  a.act(1, "start", QUIZ_START);
+  await a.advance(3000 + 1000);
+  const a0 = shownAnswer(a);
+  a.act(2, "answer", { option: a0, ms: 700 });
+  a.act(3, "answer", { option: a0, ms: 800 });
+  await a.advance(300); // 300 ms into the 600 ms beat
+  const snap = JSON.parse(JSON.stringify(a.room.snapshot()));
+  assert.equal(snap.timers.find((x) => x.step === "revealQuizRound").remaining, 300);
+  a.room.destroy();
+
+  const b = harness({ random: () => 0.1 });
+  await b.advance(424242);
+  assert.equal(b.room.restore(snap, 100), true);
+  [3, 1, 2].forEach(b.join); // re-joins in any order
+  await b.advance(199);
+  assert.equal(revealed(b), false);
+  await b.advance(1);
+  assert.equal(b.v("roundAnswer"), a0, "revealed on the beat's own schedule (300 − 100 ms age)");
+  assert.deepEqual(rows(b.v("raceBoard")), [{ nick: "닉2", score: pts(700) }, { nick: "닉3", score: pts(800) }]);
+  await b.advance(2000);
+  assert.equal(b.v("roundNum"), 2);
+
+  // not all in at the hand-over: rejoining answerers first must not pull the reveal in
+  const c = harness();
+  [1, 2, 3].forEach(c.join);
+  c.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  c.act(1, "start", QUIZ_START);
+  await c.advance(3000 + 1000);
+  c.act(2, "answer", { option: 0, ms: 700 });
+  const snap2 = JSON.parse(JSON.stringify(c.room.snapshot()));
+  const d = harness();
+  d.room.restore(snap2, 0);
+  d.join(1);
+  d.join(2); // p2 (answered) back first: 1/1 for a moment
+  await d.advance(600);
+  assert.equal(revealed(d), false, "a rejoin is not an answer");
+  d.join(3);
+  d.act(3, "answer", { option: 0, ms: 2000 });
+  await d.advance(600);
+  assert.equal(revealed(d), true, "the real last answer pulls it in");
 });
