@@ -230,7 +230,7 @@ export function buildResultView(input: ResultInput): ResultView {
     score: r.score,
     scoreLabel: fmtScore(r.score),
     correct: r.correct,
-    accuracyLabel: total > 0 ? `${r.correct}/${total} · ${pctOf(r.correct, total)}%` + (r.okN ? ` · ${speedLabel(r.okMs / r.okN)}` : "") : "",
+    accuracyLabel: total > 0 ? `${r.correct}/${total} 맞힘 · ${pctOf(r.correct, total)}%` + (r.okN ? ` · ${speedLabel(r.okMs / r.okN)}` : "") : "",
     speedLabel: r.okN ? speedLabel(r.okMs / r.okN) : "",
     left: r.left,
     me: isMe(r),
@@ -280,7 +280,8 @@ export function buildResultView(input: ResultInput): ResultView {
     ...base,
     mode: "rank",
     headline: subjectWord ? `${eulReul(subjectWord)} 제일 잘 아는 친구는?` : "누가 제일 잘 맞혔을까?",
-    mine: meRow ? `내 순위 ${meRow.rankLabel} · ${meRow.scoreLabel}${meRow.accuracyLabel ? ` · ${meRow.accuracyLabel}` : ""}` : "",
+    // One line above the ranking: the compact "5/6 · 83%" (the row under it says 맞힘).
+    mine: meRow ? `내 순위 ${meRow.rankLabel} · ${meRow.scoreLabel}${meRow.accuracyLabel ? ` · ${meRow.accuracyLabel.replace(" 맞힘", "")}` : ""}` : "",
   };
 }
 

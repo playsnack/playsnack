@@ -1034,14 +1034,12 @@
                 "children": [
                   {
                     "id": "rankRow",
-                    "box": "row",
-                    "height": 48,
+                    "box": "column",
                     "pad": [
-                      0,
+                      7,
                       12
                     ],
-                    "gap": 8,
-                    "align": "center",
+                    "gap": 2,
                     "fill": "{item.top ? '#d9ff00' : '#16181c'}",
                     "stroke": {
                       "color": "{item.me ? '#ffffff' : (item.top ? '#d9ff00' : '#16181c')}",
@@ -1049,40 +1047,40 @@
                     },
                     "children": [
                       {
-                        "id": "rkRank",
-                        "text": "{item.rankLabel}",
-                        "width": 60,
-                        "size": 15,
-                        "weight": 800,
-                        "color": "{item.top ? '#0b0c0e' : '#9aa3af'}",
-                        "lines": 1
-                      },
-                      {
-                        "id": "rkNick",
-                        "text": "{item.nick}",
-                        "width": 146,
-                        "size": 16,
-                        "weight": 700,
-                        "color": "{item.top ? '#0b0c0e' : '#ffffff'}",
-                        "lines": 1
-                      },
-                      {
-                        "id": "rkLeft",
-                        "text": "나감",
-                        "show": "item.left",
-                        "width": 28,
-                        "size": 13,
-                        "weight": 700,
-                        "color": "{item.top ? '#0b0c0e' : '#9aa3af'}",
-                        "lines": 1
-                      },
-                      {
-                        "id": "rkScoreCol",
-                        "box": "column",
+                        "id": "rkTop",
+                        "box": "row",
                         "width": "fill",
-                        "gap": 0,
-                        "align": "end",
+                        "gap": 8,
+                        "align": "center",
                         "children": [
+                          {
+                            "id": "rkRank",
+                            "text": "{item.rankLabel}",
+                            "width": 60,
+                            "size": 15,
+                            "weight": 800,
+                            "color": "{item.top ? '#0b0c0e' : '#9aa3af'}",
+                            "lines": 1
+                          },
+                          {
+                            "id": "rkNick",
+                            "text": "{item.nick}",
+                            "width": 146,
+                            "size": 16,
+                            "weight": 700,
+                            "color": "{item.top ? '#0b0c0e' : '#ffffff'}",
+                            "lines": 1
+                          },
+                          {
+                            "id": "rkLeft",
+                            "text": "나감",
+                            "show": "item.left",
+                            "width": 28,
+                            "size": 13,
+                            "weight": 700,
+                            "color": "{item.top ? '#0b0c0e' : '#9aa3af'}",
+                            "lines": 1
+                          },
                           {
                             "id": "rkScore",
                             "text": "{item.scoreLabel}",
@@ -1092,16 +1090,28 @@
                             "color": "{item.top ? '#0b0c0e' : '#ffffff'}",
                             "align": "right",
                             "lines": 1
-                          },
+                          }
+                        ]
+                      },
+                      {
+                        "id": "rkSub",
+                        "box": "row",
+                        "width": "fill",
+                        "pad": [
+                          0,
+                          0,
+                          0,
+                          68
+                        ],
+                        "show": "item.accuracyLabel !== ''",
+                        "children": [
                           {
                             "id": "rkAcc",
                             "text": "{item.accuracyLabel}",
-                            "show": "item.accuracyLabel !== ''",
                             "width": "fill",
-                            "size": 12,
+                            "size": 13,
                             "weight": 600,
                             "color": "{item.top ? '#0b0c0e' : '#9aa3af'}",
-                            "align": "right",
                             "lines": 1
                           }
                         ]

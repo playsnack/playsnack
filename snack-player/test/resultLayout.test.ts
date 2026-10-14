@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { createBite } from "../../packages/bite/src/index.js";
 import { absBoxes, checkLayout, computeScene, findInstances, initLayout } from "../../packages/bite-layout/src/index.js";
 import { buildResultView, type ResultInput } from "../src/quizResult.ts";
+import { canvasDrop } from "../src/canvasFit.ts";
 import { LONG_NICK, duo, group } from "./fixtures/quizResult.ts";
 
 const DOC = JSON.parse(readFileSync(new URL("../../snack-server/data/bite/speed-trivia-score.bite.json", import.meta.url), "utf8"));
@@ -32,7 +33,7 @@ async function scene(vars: Record<string, unknown>) {
   // A component instance carries its `use` node as `source` (the view's own id is "root").
   const byId = (id: string) => [...findInstances(root, id), ...findBySource(root, id)] as { key: string; text?: { lines: { text: string }[] } }[];
   const box = (id: string) => { const i = byId(id)[0]; return i ? boxes.get(i.key)! : null; };
-  return { issues: checkLayout(root, DOC.frame), warnings, byId, box };
+  return { issues: checkLayout(root, DOC.frame), warnings, byId, box, boxes };
 }
 
 type Inst = { key: string; node: { id?: string }; source?: { id?: string }; children: Inst[] };
@@ -128,6 +129,47 @@ test("a 10-grapheme nickname is drawn whole on one line in the ranking", async (
   const nick = s.byId("rkNick").find((i) => i.text?.lines[0]?.text.startsWith(LONG_NICK[0]))!;
   assert.equal(nick.text!.lines.length, 1);
   assert.equal(nick.text!.lines[0].text, LONG_NICK);
+});
+
+// #92: the hit rate + average time ("5/6 맞힘 · 83% · 평균 2.0초") sits on its own
+// line under the nick and is drawn whole — with a 10-grapheme nick, 4-digit scores,
+// ties (공동 1위), the leaver tag (나감) and a slow average. The frame is laid out at
+// 390×844 and the renderer scales it uniformly to the phone (bite-pixi renderer.js
+// fit, canvasFit.ts), so 360×640 is the same layout drawn smaller: the check is the
+// laid-out text, then each line's box scaled into the 360×640 canvas.
+test("the rank rows' hit-rate line and the 내 순위 line are never cut (390×844 and 360×640)", async () => {
+  // The widest a label gets: 10 questions at most, the 9-second answer window, 5-digit points.
+  const widest = (v: ReturnType<typeof buildResultView>) => ({
+    ...v,
+    ranks: v.ranks.map((r) => ({ ...r, scoreLabel: "10,000점", accuracyLabel: "10/10 맞힘 · 100% · 평균 8.9초" })),
+    mine: v.mine && v.mine.replace(/ · .*/, "").replace(/$/, " · 10,000점 · 10/10 · 100% · 평균 8.9초"),
+  });
+  for (const myNick of [LONG_NICK, "하늘", "서준"]) {
+    const real = buildResultView({ ...group, myNick });
+    assert.ok(real.ranks.some((r) => r.nick === LONG_NICK) && real.ranks.some((r) => r.rankLabel.startsWith("공동")) && real.ranks.some((r) => r.left), "fixture: long nick, tie, leaver");
+    assert.ok(real.ranks.filter((r) => !r.left).every((r) => r.score >= 1000), "fixture: 4-digit scores");
+    for (const [name, view] of [["fixture", real], ["widest labels", widest(real)]] as const) {
+      const s = await scene({ ...viewVars({ ...group, myNick }), resultView: view });
+      assert.deepEqual(s.issues, [], `${name}: ${JSON.stringify(s.issues)}`);
+      const acc = s.byId("rkAcc");
+      assert.equal(acc.length, view.ranks.length, `${name}: one hit-rate line per row`);
+      acc.forEach((inst, i) => {
+        assert.deepEqual(inst.text!.lines.map((l) => l.text), [view.ranks[i].accuracyLabel], `${name}: row ${i + 1} drawn whole`);
+        const b = s.boxes.get(inst.key)!;
+        for (const [w, h] of [[390, 844], [360, 640]]) {
+          const k = Math.min(w / 390, (h - canvasDrop(w, h)) / 844);
+          assert.ok(b.x >= 0 && (b.x + b.w) * k <= w, `${name}: row ${i + 1} inside ${w}×${h}`);
+        }
+      });
+      for (const id of ["rkNick", "rkScore", "rkRank"]) {
+        const field = { rkNick: "nick", rkScore: "scoreLabel", rkRank: "rankLabel" }[id] as "nick";
+        assert.deepEqual(s.byId(id).map((i) => i.text!.lines.map((l) => l.text)), view.ranks.map((r) => [r[field]]), `${name}: ${id} whole`);
+      }
+      const mine = s.byId("resMine")[0];
+      if (view.mine) assert.deepEqual(mine.text!.lines.map((l) => l.text), [view.mine], `${name}: 내 순위 line whole (${myNick})`);
+    }
+  }
+  assert.match(buildResultView({ ...group, myNick: "하늘" }).ranks[0].accuracyLabel, /^5\/6 맞힘 · 83% · 평균 2\.0초$/);
 });
 
 test("20 answerers × 20 questions still fits (the body scrolls)", async () => {
