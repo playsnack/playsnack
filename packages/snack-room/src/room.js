@@ -896,6 +896,21 @@ export function createRoom(o) {
         send(id, "setVar", { id: "myPid", value: pidOf(p.anonId) });
       }
       ack(peerId, d?.clientMsgId);
+    } else if (name === "rename") {
+      // A guest who picked a real name in the lobby (#104): the room shows it at once.
+      // Lobby / result only — a name never changes under a game in progress. Cleaned like a
+      // join's nickname; the roster, the score owner name (raceBoard rows) and this person's
+      // other connections follow. Per-player vars, pids and a stored quiz's `about` do not.
+      if (S.phase !== "lobby" && S.phase !== "result") return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_in_lobby" });
+      const next = typeof d?.payload?.nick === "string" ? cleanNick(d.payload.nick) : "";
+      if (!next) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_nick" });
+      for (const p of r.peers.values()) if (p.anonId === anonId) p.nick = next;
+      if (r.roster.has(anonId)) r.roster.set(anonId, next);
+      r.nicks.set(anonId, next);
+      onPoints(anonId, next, 0); // register the new name (no points)
+      setVar("roster", rosterArr());
+      if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard());
+      ack(peerId, d?.clientMsgId);
     } else if (name === "start") {
       // 나 맞히기 (lobby or result): the subject starts their quiz — anyone if they left the
       // room — and needs someone to guess: the subject plus at least one friend.
@@ -1030,6 +1045,10 @@ export function createRoom(o) {
     },
     get size() {
       return r.peers.size;
+    },
+    /** The nickname this connection goes by now (its hello's, or a later `rename`'s). */
+    nickOf(peerId) {
+      return r.peers.get(peerId)?.nick;
     },
     /**
      * Everything needed to resume this room elsewhere. Times are RELATIVE

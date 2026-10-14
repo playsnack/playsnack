@@ -220,6 +220,38 @@ test("hibernation: the engine is rebuilt from storage, players keep their seats 
   assert.equal(hub.room(room).store.map.get("snap"), undefined, "nicknames and scores leave with the last player");
 });
 
+test("rename (#104): the room server renames in the lobby, refuses mid-game; the new name survives a wake from hibernation", async () => {
+  const room = rid("ren");
+  const a = player(room, "ra");
+  await a.hello({ nick: "느긋한 치킨" });
+  const b = player(room, "rb");
+  await b.hello();
+  assert.ok(await b.until(() => b.vars.participants === 2));
+  assert.deepEqual(b.vars.roster, ["느긋한 치킨", "rb"]);
+  await a.act("start", { duration: 4000 });
+  assert.ok(await a.until(() => a.vars.sessionPhase === "countdown"));
+  await a.act("rename", { nick: "게임 중" });
+  assert.ok(await a.until(() => ack(a, "not_in_lobby")), "refused during the countdown");
+  await a.act("lobby");
+  assert.ok(await a.until(() => a.vars.sessionPhase === "lobby"));
+  await a.act("rename", { nick: "  민지  " });
+  assert.ok(await b.until(() => b.vars.roster?.[0] === "민지"), "everyone sees the new name");
+  assert.ok(a.frame((m) => m.t === "actionAck" && m.d?.accepted === true && m.d.clientMsgId === "ra-3"));
+  if (!EXTERNAL) {
+    const sockA = [...hub.room(room).sockets].find((s) => s.state?.anonId === "ra");
+    assert.equal(sockA.state.nick, "민지", "the socket attachment carries the new name");
+    await sleep(1300); // persisted (debounced 1 s)
+    hub.room(room).core.forget(); // what an evicted DO loses
+    const c = player(room, "rc");
+    await c.hello();
+    assert.ok(await c.until(() => c.vars.participants === 3));
+    assert.deepEqual(c.vars.roster, ["민지", "rb", "rc"], "rebuilt from the attachments: the new name, not the hello's");
+    c.close();
+  }
+  a.close();
+  b.close();
+});
+
 test("a PIN room: the right PIN joins, a wrong one is refused", async () => {
   const room = rid("pin");
   const a = player(room, "pa");

@@ -1630,3 +1630,121 @@ test("spectate: a room that never had a spectator never sends the flag or the co
   assert.ok(!h.out.some((m) => m.d?.id === "iAmSpectator" || m.d?.id === "spectators"));
   assert.ok(!("spectators" in h.room.sharedState()));
 });
+
+// ── rename (#104): a guest picks a real name in the lobby ──
+test("rename in the lobby: roster, board row and every connection of that player follow; others untouched", async () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.room.join("p1b", { anonId: "a1", nick: "닉1" }); // a second tab of player 1
+  h.act(1, "start", { duration: 2000 });
+  await h.advance(3000);
+  h.act(1, "tap");
+  h.act(2, "tap");
+  await h.advance(2000 + 2000);
+  assert.equal(h.v("sessionPhase"), "result");
+  h.act(1, "lobby");
+  assert.equal(h.v("sessionPhase"), "lobby");
+  const pidBefore = h.v("raceBoard").find((x) => x.nick === "닉1").pid;
+  h.act(1, "rename", { nick: "민지" });
+  assert.deepEqual(ackOf(h, 1, "rename"), { clientMsgId: "m1rename", accepted: true });
+  assert.deepEqual(h.v("roster"), ["민지", "닉2"]);
+  const row = h.v("raceBoard").find((x) => x.pid === pidBefore);
+  assert.equal(row.nick, "민지", "the board row keeps its pid, shows the new name");
+  assert.ok(h.v("raceBoard").some((x) => x.nick === "닉2"));
+  assert.equal(h.room.nickOf("p1"), "민지");
+  assert.equal(h.room.nickOf("p1b"), "민지", "the other tab goes by the new name too");
+  assert.equal(h.room.nickOf("p2"), "닉2");
+  assert.deepEqual(h.points.at(-1), ["a1", 0], "the new name is registered with no points");
+  // a later score is owned by the new name
+  h.act(1, "start", { duration: 2000 });
+  await h.advance(3000);
+  h.act(1, "tap");
+  assert.ok(h.v("raceBoard").some((x) => x.nick === "민지"));
+});
+
+test("rename: in the result too; refused during the countdown and play (not_in_lobby), nothing changes", async () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.act(1, "start", { duration: 2000 });
+  await h.advance(0);
+  assert.equal(h.v("sessionPhase"), "countdown");
+  h.act(2, "rename", { nick: "카운트" });
+  assert.deepEqual(ackOf(h, 2, "rename"), { clientMsgId: "m2rename", accepted: false, reason: "not_in_lobby" });
+  await h.advance(3000);
+  assert.equal(h.v("sessionPhase"), "play");
+  h.act(2, "tap");
+  h.act(2, "rename", { nick: "플레이" });
+  assert.deepEqual(ackOf(h, 2, "rename"), { clientMsgId: "m2rename", accepted: false, reason: "not_in_lobby" });
+  assert.deepEqual(h.v("roster"), ["닉1", "닉2"]);
+  assert.equal(h.v("raceBoard")[0].nick, "닉2");
+  assert.equal(h.room.nickOf("p2"), "닉2");
+  await h.advance(2000 + 2000);
+  assert.equal(h.v("sessionPhase"), "result");
+  h.act(2, "rename", { nick: "결과" });
+  assert.equal(ackOf(h, 2, "rename").accepted, true);
+  assert.deepEqual(h.v("roster"), ["닉1", "결과"]);
+  assert.equal(h.v("raceBoard")[0].nick, "결과");
+});
+
+test("rename: sanitized like a join's nickname (trim, 10 graphemes); blank / missing / not text is refused (invalid_nick)", () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.act(1, "rename", { nick: "  내 이름은 아주아주 긴 별명입니다  " });
+  assert.equal(h.v("roster")[0], "내 이름은 아주아주");
+  assert.equal(h.v("roster")[0], cleanNick("내 이름은 아주아주 긴 별명입니다"));
+  h.act(1, "rename", { nick: "👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦👩‍👩‍👧‍👦" });
+  assert.equal(h.v("roster")[0], "👩‍👩‍👧‍👦".repeat(10), "an emoji counts one");
+  for (const bad of [{ nick: "   " }, { nick: "" }, {}, { nick: 7 }, { nick: ["a"] }, null]) {
+    h.act(2, "rename", bad);
+    assert.deepEqual(ackOf(h, 2, "rename"), { clientMsgId: "m2rename", accepted: false, reason: "invalid_nick" }, JSON.stringify(bad));
+  }
+  assert.deepEqual(h.v("roster"), ["👩‍👩‍👧‍👦".repeat(10), "닉2"]);
+});
+
+test("rename: per-player vars and a stored quiz's `about` stay; a rename before sending the pack names the subject", () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "내 퀴즈", questions: QS });
+  assert.equal(h.v("quizInfo").about, "닉1");
+  const mine = JSON.stringify([...h.room._state.mine]);
+  h.act(1, "rename", { nick: "새이름" });
+  assert.equal(h.v("quizInfo").about, "닉1", "a pack already sent keeps its subject name");
+  assert.equal(JSON.stringify([...h.room._state.mine]), mine, "per-player vars unchanged");
+  assert.deepEqual(h.v("roster"), ["새이름", "닉2", "닉3"]);
+  // renamed first, then the pack (no `about`): the subject is shown by the new name
+  const g = harness();
+  [1, 2].forEach(g.join);
+  g.act(2, "rename", { nick: "지우" });
+  g.act(2, "quizPack", { title: "", questions: QS });
+  assert.equal(g.v("quizInfo").about, "지우");
+  assert.equal(g.v("quizInfo").title, "지우 퀴즈");
+});
+
+test("rename survives snapshot → restore (host hand-over / room server wake-up) and a rejoin with the new name", async () => {
+  const a = harness();
+  [1, 2].forEach(a.join);
+  a.act(1, "start", { duration: 2000 });
+  await a.advance(3000);
+  a.act(1, "tap");
+  a.act(1, "tap");
+  a.act(2, "tap");
+  await a.advance(4000);
+  a.act(1, "rename", { nick: "민지" });
+  const snap = JSON.parse(JSON.stringify(a.room.snapshot())); // over the wire
+  assert.equal(new Map(snap.nicks).get("a1"), "민지", "the score owner name rides in the snapshot");
+  // the next host: the renamed device's hello now carries its new name (the shell updates it)
+  const b = harness();
+  b.room.restore(snap, 0);
+  b.room.join("p1", { anonId: "a1", nick: "민지" });
+  b.join(2);
+  assert.deepEqual(b.v("roster"), ["민지", "닉2"]);
+  assert.deepEqual(b.room.stateFor("p2").sharedState.raceBoard.map((x) => x.nick), ["민지", "닉2"]);
+  // a room server woke from hibernation: rejoin from the sockets' attachments, no messages
+  const c = harness();
+  c.room.restore(snap, 0);
+  c.room.rejoin("p1", { anonId: "a1", nick: "민지" });
+  c.room.rejoin("p2", { anonId: "a2", nick: "닉2" });
+  assert.deepEqual(c.room.stateFor("p2").sharedState.raceBoard.map((x) => x.nick), ["민지", "닉2"]);
+  assert.deepEqual(c.room.stateFor("p2").sharedState.roster, ["민지", "닉2"]);
+  assert.equal(c.out.length, 0);
+});

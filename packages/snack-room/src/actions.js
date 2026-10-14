@@ -83,6 +83,15 @@ export const HOST_ACTIONS = Object.freeze({
     },
     description: "store this player's own quiz (they become its subject) — used by the next quiz start",
   },
+  // #104: cleanNick(payload.nick) — trimmed, ≤ NICK_MAX (10) graphemes; empty → actionAck
+  // {accepted:false, reason:"invalid_nick"}. Lobby/result only (else "not_in_lobby"). Updates
+  // this player's roster entry, score owner name (raceBoard rows) and every connection of the
+  // same anonId; per-player vars, pids and a stored quiz's `about` stay as they are.
+  rename: {
+    payload: "object",
+    fields: { nick: { type: "string", required: true, text: true } },
+    description: "change this player's nickname in the room (lobby / result only)",
+  },
   // startSession(payload): a bare number = { duration }; getPack(game, opts) reads theme.
   // In a room with a stored quiz pack any start comes only from its subject (anyone once the
   // subject has been gone 30 s; else actionAck reason "not_subject"); a quiz start needs one

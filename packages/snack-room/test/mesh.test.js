@@ -40,11 +40,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function player(h, slug, n, { timing = FAST, getPack } = {}) {
   const shared = {};
+  const me = { slug, anonId: `a${n}`, nick: `닉${n}` }; // the shell keeps this object: a rename updates its nick
   const statuses = [];
   let gotState = false;
   const conn = connectMesh({
     createBus: h.createBus,
-    me: { slug, anonId: `a${n}`, nick: `닉${n}` },
+    me,
     timing,
     getPack,
     onStatus: (s) => statuses.push(s.state),
@@ -64,6 +65,7 @@ function player(h, slug, n, { timing = FAST, getPack } = {}) {
     shared,
     statuses,
     countdown,
+    me,
     get gotState() {
       return gotState;
     },
@@ -118,6 +120,26 @@ test("host leaves mid-game → the next player resumes with the scores", async (
   assert.equal(rest[0].shared.sessionPhase, "result");
   assert.deepEqual(rest[0].shared.raceBoard.map((x) => x.score), [2, 2]);
   assert.deepEqual(rest[0].shared.raceBoard, rest[1].shared.raceBoard);
+  rest.forEach((p) => p.conn.close());
+});
+
+test("rename (#104) in a mesh room: everyone sees it; the next host keeps it (snapshot + the renamed device's heartbeat)", async () => {
+  const h = hub();
+  const ps = [1, 2, 3].map((n) => player(h, "r", n));
+  await sleep(400);
+  const host = ps.find((p) => p.conn.isHost);
+  const rest = ps.filter((p) => p !== host);
+  const guest = rest[0];
+  // what LiveApp does: the transport's identity follows, then the room action
+  guest.me.nick = "민지";
+  guest.act("rename", { nick: "민지" });
+  await sleep(150);
+  for (const p of ps) assert.ok(p.shared.roster.includes("민지"), `roster ${p.shared.roster}`);
+  assert.ok(!host.shared.roster.includes(`닉${guest.me.anonId.slice(1)}`));
+  host.conn.close();
+  await sleep(500);
+  assert.equal(hosts(rest), 1);
+  for (const p of rest) assert.deepEqual(p.shared.roster.slice().sort(), ["민지", `닉${rest[1].me.anonId.slice(1)}`].sort());
   rest.forEach((p) => p.conn.close());
 });
 

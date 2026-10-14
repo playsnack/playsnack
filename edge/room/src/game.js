@@ -338,6 +338,15 @@ export class GameRoom {
       if (++r.n > this.L.actionsPerSec) return this.reply(sock, "actionAck", { clientMsgId: id, accepted: false, reason: "rate_limited" });
       if (this.meta?.org && !st.org && ORGANIZER_ONLY.has(m.d?.name)) return this.reply(sock, "actionAck", { clientMsgId: id, accepted: false, reason: "organizer_only" });
       this.engine.action(st.peer, m.d);
+      // A rename the room took (#104) rides in the socket's attachment too, so a wake from
+      // hibernation (rejoin from the attachment) keeps the new name, not the hello's.
+      if (m.d?.name === "rename") {
+        const nick = this.engine.nickOf(st.peer);
+        if (nick && nick !== st.nick) {
+          st.nick = nick;
+          sock.save(st);
+        }
+      }
     } else if (t === "react") this.engine.react(m.d?.emoji);
     const took = performance.now() - t0;
     if (this.samples) this.samples.handle.push(took);
