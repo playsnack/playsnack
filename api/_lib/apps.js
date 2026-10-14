@@ -5,14 +5,20 @@ import path from 'node:path';
 
 let cached = null;
 
+const idSet = (list) => (Array.isArray(list) ? new Set(list.map((t) => t && t.id).filter((id) => typeof id === 'string')) : null);
+
 function tryRead(file) {
   try {
-    const list = JSON.parse(readFileSync(file, 'utf8'));
-    if (!Array.isArray(list)) return null;
-    return new Set(list.map((t) => t && t.id).filter((id) => typeof id === 'string'));
+    return idSet(JSON.parse(readFileSync(file, 'utf8')));
   } catch {
     return null;
   }
+}
+
+/** Use an already-parsed index.json (Cloudflare Pages: no file system at run time, api/_lib/pages.js). */
+export function primeAppIds(list) {
+  const ids = idSet(list);
+  if (ids && ids.size) cached = ids;
 }
 
 /** Set of official template ids (empty set if the list could not be read). */
