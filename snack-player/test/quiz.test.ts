@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   ABOUT_ME, ANSWER_MS, MAKE_PARAM, MAX_SENDS, OPTION_MAX, Q_MAX, QUESTIONS_MAX, QUESTIONS_MIN, QUIZ_SLUG, QUIZ_TTL_MS, RECENT_KEEP, SUGGEST_COUNT, TITLE_MAX,
   addOption, addSuggested, blankQuestion, buildQuizPack, canFinish, defaultTitle, draftFromPack, draftProblems, editOption, editQuestion,
-  fromTemplate, graphemeLength, isQuizPack, nameProblem, newDraft, oneLine, opensMakerPage, PACK_REFUSALS, packAction, packFailureMessage, questionProblems, quizStore,
+  fromTemplate, graphemeLength, isQuizPack, nameProblem, newDraft, oneLine, opensMakerPage, PACK_REFUSALS, packAction, packFailureMessage, packPending, questionProblems, quizStore,
   removeOption, setName, swapCandidate, swapNeedsConfirm, tapAnswer,
   type Draft, type KV, type PackState,
 } from "../src/quiz.ts";
@@ -344,4 +344,33 @@ test("packAction: stop re-sending when refused or after 5 unconfirmed sends — 
   assert.match(packFailureMessage("pack_waiting"), /다른 친구가 먼저 새 퀴즈를 만들었어요/);
   assert.ok(PACK_REFUSALS.has("pack_waiting"), "the room's first-maker-wins refusal stops re-sending");
   assert.match(packFailureMessage(undefined), /연결을 확인/);
+});
+
+test("packPending: the lobby says '준비 중…' (no start) from 완료 until the room takes the pack", () => {
+  // made on its own page → a fresh room: nothing yet, then the room's cold default quiz
+  assert.equal(packPending(st()), true, "connecting: no room state yet");
+  assert.equal(packPending(st({ info: { custom: false, packId: null }, iAmSubject: false })), true, "the room plays the default quiz");
+  assert.equal(packPending(st({ entry: { sends: 2 }, lastSentAt: 9_000 })), true, "sent, no answer yet");
+  assert.equal(packPending(st({ info: { ...mine, packId: "p1" }, iAmSubject: true })), false, "taken: I am the subject");
+  assert.equal(packPending(st({ entry: { refused: "pack_waiting" } })), false, "refused: the failure notice says so instead");
+  assert.equal(packPending(st({ entry: { sends: MAX_SENDS } })), false, "gave up");
+  assert.equal(packPending(st({ info: { ...mine, packId: "p1" }, iAmSubject: false, entry: { confirmed: true } })), false, "someone else's quiz now (forget)");
+  assert.equal(packPending(st({ info: { ...mine, packId: "p1" }, iAmSubject: undefined, entry: { confirmed: true } })), false, "a reload: my confirmed quiz is the room's");
+  assert.equal(packPending(st({ info: { custom: false }, iAmSubject: false, entry: { confirmed: true } })), true, "the room lost it: re-sending");
+});
+
+test("packAction: the subject remaking their quiz — only a NEW packId confirms it (iAmSubject is already true)", () => {
+  const over = { ...mine, packId: "old" };
+  const made = { madeOver: "old" };
+  assert.equal(packAction(st({ info: over, iAmSubject: true, entry: made })), "send", "the room still has my OLD quiz: send the new one");
+  assert.equal(packPending(st({ info: over, iAmSubject: true, entry: made })), true);
+  assert.equal(packAction(st({ info: { ...mine, packId: "new" }, iAmSubject: true, entry: made })), "confirm");
+  assert.equal(packPending(st({ info: { ...mine, packId: "new" }, iAmSubject: true, entry: made })), false);
+  assert.equal(packAction(st({ info: { ...mine, packId: "new" }, iAmSubject: true, entry: { ...made, confirmed: true } })), "wait");
+  // made over the default quiz (madeOver null): the first custom packId is mine
+  assert.equal(packAction(st({ info: { custom: false, packId: null }, iAmSubject: false, entry: { madeOver: null } })), "send");
+  assert.equal(packAction(st({ info: { ...mine, packId: "x" }, iAmSubject: true, entry: { madeOver: null } })), "confirm");
+  const s = quizStore(null);
+  s.rememberRoomPack("r", buildQuizPack({ title: "t", questions: Array.from({ length: 5 }, (_, i) => ({ id: `${i}`, q: `q${i}`, options: ["a", "b"], answer: 0 })) }), "old");
+  assert.equal(s.roomEntry("r")?.madeOver, "old", "stored with the pack");
 });

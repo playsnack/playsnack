@@ -339,3 +339,42 @@ test("speed-trivia early reveal: a stale quizProgress (last round / last game) n
     assert.doesNotMatch(T.prop(0, "statusText") + T.prop(1, "statusText"), /다 골랐어요/);
   }
 });
+
+// A device that just made a quiz for this room holds it until the room takes it (the shell's
+// `packPending` = its title, quiz.ts packPending). Meanwhile its lobby / result must not offer
+// the quiz the room has now — the cold default one — or the maker could start it by mistake.
+test("speed-trivia: a pack still on its way → '<title> · 준비 중…', no start; the room takes it → the maker's lobby", async () => {
+  const T = table("speed-trivia-score", ["A", "B"]);
+  await T.advance(100);
+  T.app(0).setVar("packPending", "A 맞히기"); // LiveApp: made here, not taken yet
+  await T.advance(50);
+  assert.equal(T.prop(0, "lobbyTitle"), "A 맞히기 · 준비 중…");
+  assert.equal(T.prop(0, "waitBtn", "props.label"), "준비 중…");
+  assert.equal(T.tap(0, "startBtn"), false, "the cold quiz cannot be started from the maker's device");
+  await T.advance(3500);
+  assert.equal(T.phase(0), "lobby");
+  assert.equal(T.prop(1, "lobbyTitle"), "스피드 퀴즈", "a friend's lobby is the room's as before");
+  // The pack lands; the shell clears packPending once quizInfo.packId / iAmSubject confirm it.
+  T.room.action("p0", { name: "quizPack", payload: { title: "A 맞히기", questions: QS2 }, clientMsgId: "pack" });
+  T.app(0).setVar("packPending", "");
+  await T.advance(50);
+  assert.equal(T.prop(0, "lobbyTitle"), "A 맞히기 · 2문제");
+  assert.equal(T.tap(0, "startBtn"), true);
+  await T.advance(3100);
+  assert.equal(T.phase(1), "play");
+  assert.equal(T.v(1, "quizInfo.about"), "A");
+});
+
+test("speed-trivia: 나도 만들기 from a default-quiz result — while the pack is on its way no 다시 하기", async () => {
+  const T = table("speed-trivia-score", ["A", "B"]);
+  T.tap(0, "startBtn"); // the cold default quiz
+  await T.advance(3000 + 6 * (9000 + 3000) + 500);
+  assert.equal(T.phase(1), "result");
+  T.app(1).setVar("resultView", { ...T.v(1, "resultView"), next: "again" }); // the shell's view (quizResult.ts)
+  T.app(1).setVar("packPending", "B 맞히기");
+  await T.advance(50);
+  assert.equal(T.tap(1, "againBtn"), false);
+  assert.equal(T.prop(1, "nextBannerTxt"), "B 맞히기 · 준비 중…");
+  await T.advance(3500);
+  assert.equal(T.phase(1), "result", "the old quiz did not restart");
+});
