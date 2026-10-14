@@ -143,6 +143,9 @@ const buildMatchups = (cands) => {
  *   first move into "result"; players = took part (S.acted, a quiz subject counts); quiz only: about, answerers (subject excluded)
  * @param {(e: {gid: string, source: "editor" | "remake"}) => void} [o.onGameCreated]
  *   a valid quiz pack was accepted; remake = sent after a finished game by someone who was not its subject
+ * @param {(result: {v: 1, sid: string, endedAt: number, title?: string, about?: string, board: {pid: string, nick: string, score: number, left?: boolean}[], quizRecap?: object}) => void} [o.onResult]
+ *   saved room results (docs/room-results.md): a scored game reached its result (board = raceBoard order,
+ *   nick without the left mark); once per sid on this engine; the shell adds `app` and posts it
  */
 export function createRoom(o) {
   const {
@@ -162,6 +165,7 @@ export function createRoom(o) {
     onSessionStart = () => {},
     onSessionEnd = () => {},
     onGameCreated = () => {},
+    onResult = () => {},
   } = o;
   // A metrics hook must never break the room.
   const report = (hook, e) => {
@@ -284,11 +288,20 @@ export function createRoom(o) {
     }
   };
   const toResult = () => {
+    const first = S.phase !== "result" && S.sid; // a hand-over restored in the result never reports again
     S.lateUntil = now() + LATE_GRACE_MS; // a last tap batch / reaction may still be in flight
     if (S.quiz) setVar("quizRecap", quizRecap());
     setPhase("result");
     setKnown("raceBoard", raceBoard()); // a vote / co-op session has no board to show
     setKnown("leaderboard", board());
+    if (first && r.vars.has("raceBoard")) report(onResult, savedResult());
+  };
+  // The finished game for the room link's result page (docs/room-results.md).
+  const savedResult = () => {
+    const m = S.quizMeta ?? {};
+    const res = { v: 1, sid: S.sid, endedAt: now(), board: raceBoard().map(({ nick, score, pid, left }) => (left ? { pid, nick: nick.slice(0, -LEFT_MARK.length - 1), score, left } : { pid, nick, score })) };
+    if (S.quiz) Object.assign(res, { quizRecap: r.vars.get("quizRecap") }, m.title ? { title: m.title } : {}, m.about ? { about: m.about } : {});
+    return res;
   };
   // session_done (telemetry §9.1): who took part, and for a quiz whether it was about someone + who answered.
   const sessionEnded = () => {
