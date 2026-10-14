@@ -34,7 +34,8 @@ export type ResultDeps = {
   myNick: () => string | null;
   canMake: () => boolean;
   setVar: (id: string, value: unknown) => void;
-  report: (e: ResultEvent) => void;
+  /** `gameKey` = this game's key on this device (room + sessionNo) — a once-per-game guard, never sent. */
+  report: (e: ResultEvent, gameKey: string) => void;
   store: (gameKey: string) => Store;
   /** Draws the picture (cached per view by the caller or here). */
   makeImage: (view: ResultView) => Promise<Blob>;
@@ -73,7 +74,7 @@ export function createResultController(d: ResultDeps) {
 
   const react = (input: ReactionInput) => {
     const r = stepReaction(stage, input);
-    if (r.report) d.report(r.report);
+    if (r.report) d.report(r.report, gameKey);
     if (r.stage === stage) return;
     stage = r.stage;
     d.setVar("reactionStage", stage === "done" ? "" : stage);
@@ -162,7 +163,7 @@ export function createResultController(d: ResultDeps) {
       return;
     }
     const outcome = await d.shareImage(blob, v);
-    if (outcome === "shared") d.report({ k: "share", method: "web", what: "result" });
+    if (outcome === "shared") d.report({ k: "share", method: "web", what: "result" }, gameKey);
     else if (outcome === "preview") d.showPreview(blob);
     // cancelled: the person closed the sheet — nothing happened, nothing to say.
   };

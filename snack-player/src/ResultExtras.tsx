@@ -10,6 +10,7 @@ import { roomIdFor } from "./links";
 import { createResultController, isKakaoInApp, kakaoExternalUrl, makerLink, RESULT_KEYS, type ResultEvent } from "./resultController";
 export { makerLink } from "./resultController";
 import { reactionStore } from "./reactionQuestion";
+import { trackResultEvent } from "./telemetry";
 import { renderResultImage, shareResultImage } from "./resultImage";
 import { BLOCK_CSS, pill, primaryBtn, secondaryBtn } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
@@ -27,12 +28,13 @@ type MakeEntry = (ctx: { slug: string; params: URLSearchParams }) => void;
 export const resultHooks: { makeQuiz: MakeEntry | null } = { makeQuiz: null };
 
 /**
- * The one place result-screen events would be reported: `ask_shown`,
- * `ask_answer` and a completed result `share` (telemetry.md §9.1). The metrics
- * lane wires this — until then it does nothing: no counting, no network.
+ * The one place result-screen events are reported (telemetry.md §9.1):
+ * `ask_shown` / `ask_answer` (once per game on this device — `gameKey` guards it
+ * and is never sent) and a result `share` that really happened (share sheet
+ * completed). `slug` may be the room id; only the app part goes out.
  */
-export function reportResultEvent(_e: ResultEvent): void {
-  // metrics lane wires this
+export function reportResultEvent(e: ResultEvent, slug: string, gameKey: string): void {
+  trackResultEvent(e, slug, gameKey); // telemetry.ts (Node-tested: api/_test/telemetry-client.test.js)
 }
 
 
@@ -68,7 +70,7 @@ export function useResultExtras({ doc, slug, params, onInvite }: {
       myNick: getNick,
       canMake: () => resultHooks.makeQuiz !== null,
       setVar: (id, v) => rtRef.current?.setVar(id, v),
-      report: reportResultEvent,
+      report: (e, gameKey) => reportResultEvent(e, slug, gameKey),
       store: (key) => reactionStore(key),
       makeImage: (view) => renderResultImage(view, {
         families: { body: fontFamily("body"), display: fontFamily("display") },
