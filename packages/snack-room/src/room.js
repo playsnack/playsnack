@@ -49,6 +49,9 @@ const QUIZ_ANSWER_MS = [3000, 20000]; // answer window bounds (ms)
 // A device starts its answer clock when the question reaches it — after the host's —
 // so an honest claim never exceeds the window by much; beyond this it is not believed.
 const ANSWER_GRACE_MS = 500;
+// Early reveal: once every present answerer has answered, the round is revealed this long
+// later instead of at the end of the window (a beat to see "모두 골랐어요" — not a dead wait).
+export const EARLY_REVEAL_MS = 600;
 const RECAP_PLAYERS_MAX = 20; // answerers listed per round in quizRecap (snapshot size)
 // The subject switching apps (e.g. to share the invite in KakaoTalk) drops out of the
 // roster after ~3.5 s of silence; only this long away counts as "left" for the quiz rules.
@@ -312,6 +315,28 @@ export function createRoom(o) {
     const picks = S.picks?.[S.roundIdx] ?? {};
     return { answered: here.filter((id) => picks[id]).length, of: here.length };
   };
+  // Early reveal: everyone present (quizProgress — the subject and leavers excluded) has
+  // answered → reveal in EARLY_REVEAL_MS. Only an answer or a leave can complete a round;
+  // a join (someone new, or back without an answer) can only reopen it, back to the
+  // window's own end. The reveal timer is data, so the beat survives a hand-over
+  // (timers[].remaining); S.early says it was pulled in.
+  const syncReveal = ({ mayPull = true } = {}) => {
+    if (!S.quiz || S.phase !== "play" || !S.accepting) return;
+    const t = S.timers.find((x) => x.step === "revealQuizRound");
+    if (!t) return;
+    const p = quizProgress();
+    const allIn = p.of > 0 && p.answered >= p.of;
+    const fullIn = S.roundStart + S.answerMs - now();
+    if (allIn && !S.early && mayPull && fullIn > EARLY_REVEAL_MS) {
+      S.early = true;
+      cancel("revealQuizRound");
+      later("revealQuizRound", S.roundIdx, EARLY_REVEAL_MS);
+    } else if (!allIn && S.early) {
+      S.early = false;
+      cancel("revealQuizRound");
+      later("revealQuizRound", S.roundIdx, Math.max(0, fullIn));
+    }
+  };
   const quizInfo = (count, answerMs) => {
     const p = S.quizPack;
     const n = count ?? Math.min(p.questions.length, p.settings.rounds ?? p.questions.length);
@@ -358,6 +383,7 @@ export function createRoom(o) {
     S.roundIdx = i;
     S.answered = new Set();
     S.accepting = true;
+    S.early = false;
     S.roundStart = now();
     const { answer, ...pub } = S.rounds[i]; // clients must not see the answer
     void answer;
@@ -759,6 +785,7 @@ export function createRoom(o) {
         r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + points);
         onPoints(anonId, nick, correct ? 2 : 1);
         setVar("quizProgress", quizProgress());
+        syncReveal();
       }
       ack(peerId, d?.clientMsgId);
     } else if (name === "quizPack") {
@@ -830,7 +857,10 @@ export function createRoom(o) {
       setPhotos();
       if (S.quiz && (S.phase === "countdown" || S.phase === "play")) {
         addQuizPlayer(anonId, r.roster.get(anonId)); // a late joiner answers from now on
-        if (S.phase === "play") setVar("quizProgress", quizProgress());
+        if (S.phase === "play") {
+          setVar("quizProgress", quizProgress());
+          syncReveal({ mayPull: false }); // a newcomer who has not answered reopens the round
+        }
       }
       if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard()); // back after a flap: unmarked (MP-12)
       onActivity("join", "입장");
@@ -848,7 +878,10 @@ export function createRoom(o) {
       setPhotos();
       if (gone && r.scores.has(peer.anonId)) setKnown("raceBoard", raceBoard()); // now marked as left
       if (gone) maybeAdvanceMatchup(); // everyone still here may already have voted
-      if (gone && S.quiz && S.phase === "play") setVar("quizProgress", quizProgress());
+      if (gone && S.quiz && S.phase === "play") {
+        setVar("quizProgress", quizProgress());
+        syncReveal(); // the last one still to answer left: everyone here has
+      }
       if (gone && S.quizPack && peer.anonId === S.quizPack.subject.anonId) {
         S.subjectAwayAt = now(); // counts as left only after SUBJECT_GRACE_MS
         watchSubjectAway();

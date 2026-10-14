@@ -614,14 +614,14 @@
                     "x": 0,
                     "y": 0,
                     "height": 10,
-                    "width": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx ? round(298 * max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / (quizInfo.answerMs || 9000)) : 0}",
+                    "width": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx && !(quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? round(298 * max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / (quizInfo.answerMs || 9000)) : 0}",
                     "fill": "#d9ff00"
                   }
                 ]
               },
               {
                 "id": "timerSecs",
-                "text": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx ? ('' + ceil(max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / 1000)) : ''}",
+                "text": "{phase == 'play' && roundAnswer < 0 && seenRound === roundIdx && !(quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('' + ceil(max(0, (quizInfo.answerMs || 9000) - (now - seenAt)) / 1000)) : ''}",
                 "width": 48,
                 "size": 22,
                 "font": "display",
@@ -642,7 +642,7 @@
           },
           {
             "id": "statusText",
-            "text": "{phase == 'play' ? (roundAnswer >= 0 ? (iAmSubject ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : (iAmSubject ? ('친구들이 고르는 중… (' + quizProgress.answered + '/' + quizProgress.of + ')') : (myAnswerRound === roundIdx ? '선택 완료! 공개를 기다려요' : (seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!'))))) : ''}",
+            "text": "{phase == 'play' ? (roundAnswer >= 0 ? (iAmSubject ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : (iAmSubject || myAnswerRound === roundIdx ? ((quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('다 골랐어요! 곧 공개 (' + quizProgress.answered + '/' + quizProgress.of + ')') : (iAmSubject ? ('친구들이 고르는 중… (' + quizProgress.answered + '/' + quizProgress.of + ')') : '선택 완료! 공개를 기다려요')) : ((seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!'))))) : ''}",
             "width": "fill",
             "size": 15,
             "weight": 700,

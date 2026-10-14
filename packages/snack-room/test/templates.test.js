@@ -224,9 +224,19 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   assert.equal(T.prop(1, "statusText"), "선택 완료! 공개를 기다려요");
   assert.ok(T.prop(1, "timerBar", "width") < 298 * 0.8, "the bar runs down");
   T.tap(1, `tile${(right(1) + 1) % 4}`); // a second tap changes nothing
-  await T.advance(1000);
-  assert.match(T.prop(0, "statusText"), /\(2\/2\)/);
-  await T.advance(8000 - 3000 - 32 + 300);
+  await T.advance(50);
+  assert.match(T.prop(0, "statusText"), /친구들이 고르는 중… \(1\/2\)/, "B's tap is still on its way");
+  await T.advance(250); // B's tap lands (900 ms uplink): everyone has answered
+  // early reveal: the beat — bar and seconds clear at once, the reveal follows in 600 ms
+  assert.equal(T.prop(0, "statusText"), "다 골랐어요! 곧 공개 (2/2)");
+  assert.equal(T.prop(2, "statusText"), "다 골랐어요! 곧 공개 (2/2)");
+  for (const i of [0, 2]) {
+    assert.equal(T.prop(i, "timerBar", "width"), 0, "the bar jumps empty");
+    assert.equal(T.prop(i, "timerSecs"), "");
+  }
+  assert.equal(T.v(0, "roundAnswer"), -1, "not revealed yet");
+  await T.advance(500 + 300); // + B's 300 ms downlink
+  assert.ok(T.v(1, "roundAnswer") >= 0, "revealed ~600 ms after the last answer — not at the end of the 8 s window");
   // reveal: B and C both right — B was faster on its own device, so B leads
   const pts = (ms) => Math.max(100, 1000 - Math.round((ms / 8000) * 800));
   const board = T.v(0, "raceBoard");
@@ -239,7 +249,9 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   await T.advance(3000);
   assert.equal(T.v(1, "roundNum"), 2);
   T.tap(1, `tile${(right(1) + 1) % 3}`);
-  await T.advance(8500);
+  await T.advance(6000); // C never answers: the full window
+  assert.equal(T.v(1, "roundAnswer"), -1, "one answerer missing → no early reveal");
+  await T.advance(2000);
   assert.equal(T.prop(1, "statusText"), "땡! ✗");
   assert.equal(T.prop(2, "statusText"), "시간 초과 ⌛");
   assert.match(T.prop(1, `tile${(right(1) + 1) % 3}Txt`), /^✗ /);
@@ -294,7 +306,7 @@ test("speed-trivia R10: a reload mid-round restores the answer the room took —
   assert.equal(T.v(1, "myAnswerRound"), T.v(1, "roundIdx"), "restored from the room");
   assert.equal(T.v(1, "myAnswer"), first);
   assert.equal(T.v(1, "myMs"), ms);
-  assert.equal(T.prop(1, "statusText"), "선택 완료! 공개를 기다려요");
+  assert.equal(T.prop(1, "statusText"), "다 골랐어요! 곧 공개 (1/1)", "1:1 — the only answerer is in: the reveal beat");
   T.tap(1, `tile${(first + 1) % 4}`); // a second tap does nothing
   assert.equal(T.v(1, "myAnswer"), first);
   await T.advance(9000);
