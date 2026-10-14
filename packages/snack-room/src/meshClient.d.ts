@@ -1,4 +1,4 @@
-export type BusStatus = { state: "failed"; reason?: string };
+export type BusStatus = { state: "failed"; reason?: string } | { state: "attempt"; attempt: number; reason: string };
 export type Bus = {
   publish(m: object): void;
   onMessage(fn: (m: object) => void): void;
