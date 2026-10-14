@@ -26,16 +26,17 @@ import mqttPacket from "mqtt-packet";
 export const LOSSY_DEFAULT = { drop: 0.05, minDelay: 50, maxDelay: 300 };
 
 /**
- * @param {{port?: number, host?: string, lossy?: boolean | {drop?: number, minDelay?: number, maxDelay?: number}, refuse?: boolean, cutOnSubscribe?: number, dropConnects?: number, connackDelayMs?: number, random?: () => number}} [o]
+ * @param {{port?: number, host?: string, lossy?: boolean | {drop?: number, minDelay?: number, maxDelay?: number}, refuse?: boolean, cutOnSubscribe?: number, dropConnects?: number, dropConnectsPerClient?: number, connackDelayMs?: number, random?: () => number}} [o]
  *        refuse: answer every CONNECT with "server unavailable" (a broker that turns clients away)
  *        cutOnSubscribe: cut the connection on this many SUBSCRIBEs (before any SUBACK) — a
  *        connection that drops between CONNACK and SUBACK (what a busy public broker / network does)
  *        dropConnects: swallow this many CONNECTs (no CONNACK, the socket stays open) — the client
  *        hits its "connack timeout" and reconnects (the slow public broker seen live 2026-10-14)
+ *        dropConnectsPerClient: the same, for the first N CONNECTs of every client id
  *        connackDelayMs: answer every CONNECT this much later (a slow but working broker)
  * @returns {Promise<{url: string, port: number, setLossy(l: boolean | object): void, stats: {delivered: number, dropped: number, publishes: number, bytes: number, cut: number, connects: number, droppedConnects: number, startedAt: number}, close(): Promise<void>}>}
  */
-export async function startLocalBroker({ port = 0, host = "127.0.0.1", lossy = false, refuse = false, cutOnSubscribe = 0, dropConnects = 0, connackDelayMs = 0, random = Math.random } = {}) {
+export async function startLocalBroker({ port = 0, host = "127.0.0.1", lossy = false, refuse = false, cutOnSubscribe = 0, dropConnects = 0, dropConnectsPerClient = 0, connackDelayMs = 0, random = Math.random } = {}) {
   const aedes = await Aedes.createBroker(
     refuse ? { authenticate: (_c, _u, _p, cb) => cb(Object.assign(new Error("Server unavailable"), { returnCode: 3 }), false) } : {},
   );
@@ -49,6 +50,7 @@ export async function startLocalBroker({ port = 0, host = "127.0.0.1", lossy = f
   const stats = { delivered: 0, dropped: 0, publishes: 0, bytes: 0, cut: 0, connects: 0, droppedConnects: 0, startedAt: Date.now() };
   const wss = new WebSocketServer({ host, port, handleProtocols: (protocols) => (protocols.has("mqtt") ? "mqtt" : false) });
   const sockets = new Set();
+  const droppedFor = new Map(); // clientId → CONNECTs swallowed (dropConnectsPerClient)
 
   wss.on("connection", (ws) => {
     sockets.add(ws);
@@ -89,8 +91,10 @@ export async function startLocalBroker({ port = 0, host = "127.0.0.1", lossy = f
     inp.on("packet", (packet) => {
       if (packet.cmd === "connect") {
         stats.connects += 1;
-        if (dropConnects > 0) {
-          dropConnects -= 1;
+        const mine = droppedFor.get(packet.clientId) ?? 0;
+        if (dropConnects > 0 || mine < dropConnectsPerClient) {
+          if (dropConnects > 0) dropConnects -= 1;
+          else droppedFor.set(packet.clientId, mine + 1);
           stats.droppedConnects += 1;
           return; // no CONNACK: the client times out and tries again
         }
