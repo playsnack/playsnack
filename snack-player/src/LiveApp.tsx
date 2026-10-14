@@ -8,7 +8,7 @@ import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick, isNickAuto } from "./identity";
 import type { ConnState, RoomTransport } from "./roomTransport";
-import { createRoom, hrefTo, loadRoomDoc, markFreshRoom, navigate } from "./backend";
+import { createRoom, hrefTo, isFreshRoom, loadRoomDoc, markFreshRoom, navigate, SERVERLESS } from "./backend";
 import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
 import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, goHome } from "./Screens";
@@ -23,6 +23,9 @@ import {
 // The maker is loaded only when opened (play links do not pay for it).
 const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m.QuizMaker })));
 import { makerLink, resultHooks, useResultExtras } from "./ResultExtras";
+import { lastResultWatcher, type SavedResult } from "./roomResult";
+// The room's last finished game (docs/room-results.md) — loaded only when there is one.
+const LastResult = lazy(() => import("./LastResult.tsx").then((m) => ({ default: m.LastResult })));
 
 // "나도 만들기" on the quiz result screen opens the maker over this room (lane B).
 resultHooks.makeQuiz = () => openQuizMaker();
@@ -70,6 +73,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const [myPack, setMyPack] = useState<QuizPack | null>(() => (isQuiz ? deviceQuizStore().roomPack(roomId) : null));
   const [packFail, setPackFail] = useState<string | null>(null);
   const [makerOpen, setMakerOpen] = useState(false);
+  // A friends-room link opened when nobody is there: the room's last finished game (roomResult.ts).
+  const [lastResult, setLastResult] = useState<SavedResult | null>(null);
   const quizRef = useRef({ phase: "lobby", info: null as QuizInfo | null, iAmSubject: undefined as boolean | undefined, lastSentAt: 0, live: false });
   const withRoom = doc ? needsRoom(doc, params) : false;
   // A present-but-invalid ?room= (a code cut by a chat app) must never land in
@@ -126,6 +131,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     if (!doc || !withRoom || invalidRoom) return;
     // The room id is the link's: the app's public room, or `slug~CODE` for a
     // friends-only link (links.ts). The transport passes it through unchanged.
+    // Alone in the lobby of a friends room: its last finished game, if any (docs/room-results.md).
+    // A room this page has just made has no past game: no lookup (saves a KV read).
+    const last = lastResultWatcher({ roomId: roomIdFor(slug, params), skip: !SERVERLESS || isFreshRoom(roomIdFor(slug, params)), show: setLastResult });
     const room: RoomTransport = createRoom({ slug: roomIdFor(slug, params), anonId: getAnonId(), nick: getNick() ?? "" }, params);
     roomRef.current = room;
     const join = joinTracker({ slug, room: roomIdFor(slug, params) }); // room_join telemetry + ?debug=1 log
@@ -156,6 +164,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         applyShared(sharedRef.current);
         if (typeof m.d.participants === "number") setParticipants(m.d.participants);
         const sh = sharedRef.current ?? {};
+        last.state(m.d.participants, sh.sessionPhase);
         // A (re)join: the room sends this player's iAmSubject right after the state.
         quizRef.current.iAmSubject = undefined;
         // A new room has no sessionPhase yet (the room sets it on its first phase change): it is in the lobby.
@@ -163,12 +172,14 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         onQuizVar("roster", sh.roster ?? []);
         onQuizVar("quizInfo", sh.quizInfo ?? null);
       } else if (m.t === "setVar") {
+        if (m.d.id === "sessionPhase") last.phase(m.d.value); // a game started here: the old result steps aside
         runtimeRef.current?.setVar(m.d.id as string, m.d.value);
         onQuizVar(m.d.id as string, m.d.value);
       } else if (m.t === "actionAck") {
         // Only quizPack is refused this way ("not_in_lobby" = sent mid-game: packAction waits for the result).
         if (m.d.accepted === false && PACK_REFUSALS.has(m.d.reason as string)) onPackRefused(m.d.reason as string);
       } else if (m.t === "participants") {
+        last.participants(m.d.count);
         setParticipants(m.d.count as number);
       } else if (m.t === "reaction") {
         spawnReaction(m.d.emoji as string);
@@ -184,6 +195,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       : () => setRoomGen((g) => g + 1);
     return () => {
       clearTimeout(silence);
+      last.close();
       join.end();
       room.close();
       if (roomRef.current === room) roomRef.current = null;
@@ -450,6 +462,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       )}
       <div ref={fxRef} style={fxOverlay} />
       {extras.overlay}
+      {lastResult && (
+        <Suspense fallback={null}>
+          <LastResult saved={lastResult} slug={slug} myNick={getNick()} onAgain={() => setLastResult(null)} />
+        </Suspense>
+      )}
       {/* Reactions are a "someone else is watching" feature, so the button only
           appears once another person is in the room. Solo play never shows it,
           so it can't cover the app's own bottom content. */}
