@@ -4,6 +4,7 @@
 import { Application, BlurFilter, CanvasTextMetrics, Container, FillGradient, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { computeScene, hitTest, initLayout, scrollTargetAt } from "@snack/bite-layout";
 import { ensureGlyphs, fontFamily, loadFonts } from "./fonts.js";
+import { clampScroll, clientToFrame, fitFrame, flings, releaseVelocity, stepFling } from "./gesture.js";
 
 const TAP_SLOP = 10; // px of finger travel before a press becomes a drag
 const PRESS_SCALE = 0.96;
@@ -111,9 +112,10 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
 
   const fit = () => {
     const { width, height } = pixi.screen;
-    scale = Math.min(width / fw, height / fh);
+    const f = fitFrame(width, height, fw, fh);
+    scale = f.scale;
     frame.scale.set(scale);
-    frame.position.set((width - fw * scale) / 2, (height - fh * scale) / 2);
+    frame.position.set(f.x, f.y);
     for (const e of entries.values()) e.sig = ""; // re-render text at the new resolution
     draw();
   };
@@ -338,26 +340,45 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
   };
 
   // ── input ────────────────────────────────────────────────────────────────
-  const toFrame = (ev) => {
-    const r = canvas.getBoundingClientRect();
-    return { x: (ev.clientX - r.left - frame.x) / scale, y: (ev.clientY - r.top - frame.y) / scale };
-  };
+  // A drag on a scroll box moves it with the finger and flings on release.
+  // `touch-action: none` alone is not enough on a real phone (#105): when the
+  // browser still claims the touch as a page pan (iOS WebKit and in-app web
+  // views decide that outside the page, from touch-action regions), it sends
+  // pointercancel after the first move and the list stops dead. A non-passive
+  // touchmove listener that cancels the default makes the browser ask the page
+  // first, so the gesture stays ours. Move/up/cancel are followed on the window,
+  // so a pointer capture that fails or is lost does not drop the drag.
+  const toFrame = (ev) => clientToFrame(ev.clientX, ev.clientY, canvas.getBoundingClientRect(), { x: frame.x, y: frame.y, scale });
   let gesture = null;
+  let fling = null; // { key, v, max } while a released list keeps moving
   const onDown = (ev) => {
+    // A second finger never takes over the first one's drag; a new primary
+    // pointer does (a lost pointerup must not wedge the input).
+    if (gesture && !ev.isPrimary && ev.pointerId !== gesture.id) return;
     const p = toFrame(ev);
-    const hit = hitTest(scene.root, p.x, p.y, scroll);
     const scroller = scrollTargetAt(scene.root, p.x, p.y, scroll);
-    gesture = { id: ev.pointerId, start: p, hit, scroller, from: scroll.get(scroller?.key)?.y ?? 0, dragging: false };
+    // A touch on a moving list only stops it (no tap on what slides under the
+    // finger); a touch elsewhere taps as usual and lets the list coast.
+    const caught = fling !== null && fling.key === scroller?.key;
+    if (caught) fling = null;
+    const hit = caught ? null : hitTest(scene.root, p.x, p.y, scroll);
+    gesture = { id: ev.pointerId, start: p, hit, scroller, from: scroll.get(scroller?.key)?.y ?? 0, dragging: false, samples: [{ t: ev.timeStamp, y: p.y }] };
     if (hit) {
       pressed = hit.key; // instant press feedback
       draw();
     }
-    canvas.setPointerCapture?.(ev.pointerId);
+    try {
+      canvas.setPointerCapture?.(ev.pointerId);
+    } catch {
+      // not an active pointer (synthetic events): the window listeners still follow it
+    }
   };
   const onMove = (ev) => {
     if (!gesture || ev.pointerId !== gesture.id) return;
     const p = toFrame(ev);
     const dy = p.y - gesture.start.y;
+    gesture.samples.push({ t: ev.timeStamp, y: p.y });
+    if (gesture.samples.length > 32) gesture.samples.shift();
     if (!gesture.dragging && Math.hypot(p.x - gesture.start.x, dy) * scale > TAP_SLOP) {
       gesture.dragging = true;
       if (pressed) {
@@ -367,8 +388,7 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
     }
     const sc = gesture.scroller;
     if (gesture.dragging && sc?.contentSize) {
-      const max = Math.max(0, sc.contentSize.h - sc.box.h);
-      scroll.set(sc.key, { x: 0, y: Math.max(0, Math.min(max, gesture.from - dy)) });
+      scroll.set(sc.key, { x: 0, y: clampScroll(gesture.from - dy, sc.contentSize.h - sc.box.h) });
       draw();
     }
   };
@@ -377,6 +397,10 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
     const g = gesture;
     gesture = null;
     pressed = null;
+    if (ev.type === "pointerup" && g.dragging && g.scroller?.contentSize) {
+      const v = releaseVelocity(g.samples, ev.timeStamp);
+      if (flings(v)) fling = { key: g.scroller.key, v, max: g.scroller.contentSize.h - g.scroller.box.h };
+    }
     if (ev.type === "pointerup" && !g.dragging && g.hit?.tap) {
       const p = toFrame(ev);
       const again = hitTest(scene.root, p.x, p.y, scroll);
@@ -384,16 +408,33 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
     }
     refresh(); // show the tap's result in this frame, not the next
   };
+  const onTouchMove = (ev) => {
+    if (ev.cancelable) ev.preventDefault();
+  };
+  const stepScroll = (dt) => {
+    if (!fling) return;
+    if (!entries.has(fling.key)) {
+      fling = null; // the list is gone (another phase)
+      return;
+    }
+    const s =stepFling(scroll.get(fling.key)?.y ?? 0, fling.v, dt, fling.max);
+    scroll.set(fling.key, { x: 0, y: s.y });
+    fling.v = s.v;
+    if (s.done) fling = null;
+    draw();
+  };
   if (interactive) {
     canvas.addEventListener("pointerdown", onDown);
-    canvas.addEventListener("pointermove", onMove);
-    canvas.addEventListener("pointerup", onUp);
-    canvas.addEventListener("pointercancel", onUp);
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    globalThis.addEventListener("pointermove", onMove, true);
+    globalThis.addEventListener("pointerup", onUp, true);
+    globalThis.addEventListener("pointercancel", onUp, true);
   }
 
   // ── frame loop ───────────────────────────────────────────────────────────
   const onTick = () => {
     if (paused) return;
+    stepScroll(pixi.ticker.deltaMS);
     const changed = app.tick();
     if (changed.some((name) => scene.deps.has(name))) refresh();
   };
@@ -410,6 +451,10 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
       return scale;
     },
     scroll,
+    /** True while a released list is still moving (tests wait for it to settle). */
+    get flinging() {
+      return fling !== null;
+    },
     /** Frame point → client (CSS) point, for tests that tap by coordinates. */
     toClient(x, y) {
       const r = canvas.getBoundingClientRect();
@@ -420,9 +465,10 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
       if (destroyed) return;
       destroyed = true;
       canvas.removeEventListener("pointerdown", onDown);
-      canvas.removeEventListener("pointermove", onMove);
-      canvas.removeEventListener("pointerup", onUp);
-      canvas.removeEventListener("pointercancel", onUp);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      globalThis.removeEventListener("pointermove", onMove, true);
+      globalThis.removeEventListener("pointerup", onUp, true);
+      globalThis.removeEventListener("pointercancel", onUp, true);
       pixi.ticker.remove(onTick);
       for (const e of entries.values()) e.destroy();
       entries.clear();

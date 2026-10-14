@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
+  "scripts": { "test": "node --test test/" },
   "types": "./src/index.d.ts",
   "exports": {
     ".": { "types": "./src/index.d.ts", "default": "./src/index.js" }

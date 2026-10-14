@@ -105,6 +105,9 @@ results.push(run("serverless-sim", "node", ["snack-server/tools/multiclient-sim.
 results.push(run("serverless-oracle", "node", ["snack-server/tools/serverless-oracle.mjs"], { env: lossyEnv, lossy: true }));
 // Saved room results (docs/room-results.md): a 1:1 quiz → both leave → a third browser sees the ranking.
 results.push(run("room-result-e2e", "node", ["snack-server/tools/room-result-e2e.mjs"]));
+// The result's per-question list scrolls under a finger (#105): Android (CDP touch, incl. the
+// browser claiming the pan) and iPhone 13 WebKit, 390×844 and 360×640, drag + flick momentum.
+results.push(run("result-scroll-e2e", "node", ["--import", "tsx", "snack-server/tools/result-scroll-e2e.mjs"]));
 // A slow broker (no CONNACK for the first tries — live 2026-10-14): two browsers still meet,
 // "연결이 느려요" after ~6 s, the failed sheet only at the deadline, 다시 시도 joins (~1.5 min).
 results.push(run("slow-broker-e2e", "node", ["snack-server/tools/slow-broker-e2e.mjs"]));
