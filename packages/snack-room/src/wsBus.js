@@ -11,7 +11,7 @@
 const FAIL_AFTER_MS = 8000; // not in for this long → give up (the player shows retry)
 const RECONNECT_MS = 1000;
 // Refusals that retrying the same way cannot fix.
-const FINAL = new Set(["pin", "pin-required", "locked", "busy", "full", "bad"]);
+const FINAL = new Set(["pin", "pin-required", "locked", "room_full_today", "full", "bad"]);
 
 /** Tokens per room, in memory (the default) — or pass sessionStorage-backed get/set. */
 export const memoryTokens = () => {

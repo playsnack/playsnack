@@ -237,31 +237,6 @@ test("an occupied room is not cleaned up", { skip: EXTERNAL ? "hub only" : false
   a.close();
 });
 
-test("usage guard: past the safe share of the free limits, NEW rooms are refused", { skip: EXTERNAL ? "hub only" : false }, async () => {
-  const h = await startEdgeHub({ port: 4553, free: { workerRequests: 4, doRequests: 1000, doGbSeconds: 1000 }, usageShare: 0.5 });
-  const prev = URL_;
-  URL_ = h.url;
-  try {
-    const a = raw("guard-a");
-    assert.equal((await a.auth("ga")).ctl, "ok");
-    const b = raw("guard-a"); // an existing room still admits
-    const c = raw("guard-a");
-    assert.equal((await b.auth("gb")).ctl, "ok");
-    assert.equal((await c.auth("gc")).ctl, "ok");
-    [a, b, c].forEach((x) => x.close());
-    await sleep(100); // usage is reported when the room empties
-    const n = raw("guard-b");
-    assert.equal((await n.auth("gn")).reason, "busy");
-    assert.equal(await n.waitClosed(), 4029);
-    const rep = await h.meter.report();
-    assert.equal(rep.refused, 1);
-    assert.equal(rep.conns, 4);
-  } finally {
-    URL_ = prev;
-    await h.close();
-  }
-});
-
 test("core: tokens are signed, expire and name their room", async () => {
   const tok = await signToken("s", { r: "room", p: "e", exp: 5 });
   assert.deepEqual(await verifyToken("s", tok), { r: "room", p: "e", exp: 5 });

@@ -24,11 +24,11 @@ export const filePack = async (game) => {
 const ROUTE = /^\/(room|relay)\/([^/]+)$/;
 
 /**
- * @param {{port?: number, host?: string, secret?: string, limits?: object, now?: () => number, usageShare?: number, free?: object, getPack?: Function}} [o]
+ * @param {{port?: number, host?: string, secret?: string, limits?: object, now?: () => number, stages?: object, free?: object, getPack?: Function}} [o]
  */
-export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "hub-test-secret", limits = {}, now = Date.now, usageShare = 0.7, free, getPack = filePack } = {}) {
+export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "hub-test-secret", limits = {}, now = Date.now, stages, free, getPack = filePack } = {}) {
   const meterStore = memoryStore();
-  const meter = new UsageMeter({ store: meterStore, now, share: usageShare, ...(free ? { free } : {}) });
+  const meter = new UsageMeter({ store: meterStore, now, ...(stages ? { stages } : {}), ...(free ? { free } : {}) });
   const rooms = new Map(); // "kind:id" → { kind, core, store, sockets: Set<adapter>, alarm }
   const history = new Map(); // "kind:id" → stats of the room (kept after it empties)
 
@@ -62,8 +62,24 @@ export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "
   };
   const snapshotStats = (key, r) => history.set(key, { ...r.core.stats, byType: { ...r.core.stats.byType }, first: history.get(key)?.first ?? now(), last: now() });
 
-  const http = createServer((req, res) => {
-    const m = ROUTE.exec(new URL(req.url, "http://x").pathname);
+  const http = createServer(async (req, res) => {
+    const path = new URL(req.url, "http://x").pathname;
+    // Dev-only (not in the Worker): a room's counters, for sims running the hub in its own process.
+    if (path === "/_stats") {
+      const q = new URL(req.url, "http://x").searchParams;
+      const r = rooms.get(`room:${q.get("room")}`);
+      if (r && q.get("reset")) {
+        Object.assign(r.core.stats, { handleMs: 0, handled: 0, handleMaxMs: 0, fanoutMs: 0, fanoutMaxMs: 0, broadcasts: 0, chunks: 0, chunkMs: 0, chunkMaxMs: 0 });
+        r.core.samples = { handle: [], chunk: [] };
+      }
+      res.writeHead(r ? 200 : 404, { "content-type": "application/json" }).end(JSON.stringify(r ? { stats: r.core.stats, samples: r.core.samples ?? null } : {}));
+      return;
+    }
+    if (path === "/usage") {
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(await meter.report({ countRequest: true })));
+      return;
+    }
+    const m = ROUTE.exec(path);
     res.writeHead(m && ROOM_ID_RE.test(m[2]) ? 426 : 404).end(m ? "websocket only" : "not found");
   });
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });

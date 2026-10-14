@@ -15,8 +15,9 @@ const limitsFrom = (env) => {
 };
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
+    if (url.pathname === "/usage" && req.method === "GET") return usage(req, env, ctx);
     const m = /^\/(room|relay)\/([^/]+)$/.exec(url.pathname);
     if (!m || !ROOM_ID_RE.test(m[2])) return new Response("not found", { status: 404 });
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("websocket only", { status: 426 });
@@ -27,6 +28,19 @@ export default {
     return ns.get(ns.idFromName(m[2])).fetch(fwd);
   },
 };
+
+// GET /usage: today's estimate and % of each free limit. Cached 60 s at the edge so a page
+// refreshing it costs (almost) nothing; a cache miss counts itself as one Worker request.
+async function usage(req, env, ctx) {
+  const cache = caches.default;
+  const key = new Request(new URL("/usage", req.url).toString());
+  const hit = await cache.match(key);
+  if (hit) return hit;
+  const body = await env.METER.get(env.METER.idFromName("global")).report({ countRequest: true });
+  const res = new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": "public, max-age=60", "access-control-allow-origin": "*" } });
+  ctx.waitUntil(cache.put(key, res.clone()));
+  return res;
+}
 
 /** Socket adapters over hibernatable WebSockets (state = the attachment, cached while awake). */
 class Sockets {
@@ -176,16 +190,20 @@ export class Room extends DurableObject {
   }
 }
 
-/** One per account: today's usage estimate (see UsageMeter). Called twice per room. */
+/** One per account: today's usage (UsageMeter). Rooms call it on create and ≤ every 30 s. */
 export class Meter extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
-    this.m = new UsageMeter({ store: ctx.storage, share: num(env.USAGE_SHARE) ?? 0.7 });
+    const stages = { newRooms: num(env.STAGE_NEW_ROOMS), newJoins: num(env.STAGE_NEW_JOINS) };
+    this.m = new UsageMeter({ store: ctx.storage, stages: Object.fromEntries(Object.entries(stages).filter(([, v]) => v !== undefined)) });
   }
   admit() {
     return this.m.admit();
   }
   add(d) {
     return this.m.add(d);
+  }
+  report(o) {
+    return this.m.report(o);
   }
 }

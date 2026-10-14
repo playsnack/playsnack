@@ -9,7 +9,7 @@
 //   client → {t:"auth", peer, pin?, token?}   the FIRST message; nothing is relayed before it
 //   relay  → {ctl:"ok", token}                 in; token = HMAC-SHA256 {r, p, exp} (15 min)
 //          → {ctl:"token", token}              a fresh token (sent with traffic, ≥ 5 min apart)
-//          → {ctl:"denied", reason, retryIn?}  reason: pin | pin-required | locked | busy | full | bad
+//          → {ctl:"denied", reason, retryIn?}  reason: pin | pin-required | locked | room_full_today | full | bad
 //   client → any JSON {from: <its peer>, ...}  relayed verbatim to every OTHER authed socket
 //   relay  → {from, t:"bye"}                   when a socket closes without having said bye
 //                                               (what the MQTT last will did)
@@ -34,6 +34,7 @@ export const LIMITS = {
   maxFrame: 256 * 1024,
   msgsPerSec: 60, // per socket; above → closed (a client publishes ~1–15/s)
   authTimeoutMs: 10000, // an unauthed socket older than this is closed on the next connect
+  reportMs: 30000, // a room reports its usage to the meter at most this often (and when it empties)
 };
 
 // Room ids are `slug` or `slug~CODE` (snack-player links.ts roomIdFor): URL-unreserved chars.
@@ -108,49 +109,122 @@ export function memoryStore() {
 }
 
 /**
- * Daily usage guard: refuses NEW rooms once today's estimate passes a safe share of
- * the free limits. Estimates (docs/edge-relay.md §limits):
- *   requests ≈ sockets opened (1 Worker + 1 DO request each) + incoming messages / 20
- *              + 2 per room (this meter) ; GB-s ≈ room-awake seconds × 0.128 GB.
- * Days are UTC (Cloudflare resets the free limits at 00:00 UTC).
+ * Daily usage meter + staged guard (docs/edge-rooms.md §무료 한도). One meter DO per account;
+ * rooms report batched deltas (≤ once per 30 s while active, and when they empty).
+ * Estimates per UTC day (the free limits reset 00:00 UTC = 09:00 KST):
+ *   Worker requests     = sockets opened + /usage cache misses
+ *   DO requests         = sockets opened + incoming WS messages / 20 + meter calls
+ *   DO GB-s             = room-awake seconds × 0.128 GB
+ *   SQLite rows written = rooms' own puts / deletes / alarms + the meter's own writes
+ * Stage 0 normal · 1 (≥ newRooms share of ANY limit): no new rooms · 2 (≥ newJoins): no new
+ * joins except reconnects. Ongoing rooms always continue.
  */
-export const FREE = { workerRequests: 100000, doRequests: 100000, doGbSeconds: 13000 };
+export const FREE = { workerRequests: 100000, doRequests: 100000, doGbSeconds: 13000, rowsWritten: 100000 };
+export const STAGES = { newRooms: 0.7, newJoins: 0.9 };
+export const ROOM_FULL_TODAY = "room_full_today";
+const emptyDay = (day) => ({ day, rooms: 0, conns: 0, msgs: 0, awakeMs: 0, rows: 0, doExtra: 0, workerExtra: 0, refusedRooms: 0, refusedJoins: 0 });
 export class UsageMeter {
-  constructor({ store, now = Date.now, share = 0.7, free = FREE }) {
-    this.store = store;
-    this.now = now;
-    this.cap = { req: free.doRequests * share, wreq: free.workerRequests * share, gbs: free.doGbSeconds * share };
+  constructor({ store, now = Date.now, free = {}, stages = {} }) {
+    Object.assign(this, { store, now, free: { ...FREE, ...free }, stages: { ...STAGES, ...stages } });
   }
   async today() {
     const day = new Date(this.now()).toISOString().slice(0, 10);
     const u = (await this.store.get("usage")) ?? {};
-    return u.day === day ? u : { day, rooms: 0, conns: 0, msgs: 0, awakeMs: 0, refused: 0 };
+    return u.day === day ? { ...emptyDay(day), ...u } : emptyDay(day);
   }
   static estimate(u) {
-    return { workerRequests: u.conns, doRequests: u.conns + Math.ceil(u.msgs / 20) + 2 * u.rooms, doGbSeconds: (u.awakeMs / 1000) * 0.128 };
+    return {
+      workerRequests: u.conns + u.workerExtra,
+      doRequests: u.conns + Math.ceil(u.msgs / 20) + u.doExtra,
+      doGbSeconds: Math.round((u.awakeMs / 1000) * 0.128),
+      rowsWritten: u.rows,
+    };
   }
-  /** May a new room open? Counts it if so. */
+  share(u) {
+    return Object.fromEntries(Object.entries(UsageMeter.estimate(u)).map(([k, v]) => [k, v / this.free[k]]));
+  }
+  stageOf(u) {
+    const top = Math.max(...Object.values(this.share(u)));
+    return top >= this.stages.newJoins ? 2 : top >= this.stages.newRooms ? 1 : 0;
+  }
+  async save(u) {
+    u.doExtra += 1; // this call is a DO request
+    u.rows += 1; // …and one row written
+    await this.store.put("usage", u);
+    return this.stageOf(u);
+  }
+  /** May a new room open? → {ok, stage} (counted either way). */
   async admit() {
     const u = await this.today();
-    const e = UsageMeter.estimate(u);
-    const ok = e.doRequests < this.cap.req && e.workerRequests < this.cap.wreq && e.doGbSeconds < this.cap.gbs;
+    const ok = this.stageOf(u) === 0;
     if (ok) u.rooms += 1;
-    else u.refused += 1;
-    await this.store.put("usage", u);
-    return ok;
+    else u.refusedRooms += 1;
+    return { ok, stage: await this.save(u) };
   }
-  async add({ conns = 0, msgs = 0, awakeMs = 0 }) {
+  /** A room's batched delta → {stage}. */
+  async add({ conns = 0, msgs = 0, awakeMs = 0, rows = 0, refusedJoins = 0 } = {}) {
     const u = await this.today();
-    u.conns += conns;
-    u.msgs += msgs;
-    u.awakeMs += awakeMs;
-    await this.store.put("usage", u);
+    Object.assign(u, { conns: u.conns + conns, msgs: u.msgs + msgs, awakeMs: u.awakeMs + awakeMs, rows: u.rows + rows, refusedJoins: u.refusedJoins + refusedJoins });
+    return { stage: await this.save(u) };
   }
-  async report() {
+  /** Today's numbers. countRequest: a GET /usage cache miss (one Worker request + one write). */
+  async report({ countRequest = false } = {}) {
     const u = await this.today();
-    return { ...u, estimate: UsageMeter.estimate(u) };
+    if (countRequest) {
+      u.workerExtra += 1;
+      await this.save(u);
+    }
+    const pct = Object.fromEntries(Object.entries(this.share(u)).map(([k, v]) => [k, Math.round(v * 1000) / 10]));
+    return {
+      day: u.day,
+      resetsAt: "00:00 UTC (09:00 KST)",
+      stage: this.stageOf(u),
+      stages: this.stages,
+      free: this.free,
+      used: UsageMeter.estimate(u),
+      percent: pct,
+      rooms: u.rooms,
+      refusedRooms: u.refusedRooms,
+      refusedJoins: u.refusedJoins,
+    };
   }
 }
+
+/**
+ * A room's side of the meter: counts locally, reports at most every `everyMs` (on traffic)
+ * and when the room empties; remembers the stage the meter last answered.
+ */
+export class UsageReporter {
+  constructor({ usage, now = Date.now, everyMs = 30000 }) {
+    Object.assign(this, { usage, now, everyMs });
+    this.d = { conns: 0, msgs: 0, rows: 0, refusedJoins: 0 };
+    this.awakeSince = null;
+    this.last = now();
+    this.stage = 0;
+  }
+  count(k, n = 1) {
+    this.d[k] += n;
+    this.awakeSince ??= this.now();
+  }
+  /** Call on traffic: reports when due. */
+  tick() {
+    if (this.now() - this.last >= this.everyMs) this.flush(false);
+  }
+  flush(empty) {
+    const t = this.now();
+    const d = { ...this.d, awakeMs: this.awakeSince ? t - this.awakeSince : 0 };
+    this.d = { conns: 0, msgs: 0, rows: 0, refusedJoins: 0 };
+    this.awakeSince = empty ? null : t;
+    this.last = t;
+    if (!this.usage || !(d.conns || d.msgs || d.rows || d.awakeMs || d.refusedJoins)) return Promise.resolve();
+    return Promise.resolve(this.usage.add(d))
+      .then((r) => {
+        if (typeof r?.stage === "number") this.stage = r.stage;
+      })
+      .catch(() => {});
+  }
+}
+
 
 /**
  * One room. Sockets are adapters: {send(str), close(code, reason), state, save(state)}
@@ -163,14 +237,13 @@ export class RoomRelay {
     this.roomId = roomId;
     this.store = store;
     this.secret = secret;
-    this.usage = usage; // {admit(): Promise<bool>, add({conns, msgs, awakeMs})} or null
+    this.usage = usage; // UsageMeter-like {admit(), add(d)} or null
     this.setAlarm = setAlarm;
     this.now = now;
     this.L = { ...LIMITS, ...limits };
     this.authChain = Promise.resolve(); // auths run one at a time (create / lock state)
     this.rate = new WeakMap(); // socket state → {sec, n} (memory only)
-    this.pending = { conns: 0, msgs: 0 }; // not yet reported to the usage meter
-    this.awakeSince = null;
+    this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs });
     // Accounting for the sims (memory only, never stored).
     this.stats = { conns: 0, in: 0, out: 0, bytesIn: 0, byType: {}, authFail: 0 };
   }
@@ -180,8 +253,7 @@ export class RoomRelay {
     const t = this.now();
     sock.save({ openedAt: t, authed: false, wrong: 0 });
     this.stats.conns += 1;
-    this.pending.conns += 1;
-    this.awakeSince ??= t;
+    this.meter.count("conns");
     // Unauthed sockets cannot be timed out while hibernating: sweep stale ones here.
     for (const s of sockets) {
       if (s === sock || s.state?.authed) continue;
@@ -221,7 +293,8 @@ export class RoomRelay {
     this.stats.bytesIn += raw.length;
     const t = typeof m.t === "string" ? m.t.slice(0, 16) : "?";
     this.stats.byType[t] = (this.stats.byType[t] ?? 0) + 1;
-    this.pending.msgs += 1;
+    this.meter.count("msgs");
+    this.meter.tick();
     if (t === "bye") {
       st.byeSent = true;
       sock.save(st);
@@ -237,7 +310,6 @@ export class RoomRelay {
       s.send(raw);
       this.stats.out += 1;
     }
-    if (this.pending.msgs >= 1000) this.flushUsage(false);
   }
 
   async onClose(sock, sockets) {
@@ -254,7 +326,8 @@ export class RoomRelay {
     st.authed = false;
     sock.save(st);
     if (!others.length) {
-      this.flushUsage(true);
+      this.meter.count("rows"); // the alarm
+      this.meter.flush(true);
       await this.setAlarm(this.now() + this.L.roomTtlMs);
     }
   }
@@ -264,15 +337,6 @@ export class RoomRelay {
     if (sockets.length) return false;
     await this.store.deleteAll();
     return true;
-  }
-
-  flushUsage(empty) {
-    const t = this.now();
-    const awakeMs = this.awakeSince ? t - this.awakeSince : 0;
-    this.awakeSince = empty ? null : t;
-    const d = { ...this.pending, awakeMs };
-    this.pending = { conns: 0, msgs: 0 };
-    if (this.usage && (d.conns || d.msgs || d.awakeMs)) Promise.resolve(this.usage.add(d)).catch(() => {});
   }
 
   token(epoch) {
@@ -292,7 +356,7 @@ export class RoomRelay {
       this.deny(sock, "bad");
       return sock.close(4000, "bad auth");
     }
-    this.gate ??= new RoomGate({ roomId: this.roomId, store: this.store, secret: this.secret, usage: this.usage, now: this.now, limits: this.L });
+    this.gate ??= new RoomGate({ roomId: this.roomId, store: this.store, secret: this.secret, usage: this.usage, now: this.now, limits: this.L, meter: this.meter });
     const g = await this.gate.check(m, st);
     if (g.deny) {
       sock.save(st);
@@ -313,8 +377,12 @@ export class RoomRelay {
  * → {meta, claims?, organizer, created?} or {deny, retryIn?, close?}
  */
 export class RoomGate {
-  constructor({ roomId, store, secret, usage, now = Date.now, limits = {} }) {
-    Object.assign(this, { roomId, store, secret, usage, now, L: { ...LIMITS, ...limits } });
+  constructor({ roomId, store, secret, usage, now = Date.now, limits = {}, meter = null }) {
+    Object.assign(this, { roomId, store, secret, usage, now, L: { ...LIMITS, ...limits }, meter });
+  }
+  put(k, v) {
+    this.meter?.count("rows");
+    return this.store.put(k, v);
   }
 
   tokenFor(meta, extra = {}, ttl = this.L.tokenTtlMs) {
@@ -334,7 +402,11 @@ export class RoomGate {
     let meta = await this.store.get("meta");
     if (!meta) {
       // A new room (or one deleted after 24 h idle): the usage guard decides.
-      if (this.usage && !(await this.usage.admit())) return { deny: "busy", close: 4029 };
+      if (this.usage) {
+        const a = await this.usage.admit();
+        if (this.meter) this.meter.stage = a.stage;
+        if (!a.ok) return { deny: ROOM_FULL_TODAY, close: 4029 };
+      }
       meta = { epoch: randomId(), created: this.now() };
       if (pin !== null) {
         meta.salt = randomId(16);
@@ -342,13 +414,18 @@ export class RoomGate {
         meta.hash = await hashPin(pin, meta.salt, meta.iter);
       }
       if (m.organize === true) meta.org = 1; // whoever creates it organizes it
-      await this.store.put("meta", meta);
+      await this.put("meta", meta);
       return { meta, organizer: Boolean(meta.org), created: true };
     }
     const org = meta.org ? await this.claims(meta, m.organizerToken) : null;
     if (org?.o === 1) return { meta, claims: org, organizer: true };
     const claims = await this.claims(meta, m.token);
     if (claims && !claims.o) return { meta, claims, organizer: false };
+    // Stage 2 (≥ 90 % of a free limit today): only players coming back (a valid token) get in.
+    if ((this.meter?.stage ?? 0) >= 2) {
+      this.meter.count("refusedJoins");
+      return { deny: ROOM_FULL_TODAY, close: 4029 };
+    }
     if (!meta.hash) return { meta, organizer: false };
     if (pin === null) return { deny: "pin-required" };
 
@@ -358,7 +435,7 @@ export class RoomGate {
     if (t < lock.until) return { deny: "locked", retryIn: lock.until - t };
     if (lock.hour.length >= this.L.wrongPerHour) return { deny: "locked", retryIn: lock.hour[0] + 3600000 - t };
     if (sameHex(await hashPin(pin, meta.salt, meta.iter), meta.hash)) {
-      if (lock.fails || lock.step !== this.L.lockMs) await this.store.put("lock", { fails: 0, until: 0, step: this.L.lockMs, hour: lock.hour });
+      if (lock.fails || lock.step !== this.L.lockMs) await this.put("lock", { fails: 0, until: 0, step: this.L.lockMs, hour: lock.hour });
       return { meta, organizer: false };
     }
     lock.fails += 1;
@@ -370,7 +447,7 @@ export class RoomGate {
       lock.step = Math.min(lock.step * 2, this.L.maxLockMs);
       lock.fails = 0;
     }
-    await this.store.put("lock", lock);
+    await this.put("lock", lock);
     st.wrong = (st.wrong ?? 0) + 1;
     const close = st.wrong >= this.L.wrongPerConn ? 4003 : 0;
     return retryIn ? { deny: "locked", retryIn, close } : { deny: "pin", close };
