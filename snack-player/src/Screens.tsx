@@ -114,9 +114,9 @@ const screen: React.CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center", padding: "0 16px",
   font: `16px ${TOKENS.font.body}`,
 };
-// Korean headings: Pretendard 700 (heading); the pixel face is only for Latin/digit-only text (design system rule, #84).
+// Korean headings: Pretendard 600 (heading, #102); the pixel face is only for Latin/digit-only text (design system rule, #84).
 const titleStyle: React.CSSProperties = {
-  fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 700, lineHeight: 1.4, margin: `${S.s4}px 0 ${S.s2}px`, wordBreak: "keep-all",
+  fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 600, lineHeight: 1.4, margin: `${S.s4}px 0 ${S.s2}px`, wordBreak: "keep-all",
 };
 const bodyStyle: React.CSSProperties = { color: C.inkMuted, fontSize: TOKENS.size.bodyMd, lineHeight: 1.5, margin: 0, wordBreak: "keep-all" };
 // Offset by the notch inset like the canvas (BitePlayer), so the pills sit over

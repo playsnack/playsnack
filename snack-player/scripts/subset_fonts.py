@@ -68,11 +68,14 @@ BASE_RANGES = [
 ]
 
 FACES = [
-    # (source, output, kind, rename-to family or None)
-    ("pretendard-500-full.woff2", "snackbody-500.woff2", "body", "Snack Body"),
-    ("pretendard-700-full.woff2", "snackbody-700.woff2", "body", "Snack Body"),
-    ("galmuri11-full.woff2", "galmuri11.woff2", "display", None),
-    ("galmuri11-bold-full.woff2", "galmuri11-bold.woff2", "display", None),
+    # (source, output, kind, rename-to family or None, canvas)
+    # canvas=False: the shell declares the face (index.html) but the canvas does not
+    # (packages/bite-pixi/src/fonts.js keeps 500/700, matching the engine's metrics).
+    ("pretendard-500-full.woff2", "snackbody-500.woff2", "body", "Snack Body", True),
+    ("pretendard-600-full.woff2", "snackbody-600.woff2", "body", "Snack Body", False),  # shell headings (#102)
+    ("pretendard-700-full.woff2", "snackbody-700.woff2", "body", "Snack Body", True),
+    ("galmuri11-full.woff2", "galmuri11.woff2", "display", None, True),
+    ("galmuri11-bold-full.woff2", "galmuri11-bold.woff2", "display", None, True),
 ]
 
 
@@ -115,7 +118,7 @@ def cmap_of(path):
 def rename(font, family):
     """Give a modified Pretendard its own name (OFL Reserved Font Name)."""
     name = font["name"]
-    weight = {500: "Medium", 700: "Bold"}.get(font["OS/2"].usWeightClass, "Regular")
+    weight = {500: "Medium", 600: "SemiBold", 700: "Bold"}.get(font["OS/2"].usWeightClass, "Regular")
     full = f"{family} {weight}"
     ps = f"{family.replace(' ', '')}-{weight}"
     for rec in list(name.names):
@@ -188,7 +191,7 @@ def main():
     text = source_text_chars()
     failed = False
     full_ranges = {}
-    for src_name, dst_name, kind, family in FACES:
+    for src_name, dst_name, kind, family, canvas in FACES:
         src = os.path.join(FONTS, src_name)
         dst = os.path.join(FONTS, dst_name)
         full = cmap_of(src)
@@ -201,10 +204,13 @@ def main():
             failed |= bool(missing)
             continue
         build_subset(src, dst, cps, family)
-        key = f"{kind}{'700' if '700' in src_name or 'bold' in src_name else ('500' if kind == 'body' else '400')}"
+        print(f"{src_name:28} {os.path.getsize(src) // 1024:4d} KB → {dst_name:22} {os.path.getsize(dst) // 1024:4d} KB  ({len(cps)} chars)")
+        if not canvas:
+            continue
+        m = re.search(r"-(\d{3})-full", src_name)
+        key = f"{kind}{m.group(1) if m else ('700' if 'bold' in src_name else '400')}"
         # The full face only needs to answer for what the subset lacks.
         full_ranges[key] = coarse_ranges(full - cmap_of(dst))
-        print(f"{src_name:28} {os.path.getsize(src) // 1024:4d} KB → {dst_name:22} {os.path.getsize(dst) // 1024:4d} KB  ({len(cps)} chars)")
     if check:
         if failed:
             print("\nNew text needs glyphs the font subsets lack. Rebuild:\n  uv run --with \"fonttools[woff]==4.60.1\" python -I snack-player/scripts/subset_fonts.py")
