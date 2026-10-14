@@ -8,8 +8,9 @@
 //   #/p/<slug>?…              the old hash form — read like the path form and
 //                             rewritten to it (parseRoute → canonical)
 //   ?bite=<name>              the Bite dev player (unchanged)
+//   /stats                    the anonymous stats page (StatsPage.tsx)
 
-export type Route = { name: "home" | "create" | "live" | "bite"; slug?: string; params: URLSearchParams };
+export type Route = { name: "home" | "create" | "live" | "bite" | "stats"; slug?: string; params: URLSearchParams };
 export type ParsedRoute = {
   route: Route;
   /** For an old hash link: the same route as a path link (the URL to replace it with). */
@@ -35,6 +36,7 @@ function routeOf(path: string, params: URLSearchParams): Route {
   const live = path.match(/^\/p\/([^/?#]+)/);
   if (live) return { name: "live", slug: decode(live[1]), params };
   if (path.startsWith("/create")) return { name: "create", params };
+  if (path === "/stats" || path === "/stats/") return { name: "stats", params };
   return { name: "home", params };
 }
 

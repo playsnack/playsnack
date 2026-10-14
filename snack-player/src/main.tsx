@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
-import { configureTelemetry, installErrorBeacon, telemetryEnabled } from "./telemetry";
+import { configureTelemetry, installErrorBeacon, telemetryEnabled, trackDailySeen } from "./telemetry";
 import { initDebug } from "./debugLog";
 
 // Anonymous error beacon (docs/telemetry.md; off in dev, with DNT/GPC or VITE_TELEMETRY=off)
@@ -9,6 +9,7 @@ import { initDebug } from "./debugLog";
 if (telemetryEnabled()) {
   configureTelemetry({ build: __BUILD_ID__ });
   installErrorBeacon(__BUILD_ID__);
+  trackDailySeen(); // once per KST day: random browser id (HyperLogLog only) + usage buckets
 }
 const DebugLog = initDebug(__BUILD_ID__) ? lazy(() => import("./DebugLog.tsx")) : null;
 

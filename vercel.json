@@ -6,6 +6,7 @@
   "outputDirectory": "snack-player/dist",
   "rewrites": [
     { "source": "/p/:path*", "destination": "/index.html" },
-    { "source": "/create", "destination": "/index.html" }
+    { "source": "/create", "destination": "/index.html" },
+    { "source": "/stats", "destination": "/index.html" }
   ]
 }

@@ -1,13 +1,17 @@
 // Anonymous telemetry client for POST /api/ev (see docs/telemetry.md).
-// - No cookies, localStorage, nicknames, user agents or person / device / browser-session
-//   ids are sent. The free-beta game events carry a random per-game id (`sid` / `gid`,
-//   made by the host engine); the server keeps only its hash, for 6 h (docs/telemetry.md §9).
+// - No cookies, nicknames or user agents are sent. The free-beta game events carry a random
+//   per-game id (`sid` / `gid`, made by the host engine); the server keeps only its hash, for
+//   6 h (docs/telemetry.md §9). Once per KST day a `seen` report carries this browser's random
+//   id (localStorage `snack.did`; the server only salted-hashes it into a HyperLogLog) and
+//   buckets of this browser's own usage counters (deviceStats.ts, docs/telemetry.md §4a).
 // - Off in dev, with VITE_TELEMETRY=off, or when Do Not Track / Global Privacy Control is set.
 // - Batches every 5 s / 20 events / when the page is hidden; sendBeacon, fetch keepalive fallback.
 // Wired: main.tsx (installErrorBeacon), LiveApp via roomJoin.ts (trackJoin), room create and
 // invite share (LiveApp), the room engine's hooks (engineMetrics → roomTransport.ts) and the
 // result screen (ResultExtras.tsx reportResultEvent: ask_shown / ask_answer / result share).
 // Erasable TypeScript only (Node can run this file directly for tests).
+
+import { dailySeen, noteUsage, type SeenEvent, type Store } from './deviceStats.ts';
 
 export type Route = 'home' | 'app' | 'room' | 'create' | 'other';
 export type ShareMethod = 'web' | 'kakao' | 'copy' | 'save' | 'other';
@@ -40,7 +44,9 @@ export type TelemetryEvent =
   /** The host engine accepted a valid quiz pack; `gid` = the engine's id for that pack. */
   | { k: 'game_created'; app?: string; source: GameSource; gid: string }
   | { k: 'ask_shown'; app?: string }
-  | { k: 'ask_answer'; app?: string; a: AskAnswer; why?: AskReason };
+  | { k: 'ask_answer'; app?: string; a: AskAnswer; why?: AskReason }
+  /** Once per KST day per browser: random id (HyperLogLog only) + usage buckets (deviceStats.ts). */
+  | SeenEvent;
 
 export type TelemetryOptions = {
   /** Force on/off. Privacy signals (DNT/GPC) still win over `true`. */
@@ -295,7 +301,34 @@ export function trackShare(method: ShareMethod, what: ShareWhat, app?: string): 
  * per-game key known on this device (e.g. a count of result screens seen); it is not sent.
  */
 export function trackAskShown(app: string, gameKey: string): void {
-  if (firstTime(`ask_shown|${gameKey}`)) track({ k: 'ask_shown', app: appOf(app) });
+  if (!firstTime(`ask_shown|${gameKey}`)) return;
+  track({ k: 'ask_shown', app: appOf(app) });
+  noteDeviceUsage('game'); // this browser saw one more game through to its result
+}
+
+// ── this browser's usage (deviceStats.ts) ──
+const KST_MS = 9 * 3_600_000;
+const kstToday = () => new Date(Date.now() + KST_MS).toISOString().slice(0, 10);
+function localStore(): Store | null {
+  try {
+    return (globalThis as { localStorage?: Store }).localStorage ?? null;
+  } catch {
+    return null; // blocked
+  }
+}
+
+/** Send today's `seen` report if not sent yet (main.tsx, at start). Nothing when telemetry is off. */
+export function trackDailySeen(): void {
+  if (!telemetryEnabled()) return;
+  const ev = dailySeen(localStore(), kstToday());
+  if (ev) track(ev);
+}
+
+/** Count a finished game / a made quiz in this browser's own counters (only while telemetry is on). */
+export function noteDeviceUsage(what: 'game' | 'made'): void {
+  if (!telemetryEnabled()) return;
+  const s = localStore();
+  if (s) noteUsage(s, kstToday(), what);
 }
 
 /** The question was answered (or explicitly skipped) — once per game per device; a reason only with "no". */

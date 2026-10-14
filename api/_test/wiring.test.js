@@ -143,7 +143,7 @@ test('e2e: a 1:1 quiz on a mesh room → exactly one session_done (+ game_create
   assert.equal(a.summary.sessionsAbout, 1);
   assert.equal(a.summary.rematch, 1);
   assert.equal(a.summary.gamesCreated, 1);
-  assert.deepEqual(a.counters.session_done.ans, { 1: 1 });
+  assert.equal(a.counters['games_finished_by_answerers:1'], 1);
   assert.deepEqual(a.summary.bad, {});
 });
 

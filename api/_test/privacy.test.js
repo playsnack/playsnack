@@ -15,7 +15,9 @@ const DEVICE = 'device-id-abcdef0123456789';
 const EMAIL = 'kim.chulsoo@example.com';
 const SID = 'GameSid_secret_0123456789'; // host-engine game id: only its hash may be kept (6 h)
 const ROOM_CODE = 'QWERTYZ23456'; // a friends-room code must never reach storage
-const SECRETS = [IP, UA, 'SnackSecretUA', NICK, '김철수', COOKIE, 'cookie-secret', DEVICE, EMAIL, 'example.com', SID, 'GameSid', ROOM_CODE];
+const BROWSER_ID = 'BrowserId_secret_0123x'; // `seen` d: only a salted hash may reach a HyperLogLog
+const SALT = 'test-salt-0123456789abcdef';
+const SECRETS = [IP, UA, 'SnackSecretUA', NICK, '김철수', COOKIE, 'cookie-secret', DEVICE, EMAIL, 'example.com', SID, 'GameSid', ROOM_CODE, BROWSER_ID, 'BrowserId', SALT];
 
 const headers = {
   'content-type': 'text/plain;charset=UTF-8',
@@ -36,6 +38,7 @@ const events = [
   { k: NICK },
   { k: 'session_done', app: `quiz-ox~${ROOM_CODE}`, p: 3, sid: SID },
   { k: 'session_done', app: 'quiz-ox', p: 3, sid: SID, nickname: NICK }, // strict kind: unknown field -> dropped
+  { k: 'seen', d: BROWSER_ID },
 ];
 const post = () =>
   new Request('https://playsnack.test/api/ev', { method: 'POST', headers, body: JSON.stringify({ v: 1, events }) });
@@ -71,6 +74,14 @@ function fakeUpstash() {
         return { result: 'OK' };
       }
       if (cmd === 'HGETALL') return { result: [...(db.get(key) || [])].flatMap(([f, v]) => [f, String(v)]) };
+      if (cmd === 'PFADD') {
+        // Real HyperLogLog keeps only registers; this fake keeps the (hashed) elements, which is stricter.
+        const h = db.get(key) || new Map();
+        db.set(key, h);
+        for (const x of args) h.set(x, 1);
+        return { result: 1 };
+      }
+      if (cmd === 'PFCOUNT') return { result: (db.get(key) || new Map()).size };
       return { error: `ERR unknown ${cmd}` };
     });
     return new Response(JSON.stringify(out), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -92,7 +103,7 @@ test('fake IP/UA/nickname/cookie/device id never reach the fake Upstash, limiter
   const up = fakeUpstash();
   const limiter = createLimiter();
   const h = createHandler({
-    env: { UPSTASH_REDIS_REST_URL: 'https://fake-upstash.test/', UPSTASH_REDIS_REST_TOKEN: 'fake-token' },
+    env: { UPSTASH_REDIS_REST_URL: 'https://fake-upstash.test/', UPSTASH_REDIS_REST_TOKEN: 'fake-token', EV_DEVICE_SALT: SALT },
     fetch: up.fetch,
     limiter,
   });
@@ -106,7 +117,15 @@ test('fake IP/UA/nickname/cookie/device id never reach the fake Upstash, limiter
   }
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('x-ev-store'), 'kv');
-  assert.deepEqual(await res.json(), { ok: true, accepted: 7, dropped: 2 });
+  assert.deepEqual(await res.json(), { ok: true, accepted: 8, dropped: 2 });
+  // The browser id was counted — as a salted hash, in the three sketches only.
+  const pf = [...up.db.keys()].filter((k) => k.startsWith('stats:devices:'));
+  assert.equal(pf.length, 3, pf.join());
+  for (const k of pf) assert.equal(up.db.get(k).size, 1);
+  const growth = await h(new Request('https://playsnack.test/api/ev?growth=1', { headers }));
+  const gBody = await growth.json();
+  assert.equal(gBody.devices.allTime, 1);
+  assertClean('growth response', JSON.stringify(gBody));
 
   // Every command/URL/header sent to the KV.
   assert.ok(up.seen.length >= 2);
@@ -114,14 +133,15 @@ test('fake IP/UA/nickname/cookie/device id never reach the fake Upstash, limiter
   // Everything stored.
   const stored = JSON.stringify([...up.db].map(([k, h]) => [k, typeof h === 'number' ? h : [...h]]));
   assertClean('kv storage', stored);
-  for (const k of up.db.keys()) assert.match(k, /^ev:(\d{4}-\d{2}-\d{2}(:err)?|all|once:[0-9a-f]{32}|budget:\d{4}-\d{2})$/);
+  for (const k of up.db.keys()) assert.match(k, /^stats:(daily:\d{4}-\d{2}-\d{2}|errors:\d{4}-\d{2}-\d{2}|all_time|dedupe:[0-9a-f]{32}|budget:\d{4}-\d{2}|monthly:\d{4}-\d{2}|devices:(all_time|\d{4}-\d{2}|daily:\d{4}-\d{2}-\d{2}))$/);
   // Off-list app ids collapse to "other"; nicknames in errors are gone.
   const body = await agg.json();
-  assert.deepEqual(body.counters.open.app, { other: 1 });
-  assert.deepEqual(body.counters.share.app, { other: 1 });
-  assert.deepEqual(body.counters.err.where, { other: 1, room: 1 });
+  const byPrefix = (p) => Object.fromEntries(Object.entries(body.counters).filter(([f]) => f.startsWith(p)).map(([f, n]) => [f.slice(p.length), n]));
+  assert.deepEqual(byPrefix('page_opens_by_app:'), { other: 1 });
+  assert.deepEqual(byPrefix('shares_by_app:'), { other: 1 });
+  assert.deepEqual(byPrefix('errors_by_where:'), { other: 1, room: 1 });
   // The room code is cut off the app id; the game counted once, by app.
-  assert.deepEqual(body.counters.session_done.app, { 'quiz-ox': 1 });
+  assert.deepEqual(byPrefix('games_finished_by_app:'), { 'quiz-ox': 1 });
   for (const e of body.errors.top) assert.doesNotMatch(e.msg, /[^\x00-\x7f]/);
   assertClean('GET response', JSON.stringify(body));
 
@@ -146,8 +166,8 @@ test('memory fallback stores nothing identifying either', async () => {
   const once = [...memoryStore.once.keys()];
   assert.equal(once.length, 1);
   assertClean('memory de-dup keys', once.join(','));
-  assert.match(once[0], /^ev:once:[0-9a-f]{32}$/);
-  assert.match(dump, /room_join\|ok/);
+  assert.match(once[0], /^stats:dedupe:[0-9a-f]{32}$/);
+  assert.match(dump, /joins_ok/);
 });
 
 test('limiter salt rotates with the KST day', () => {
