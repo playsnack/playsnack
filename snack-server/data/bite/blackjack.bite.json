@@ -30,7 +30,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -93,7 +93,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -264,7 +264,7 @@
             "text": "{phase == 'result' ? (result === 'bust' ? '버스트… 21을 넘었어요 💥' : result === 'win' ? '승리! 딜러를 이겼어요 🎉' : result === 'lose' ? '패배… 다음엔 이겨요 😢' : '무승부 🤝') : ('')}",
             "width": 320,
             "size": 23,
-            "font": "display",
+            "weight": 700,
             "color": "{phase == 'result' ? (result === 'win' ? '#d9ff00' : (result === 'push' ? '#ffffff' : '#FF5A5F')) : '#ffffff'}",
             "align": "center"
           },

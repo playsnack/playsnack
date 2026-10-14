@@ -31,7 +31,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -122,7 +122,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -215,7 +215,7 @@
                 "id": "readyTitle",
                 "text": "순간 기억력을 깨워보세요",
                 "size": 30,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -780,7 +780,7 @@
                 "id": "resultTitle",
                 "text": "여기까지 기억했어요",
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },

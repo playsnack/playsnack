@@ -29,7 +29,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -94,7 +94,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -226,7 +226,7 @@
                 "id": "q1Title",
                 "text": "갑자기 완벽한 하루가 생겼어요. 당신의 첫 계획은?",
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff"
               },
               {
@@ -379,7 +379,7 @@
                 "id": "q2Title",
                 "text": "당신은 보통 어떤 방식으로 위로하나요?",
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff"
               },
               {
@@ -532,7 +532,7 @@
                 "id": "q3Title",
                 "text": "새로운 일을 맡으면 가장 먼저 하는 행동은?",
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff"
               },
               {
@@ -685,7 +685,7 @@
                 "id": "q4Title",
                 "text": "내 방에 꼭 두고 싶은 오브제는?",
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff"
               },
               {
@@ -838,7 +838,7 @@
                 "id": "q5Title",
                 "text": "하나만 가질 수 있다면 어떤 능력을 고를래요?",
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff"
               },
               {
@@ -993,7 +993,7 @@
                 "id": "resultTitle",
                 "text": "{phase == 'result' ? (('' + (cat >= dog && cat >= rabbit && cat >= fox ? '고요한 달빛 고양이' : dog >= rabbit && dog >= fox ? '햇살 가득 강아지' : rabbit >= fox ? '말랑한 꽃밭 토끼' : '영리한 별빛 여우'))) : '고요한 달빛 고양이'}",
                 "size": 29,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },

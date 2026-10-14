@@ -20,6 +20,10 @@ Character set:
         jamo + every character in the app data and player source (templates,
         content bank, pools, round packs, shell strings, nickname words).
         Anything else (e.g. a typed nickname) comes from the *-full fallback.
+    display (Galmuri11) leaves out Hangul (syllables and jamo): the pixel face
+        draws only text with no Korean — scores, counters, the logo (#84;
+        snack-player/test/displayFont.test.ts keeps the templates to it). A
+        Korean character in display text would still draw, from the full face.
 --check exits 1 when any character in that text (that the full font can draw)
 is missing from a subset — rerun without --check to rebuild.
 """
@@ -84,11 +88,23 @@ def source_text_chars():
     return {c for c in chars if c >= 0x20}
 
 
+HANGUL = [(0x1100, 0x11FF), (0x3130, 0x318F), (0xA960, 0xA97F), (0xAC00, 0xD7AF), (0xD7B0, 0xD7FF)]
+
+
+def is_hangul(c):
+    return any(a <= c <= b for a, b in HANGUL)
+
+
+def text_for(kind, text_chars):
+    """The app text a face must cover: the pixel face has no Korean to draw (#84)."""
+    return {c for c in text_chars if not is_hangul(c)} if kind == "display" else set(text_chars)
+
+
 def wanted(kind, text_chars):
     cps = set(text_chars)
     for a, b in BASE_RANGES:
         cps.update(range(a, b + 1))
-    return cps
+    return text_for(kind, cps)
 
 
 def cmap_of(path):
@@ -179,7 +195,7 @@ def main():
         cps = wanted(kind, text) & full
         if check:
             have = cmap_of(dst) if os.path.exists(dst) else set()
-            missing = sorted((text & full) - have)
+            missing = sorted((text_for(kind, text) & full) - have)
             status = "ok" if not missing else f"MISSING {len(missing)}: " + "".join(chr(c) for c in missing[:40])
             print(f"{dst_name:24} {os.path.getsize(dst) // 1024 if os.path.exists(dst) else 0:4d} KB  {status}")
             failed |= bool(missing)

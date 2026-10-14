@@ -46,7 +46,7 @@ export const COMPONENTS = {
     view: {
       box: "column", gap: 2,
       children: [
-        { text: "{props.title}", font: "display", size: 28, color: T.text },
+        { text: "{props.title}", size: 28, weight: 700, color: T.text },
         { text: "{props.subtitle}", size: 15, weight: 500, color: T.textMuted, show: "props.subtitle != ''" },
       ],
     },
@@ -89,7 +89,7 @@ export const COMPONENTS = {
       box: "column", gap: 6, pad: 20, fill: T.surface, ...radius,
       children: [
         { text: "{props.label}", size: 14, weight: 600, color: T.textMuted },
-        { text: "{props.value}", font: "display", size: 40, color: T.text, lines: 1 },
+        { text: "{props.value}", size: 40, weight: 700, color: T.text, lines: 1 },
       ],
     },
   },
@@ -173,7 +173,7 @@ COMPONENTS.PersonCard = {
     stroke: { color: T.border, width: T.border2 }, shadow: HARD_SHADOW,
     children: [
       { use: "BlockAvatar", props: { seed: "{props.name}", size: 120 } },
-      { text: "{props.name}", font: "display", size: 30, color: T.text, align: "center", lines: 1 },
+      { text: "{props.name}", size: 30, weight: 700, color: T.text, align: "center", lines: 1 },
       {
         box: "row", gap: 6, justify: "center", show: "props.group != '' || props.rookie",
         children: [
@@ -193,7 +193,7 @@ COMPONENTS.ThingCard = {
     stroke: { color: T.border, width: T.border2 }, shadow: HARD_SHADOW,
     children: [
       { text: "{props.emoji}", size: 88, align: "center" },
-      { text: "{props.name}", font: "display", size: 30, color: T.text, align: "center", lines: 1 },
+      { text: "{props.name}", size: 30, weight: 700, color: T.text, align: "center", lines: 1 },
     ],
   },
 };

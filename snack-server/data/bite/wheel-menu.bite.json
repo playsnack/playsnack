@@ -37,7 +37,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -102,7 +102,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -246,7 +246,7 @@
                     "x": 30,
                     "y": 140,
                     "size": 34,
-                    "font": "display",
+                    "weight": 700,
                     "color": "#0b0c0e",
                     "align": "center"
                   }

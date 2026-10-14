@@ -34,7 +34,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -97,7 +97,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -299,7 +299,7 @@
                 "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
                 "width": 320,
                 "size": 26,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },
@@ -513,7 +513,7 @@
                 "id": "tapTxt",
                 "text": "{phase == 'play' ? (iAmOut ? '탈락 — 구경 모드' : '선점! (지금 누르기)') : '선점!'}",
                 "size": 26,
-                "font": "display",
+                "weight": 700,
                 "color": "{phase == 'play' ? (iAmOut ? '#9aa3af' : '#0b0c0e') : '#0b0c0e'}",
                 "align": "center"
               }
@@ -567,7 +567,7 @@
                 "text": "{phase == 'result' ? (nunchiWinner || '결과') : ''}",
                 "width": 320,
                 "size": 24,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               }

@@ -46,7 +46,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -111,7 +111,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -276,7 +276,7 @@
                 "text": "{phase == 'result' ? '지구에서 가장 큰 바다는 태평양이다.' : (questions[qIndex])}",
                 "width": 318,
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -497,7 +497,7 @@
                 "id": "resultTitle",
                 "text": "완료!",
                 "size": 32,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -505,7 +505,7 @@
                 "id": "finalScore",
                 "text": "{phase == 'result' ? (('' + (score) + ' / 5점')) : '0 / 5점'}",
                 "size": 54,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },

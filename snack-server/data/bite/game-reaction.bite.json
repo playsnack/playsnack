@@ -32,7 +32,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -97,7 +97,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -191,7 +191,7 @@
                 "id": "readyTitle",
                 "text": "빨강이면 기다리고,\n초록이면 바로 탭!",
                 "size": 30,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -317,7 +317,7 @@
                 "id": "waitLabel",
                 "text": "빨강",
                 "size": 58,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -411,7 +411,7 @@
                 "id": "greenLabel",
                 "text": "탭!",
                 "size": 76,
-                "font": "display",
+                "weight": 700,
                 "color": "#0b0c0e",
                 "align": "center"
               },
@@ -598,7 +598,7 @@
                 "id": "failTitle",
                 "text": "실패",
                 "size": 42,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },

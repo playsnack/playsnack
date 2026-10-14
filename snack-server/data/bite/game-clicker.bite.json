@@ -31,7 +31,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -122,7 +122,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -245,7 +245,7 @@
                 "id": "readyTitle",
                 "text": "큰 버튼을 빠르게 탭하세요",
                 "size": 30,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -523,7 +523,7 @@
                 "id": "resultTitle",
                 "text": "멋진 탭이었어요",
                 "size": 30,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -531,7 +531,7 @@
                 "id": "finalScore",
                 "text": "{phase == 'result' ? (('' + (score) + '점')) : '0점'}",
                 "size": 64,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },

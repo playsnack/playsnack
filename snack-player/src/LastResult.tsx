@@ -14,7 +14,7 @@ import { C, R, S, TOKENS } from "./tokens.gen";
 
 const IMAGE_FONTS: BiteDoc = {
   bite: 1, frame: [390, 844], vars: {}, start: "s", phases: { s: {} },
-  view: { box: "column", children: [{ text: "가", weight: 500 }, { text: "가", weight: 800 }, { text: "가", font: "display", weight: 700 }] },
+  view: { box: "column", children: [{ text: "가", weight: 500 }, { text: "가", weight: 800 }, { text: "0", font: "display", weight: 700 }] },
 } as unknown as BiteDoc;
 
 export function LastResult({ saved, slug, myNick, onAgain }: { saved: SavedResult; slug: string; myNick: string | null; onAgain: () => void }) {
