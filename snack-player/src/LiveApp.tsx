@@ -23,6 +23,7 @@ import {
 // The maker is loaded only when opened (play links do not pay for it).
 const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m.QuizMaker })));
 import { makerLink, resultHooks, useResultExtras } from "./ResultExtras";
+import { SPECTATOR_NOTICE_BOX, SPECTATOR_NOTICE_TEXT, forTemplate, showSpectatorNotice } from "./spectate";
 
 // "나도 만들기" on the quiz result screen opens the maker over this room (lane B).
 resultHooks.makeQuiz = () => openQuizMaker();
@@ -58,6 +59,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const fxRef = useRef<HTMLDivElement | null>(null);
   const retryRef = useRef<() => void>(() => {});
   const [reactOpen, setReactOpen] = useState(false);
+  // Spectating a game in progress (spectate.ts): this player's flag and the room's phase.
+  const [spectator, setSpectator] = useState<{ me: unknown; phase: string }>({ me: false, phase: "" });
   // ── "나 맞히기" quiz (only the quiz app): the room's phase, quizInfo, roster
   // and this player's iAmSubject flag (per player, from the room), and the pack
   // this device made for this room (quiz.ts packAction decides when to send it).
@@ -99,7 +102,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const applyShared = (shared: Record<string, unknown> | null | undefined) => {
     const rt = runtimeRef.current;
     if (!rt || !shared) return;
-    for (const [k, v] of Object.entries(shared)) rt.setVar(k, v);
+    for (const [k, v] of Object.entries(shared)) if (forTemplate(doc, k)) rt.setVar(k, v);
   };
 
   // Load the app (a merged template's old link was already redirected by App).
@@ -162,9 +165,12 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         onQuizVar("sessionPhase", sh.sessionPhase ?? "lobby");
         onQuizVar("roster", sh.roster ?? []);
         onQuizVar("quizInfo", sh.quizInfo ?? null);
+        setSpectator({ me: sh.iAmSpectator, phase: String(sh.sessionPhase ?? "lobby") });
       } else if (m.t === "setVar") {
-        runtimeRef.current?.setVar(m.d.id as string, m.d.value);
+        if (forTemplate(doc, m.d.id as string)) runtimeRef.current?.setVar(m.d.id as string, m.d.value);
         onQuizVar(m.d.id as string, m.d.value);
+        if (m.d.id === "iAmSpectator") setSpectator((x) => ({ ...x, me: m.d.value }));
+        else if (m.d.id === "sessionPhase") setSpectator((x) => ({ ...x, phase: String(m.d.value) }));
       } else if (m.t === "actionAck") {
         // Only quizPack is refused this way ("not_in_lobby" = sent mid-game: packAction waits for the result).
         if (m.d.accepted === false && PACK_REFUSALS.has(m.d.reason as string)) onPackRefused(m.d.reason as string);
@@ -448,6 +454,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
             : { label: "혼자 하는 게임 고르기", onClick: goHome }}
         />
       )}
+      {withRoom && conn === "connected" && showSpectatorNotice(doc, spectator.me, spectator.phase) && (
+        <div style={spectatorNotice} role="status">{SPECTATOR_NOTICE_TEXT}</div>
+      )}
       <div ref={fxRef} style={fxOverlay} />
       {extras.overlay}
       {/* Reactions are a "someone else is watching" feature, so the button only
@@ -521,6 +530,12 @@ const reactionDockTop: React.CSSProperties = {
 };
 const resultNoteDock: React.CSSProperties = {
   ...inviteDock, bottom: undefined, top: "calc(var(--snack-safe-top) + 64px)", left: 12, right: 70, maxWidth: undefined,
+};
+// Over the templates' subtitle line, clear of the top-row pills and 💬 / 🪲 (spectate.ts, shellDocks.test.ts).
+const spectatorNotice: React.CSSProperties = {
+  ...pill, position: "fixed", top: `calc(var(--snack-safe-top) + ${SPECTATOR_NOTICE_BOX.y}px)`, left: SPECTATOR_NOTICE_BOX.x,
+  maxWidth: SPECTATOR_NOTICE_BOX.w, minHeight: 0, height: SPECTATOR_NOTICE_BOX.h, padding: "0 10px", boxShadow: "none",
+  font: `700 13px ${TOKENS.font.body}`, color: C.accent, pointerEvents: "none", zIndex: 13, overflow: "hidden", textOverflow: "ellipsis",
 };
 const reactionPop: React.CSSProperties = {
   display: "flex", flexDirection: "column", gap: 8, padding: 6,
