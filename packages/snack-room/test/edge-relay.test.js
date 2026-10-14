@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { startEdgeHub } from "../tools/edgeHub.js";
 import { wsBus } from "../src/wsBus.js";
 import { connectMesh } from "../src/meshClient.js";
-import { RoomRelay, UsageMeter, memoryStore, signToken, verifyToken } from "../../../edge/room/src/core.js";
+import { RoomRelay, RoomGate, UsageMeter, memoryStore, signToken, verifyToken } from "../../../edge/room/src/core.js";
 
 const EXTERNAL = process.env.EDGE_URL || "";
 const LOCK_MS = 400;
@@ -138,28 +138,20 @@ test("wrong PIN: 3 per connection → closed; 5 in a row → locked, then the lo
   ok.close();
 });
 
-test("20 wrong PINs within an hour → locked for the rest of the hour", { skip: EXTERNAL ? "hub only (needs a 1 ms lock)" : false }, async () => {
-  const h = await startEdgeHub({ port: 4553, limits: { lockMs: 1 } });
-  const prev = URL_;
-  URL_ = h.url;
-  try {
-    const room = rid("hour");
-    const o = raw(room);
-    await o.auth("o", { pin: "1111" });
-    o.close();
-    let last;
-    for (let i = 0; i < 21; i++) {
-      const c = raw(room);
-      last = await c.auth(`g${i}`, { pin: `x${i}` });
-      c.close();
-      await sleep(5);
-    }
-    assert.equal(last.reason, "locked");
-    assert.ok(last.retryIn > 3500000, `retryIn ${last.retryIn}`);
-  } finally {
-    URL_ = prev;
-    await h.close();
+test("20 wrong PINs within an hour → locked for the rest of the hour", async () => {
+  // Core level (no sockets): a 1 ms lock, so only the hourly cap can stop attempt 21.
+  let t = 1000000;
+  const gate = new RoomGate({ roomId: "hour", store: memoryStore(), secret: "s", now: () => t, limits: { lockMs: 1, maxLockMs: 1, pinIterations: 1000 } });
+  assert.ok((await gate.check({ pin: "1111" }, {})).meta, "created with a PIN");
+  let last;
+  for (let i = 0; i < 21; i++) {
+    t += 10;
+    last = await gate.check({ pin: `x${i}` }, {});
   }
+  assert.equal(last.deny, "locked");
+  assert.ok(last.retryIn > 3500000, `retryIn ${last.retryIn}`);
+  t += 3600001;
+  assert.equal((await gate.check({ pin: "1111" }, {})).deny, undefined, "an hour later the right PIN works");
 });
 
 test("a token lets a dropped player back in without the PIN; another room refuses it", async () => {

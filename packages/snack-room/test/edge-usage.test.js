@@ -6,6 +6,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { startEdgeHub } from "../tools/edgeHub.js";
 import { UsageMeter, memoryStore } from "../../../edge/room/src/core.js";
+import { GameRoom } from "../../../edge/room/src/game.js";
 
 const FREE = { workerRequests: 1000, doRequests: 1000, doGbSeconds: 1000, rowsWritten: 1000 };
 let hub;
@@ -14,7 +15,7 @@ const RUN = Date.now().toString(36);
 const rid = (s) => `u-${RUN}-${s}`;
 
 before(async () => {
-  hub = await startEdgeHub({ port: Number(process.env.EDGE_TEST_PORT_USAGE || 4552), free: FREE, limits: { reportMs: 100 } });
+  hub = await startEdgeHub({ port: Number(process.env.EDGE_TEST_PORT_USAGE || 4554), free: FREE, limits: { reportMs: 100 } });
 });
 after(async () => hub?.close());
 
@@ -136,36 +137,27 @@ test("stages 1 and 2 on game rooms: new rooms refused, then new joins; ongoing r
 });
 
 test("stage ≥ 1 drops non-essential work first: no snapshot writes", async () => {
-  // (the meter is past stage 1 from the test above)
+  hub.meter.store.map.clear(); // a fresh day (stage 0)
   const room = rid("nosnap");
-  const r = hub.room(room); // not created yet
-  assert.equal(r, undefined);
-  // a room that existed before the stage changed keeps playing, but stops persisting
-  const h2 = await startEdgeHub({ port: 4553, free: FREE, limits: { reportMs: 50 } });
-  try {
-    const p = (anonId) => {
-      const ws = new WebSocket(`${h2.url}/room/${room}`);
-      const opened = new Promise((res) => (ws.onopen = res));
-      return { ws, send: async (m) => (await opened, ws.send(JSON.stringify(m))) };
-    };
-    const a = p("sa");
-    await a.send({ t: "hello", d: { slug: room, anonId: "sa", nick: "sa" } });
-    await a.send({ t: "action", d: { name: "vote", payload: { option: "o0" }, clientMsgId: "1" } });
-    await sleep(1300);
-    assert.ok(h2.room(room).store.map.get("snap"), "stage 0: the idle room is snapshotted");
-    const writes = h2.room(room).core.stats.snapWrites;
-    await h2.meter.add({ rows: 750 }); // stage 1
-    await sleep(80);
-    await a.send({ t: "action", d: { name: "vote", payload: { option: "o1" }, clientMsgId: "2" } });
-    await sleep(80);
-    await a.send({ t: "action", d: { name: "vote", payload: { option: "o0" }, clientMsgId: "3" } });
-    await sleep(1300);
-    assert.equal(h2.room(room).core.meter.stage, 1);
-    assert.equal(h2.room(room).core.stats.snapWrites, writes, "no more snapshot writes");
-    a.ws.close();
-  } finally {
-    await h2.close();
-  }
+  const ws = new WebSocket(`${hub.url}/room/${room}`);
+  await new Promise((r) => (ws.onopen = r));
+  const send = (m) => ws.send(JSON.stringify(m));
+  send({ t: "hello", d: { slug: room, anonId: "sa", nick: "sa" } });
+  send({ t: "action", d: { name: "vote", payload: { option: "o0" }, clientMsgId: "1" } });
+  await sleep(1300);
+  assert.ok(hub.room(room).store.map.get("snap"), "stage 0: the idle room is snapshotted");
+  const writes = hub.room(room).core.stats.snapWrites;
+  await hub.meter.add({ rows: 750 }); // stage 1
+  await sleep(150);
+  send({ t: "action", d: { name: "vote", payload: { option: "o1" }, clientMsgId: "2" } }); // traffic → report → stage 1
+  await sleep(150);
+  send({ t: "action", d: { name: "vote", payload: { option: "o0" }, clientMsgId: "3" } });
+  await sleep(1300);
+  assert.equal(hub.room(room).core.meter.stage, 1);
+  assert.equal(hub.room(room).core.stats.snapWrites, writes, "no more snapshot writes");
+  ws.close();
+  await sleep(100);
+  await setShare(0.93); // the tests below expect stage 2
 });
 
 test("relay rooms follow the same stage 1 rule", async () => {
@@ -189,25 +181,25 @@ test("GET /usage: today's numbers and % of each free limit", async () => {
 });
 
 test("rooms report batched: at most once per reportMs, plus when they empty", async () => {
-  const h = await startEdgeHub({ port: 4553, free: FREE, limits: { reportMs: 60000 } });
-  try {
-    let calls = 0;
-    const add = h.meter.add.bind(h.meter);
-    h.meter.add = (d) => (calls++, add(d));
-    const room = rid("batch");
-    const ws = new WebSocket(`${h.url}/room/${room}`);
-    await new Promise((r) => (ws.onopen = r));
-    ws.send(JSON.stringify({ t: "hello", d: { slug: room, anonId: "bb", nick: "bb" } }));
-    for (let i = 0; i < 30; i++) ws.send(JSON.stringify({ t: "action", d: { name: "vote", payload: { option: `o${i % 2}` }, clientMsgId: `m${i}` } }));
-    await sleep(300);
-    assert.equal(calls, 0, "no report within the 60 s window");
-    ws.close();
-    await sleep(200);
-    assert.equal(calls, 1, "one report when the room empties");
-    const u = await h.meter.report();
-    assert.equal(u.used.workerRequests, 1);
-    assert.ok(u.used.rowsWritten >= 2);
-  } finally {
-    await h.close();
-  }
+  // A GameRoom with in-memory sockets (no network): count the meter calls.
+  const meter = new UsageMeter({ store: memoryStore(), free: FREE });
+  let calls = 0;
+  const usage = { admit: () => meter.admit(), add: (d) => (calls++, meter.add(d)) };
+  const socks = [];
+  const room = new GameRoom({ roomId: "batch", store: memoryStore(), secret: "s", usage, limits: { reportMs: 60000 }, sockets: () => socks });
+  const sock = { state: {}, save(s) { this.state = s; }, send() {}, close() {} };
+  socks.push(sock);
+  room.onOpen(sock);
+  await room.onMessage(sock, JSON.stringify({ t: "hello", d: { slug: "batch", anonId: "bb", nick: "bb" } }));
+  for (let i = 0; i < 30; i++) await room.onMessage(sock, JSON.stringify({ t: "action", d: { name: "vote", payload: { option: `o${i % 2}` }, clientMsgId: `m${i}` } }));
+  assert.equal(calls, 0, "no report within the 60 s window");
+  await room.onClose(sock);
+  socks.length = 0;
+  await sleep(20);
+  assert.equal(calls, 1, "one report when the room empties");
+  const u = await meter.report();
+  assert.equal(u.used.workerRequests, 1);
+  assert.equal(u.used.doRequests, 1 + 2 + 2, "1 socket + 31 msgs/20 + admit + report");
+  assert.ok(u.used.rowsWritten >= 2);
+  room.forget();
 });

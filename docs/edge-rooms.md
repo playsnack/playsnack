@@ -142,5 +142,15 @@ curl https://snack-room.playsnack.workers.dev/usage
 
 ## 11. 검증 (이 브랜치)
 - 단위: `edge-room`(7) · `edge-relay`(11) · `edge-usage`(7) — 허브에서 전부 통과; `EDGE_URL=ws://127.0.0.1:4551`로 wrangler dev(Miniflare)에서 공유 케이스 통과(허브 전용은 skip).
-- 시뮬레이션: multiclient-sim(`SIM_EDGE_ROOM=1` 서버 권한, `SIM_EDGE=1` 메시 중계) · host-handover-sim(`SIM_EDGE=1`) · edge-crowd-sim — 허브와 wrangler dev 둘 다. 결과는 PR 설명에.
-- 포트: 4550 허브 · 4551 wrangler dev · 4552–4553 테스트 · 4554 inspector · 4555 콘텐츠 정적 서버.
+- 시뮬레이션 (2026-10-14, 최종 코드):
+
+| sim | Node 허브 | wrangler dev (Miniflare) |
+|---|---|---|
+| multiclient-sim `SIM_EDGE_ROOM=1` (DO 엔진) | 11/11 | 11/11 ¹ |
+| multiclient-sim `SIM_EDGE=1` (메시 over 중계) | 11/11 | 11/11 |
+| host-handover-sim `SIM_EDGE=1` (A–G) | 7/7 | 7/7 |
+| edge-crowd-sim 50/100/200 × 10문제 | 3/3 | 3/3 |
+
+¹ 첫 실행에서 majority-guess 8명 행 1개가 countdown에 멈춤 — 그 시각에 `wrangler.jsonc`를 고쳐 wrangler가 핫리로드(DO 재시작)한 탓(로그로 확인), 재실행 11/11.
+- 명령: `SIM_EDGE_ROOM=1 node snack-server/tools/multiclient-sim.mjs` (허브 자동) / `+ SIM_EDGE_URL=ws://127.0.0.1:4551`(wrangler dev, 콘텐츠는 `--var PACK_BASE_URL:http://127.0.0.1:4550` + 정적 서버).
+- 포트: 4550 허브(sim) · 4551 wrangler dev · 4552 relay 테스트 · 4553 room 테스트 · 4554 usage 테스트 · 4555 wrangler inspector. wrangler sim 때 콘텐츠 정적 서버는 4550(허브 안 쓸 때).
