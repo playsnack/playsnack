@@ -313,7 +313,9 @@ export function createRoom(o) {
   const quizProgress = () => {
     const here = [...r.roster.keys()].filter((id) => !isSubject(id));
     const picks = S.picks?.[S.roundIdx] ?? {};
-    return { answered: here.filter((id) => picks[id]).length, of: here.length };
+    // round / sessionNo: which round this count is for — a device that has the new round's
+    // values but not yet its fresh count must not read the last round's "everyone answered".
+    return { answered: here.filter((id) => picks[id]).length, of: here.length, round: S.roundIdx, sessionNo: S.round };
   };
   // Early reveal: everyone present (quizProgress — the subject and leavers excluded) has
   // answered → reveal in EARLY_REVEAL_MS. Only an answer or a leave can complete a round;

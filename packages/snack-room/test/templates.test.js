@@ -312,3 +312,30 @@ test("speed-trivia R10: a reload mid-round restores the answer the room took —
   await T.advance(9000);
   assert.match(T.prop(1, "statusText"), /^정답! ✓ /, "the restored pick gets its feedback");
 });
+
+// Early reveal on the template: "everyone answered" is read only from a quizProgress for THIS
+// round of THIS game. A device that has the new round's values before its fresh quizProgress
+// (setVars land one by one) must not blank the bar from the last round's 1/1.
+test("speed-trivia early reveal: a stale quizProgress (last round / last game) never blanks the new round's bar", async () => {
+  const T = table("speed-trivia-score", ["A", "B"]);
+  T.room.action("p0", { name: "quizPack", payload: { title: "A 맞히기", questions: QS2 }, clientMsgId: "pack" });
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(3000 + 200);
+  T.tap(1, `tile${rightOf(T, 1)}`);
+  await T.advance(32);
+  assert.equal(T.prop(1, "timerBar", "width"), 0, "1/1 for this round: the beat");
+  const lastRound = T.v(1, "quizProgress");
+  assert.equal(lastRound.round, 0);
+  assert.equal(lastRound.sessionNo, T.v(1, "sessionNo"));
+  await T.advance(600 + 3000); // reveal → round 2
+  assert.equal(T.v(1, "roundNum"), 2);
+  assert.ok(T.prop(1, "timerBar", "width") > 280, "round 2 starts with a full bar");
+  for (const stale of [lastRound, { ...lastRound, round: 1, sessionNo: lastRound.sessionNo - 1 }]) {
+    T.app(1).setVar("quizProgress", stale); // the new round is here, its fresh count is not
+    await T.advance(16);
+    assert.ok(T.prop(1, "timerBar", "width") > 250, `bar not blanked by ${JSON.stringify(stale)}`);
+    assert.notEqual(T.prop(1, "timerSecs"), "");
+    assert.doesNotMatch(T.prop(0, "statusText") + T.prop(1, "statusText"), /다 골랐어요/);
+  }
+});
