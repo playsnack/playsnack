@@ -331,7 +331,7 @@ const shell: React.CSSProperties = {
 const column: React.CSSProperties = { maxWidth: 520, margin: "0 auto", width: "100%" };
 const headerRow: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center" };
 // Pixel face only at ≥22px / weight ≥800 (design system rule).
-const h1: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 700, margin: `${S.s4}px 0 ${S.s2}px`, lineHeight: 1.4 };
+const h1: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 600, margin: `${S.s4}px 0 ${S.s2}px`, lineHeight: 1.4 };
 const muted: React.CSSProperties = { color: C.inkMuted, fontSize: TOKENS.size.bodySm, lineHeight: 1.5, margin: `${S.s1}px 0 0`, wordBreak: "keep-all" };
 const warn: React.CSSProperties = { ...muted, color: C.roster3, fontWeight: 700 };
 const label: React.CSSProperties = { display: "block", fontWeight: 800, fontSize: TOKENS.size.bodySm, margin: `${S.s4}px 0 ${S.s2}px` };

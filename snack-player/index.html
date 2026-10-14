@@ -19,8 +19,8 @@
         var play = /^#\/p\//.test(location.hash) || /\/p\//.test(location.pathname);
         var base = location.pathname.replace(/\/p\/.*$/, "/").replace(/[^/]*$/, "") + "fonts/";
         var files = play
-          ? ["snackbody-500.woff2", "snackbody-700.woff2", "galmuri11.woff2"]
-          : ["snackbody-700.woff2?ui", "pressstart2p.woff2"];
+          ? ["snackbody-500.woff2", "snackbody-700.woff2", "galmuri11.woff2", "snackbody-600.woff2?ui"]
+          : ["snackbody-600.woff2?ui", "pressstart2p.woff2"];
         var preload = function (href, as, type) {
           var l = document.createElement("link");
           l.rel = "preload";
@@ -46,13 +46,19 @@
 
     <style>
       /* Mini-Block Arcade faces — self-hosted (no CDN), subsets built by
-         scripts/subset_fonts.py. Korean headings use "Snack Body" 700 (the same
-         Pretendard subset the canvas draws with); the pixel faces are only for
+         scripts/subset_fonts.py. Korean headings use "Snack Body" 600 (#102; a
+         shell-only Pretendard subset — the canvas keeps 500/700 so drawn text
+         matches the engine's embedded metrics); the pixel faces are only for
          Latin/digit-only text (logo, scores — #84), so their subsets carry no
          Hangul. The weight split matches the canvas
          (packages/bite-pixi/src/fonts.js). "?ui" keeps these faces from
          claiming the canvas's preload of the same file (Chrome then fetches it
          twice). */
+      @font-face {
+        font-family: "Snack Body";
+        src: url("/fonts/snackbody-600.woff2?ui") format("woff2");
+        font-weight: 550 649; font-style: normal; font-display: swap;
+      }
       @font-face {
         font-family: "Snack Body";
         src: url("/fonts/snackbody-700.woff2?ui") format("woff2");

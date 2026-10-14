@@ -103,8 +103,8 @@ const shell: React.CSSProperties = {
   padding: `calc(var(--snack-safe-top) + ${S.s5}px) 16px 40px`, font: `16px ${TOKENS.font.body}`,
 };
 const brand: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: 11, color: C.accent, letterSpacing: 1 };
-const h1: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 700, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 };
-const sectionTitle: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 700, margin: `${S.s5}px 0 ${S.s3}px`, lineHeight: 1.4 };
+const h1: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 600, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 };
+const sectionTitle: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 600, margin: `${S.s5}px 0 ${S.s3}px`, lineHeight: 1.4 };
 const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: S.s3 };
 const card: React.CSSProperties = {
   background: C.surface, border: `${TOKENS.border.block}px solid ${C.borderBlock}`, borderRadius: R.block,
@@ -112,7 +112,7 @@ const card: React.CSSProperties = {
   display: "flex", flexDirection: "column", alignItems: "flex-start", font: `16px ${TOKENS.font.body}`,
 };
 // Body font: the pixel face is only for Latin/digit-only text (design system rule).
-const cardTitle: React.CSSProperties = { fontWeight: 800, fontSize: TOKENS.size.bodyMd, marginTop: S.s2, lineHeight: 1.35 };
+const cardTitle: React.CSSProperties = { fontWeight: 700, fontSize: TOKENS.size.bodyMd, marginTop: S.s2, lineHeight: 1.35 };
 const tag: React.CSSProperties = { border: `1px solid ${C.accent}`, color: C.accent, borderRadius: R.chip, padding: "1px 7px", fontSize: 11, fontWeight: 800 };
 const tagInline: React.CSSProperties = { ...tag, fontSize: 12, padding: "1px 6px" };
 const makeCta: React.CSSProperties = {
