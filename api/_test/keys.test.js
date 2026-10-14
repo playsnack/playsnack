@@ -74,7 +74,8 @@ test('field mapping: every old field has exactly one readable new name', () => {
   assert.equal(p.incr.get('quizzes_created_duplicates'), 1); // old game_created|dup
   assert.equal(p.incr.get('rematches_duplicates'), 1); // old rematch|dup
   assert.equal(p.incr.get('rejected_events:open'), 1); // old open|bad
-  assert.deepEqual(Object.fromEntries(p.all), { games_finished: 1, games_finished_3plus: 1 }); // old ev:all fields
+  assert.deepEqual(Object.fromEntries(p.all), { games_finished: 1, games_finished_3plus: 1, players_in_finished_games: 3 }); // old ev:all fields + 연인원
+  assert.deepEqual(Object.fromEntries(p.monthly), { games_finished: 1, games_finished_3plus: 1, players_in_finished_games: 3 });
 });
 
 test('the memory store uses the same readable keys', async () => {

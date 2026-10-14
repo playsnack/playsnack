@@ -113,8 +113,8 @@ test('each new kind is accepted and aggregated (day counters, summary, all-time)
   });
   assert.equal(a.wired, true, 'the app sends these (docs/telemetry.md §9.5)');
   assert.deepEqual(a.cumulative, {
-    games_finished: 2, games_finished_3plus: 1, quizzes_created: 2, quizzes_created_editor: 1, quizzes_created_remake: 1,
-    rematches: 1, rooms_created: 1,
+    games_finished: 2, games_finished_3plus: 1, players_in_finished_games: 6, quizzes_created: 2, quizzes_created_editor: 1,
+    quizzes_created_remake: 1, rematches: 1, rooms_created: 1,
   });
 });
 
@@ -231,7 +231,7 @@ test('bounded keys: arbitrary app strings, sids and counts never widen the field
   // room_create 1+4, ask_answer 1+3+4×3, game_created 1+1+4.
   assert.equal(fields.length, 43, fields.join(' '));
   assert.deepEqual([...memoryStore.data.get('stats:all_time').keys()].sort(), [
-    'games_finished', 'games_finished_3plus', 'quizzes_created', 'quizzes_created_remake', 'rooms_created',
+    'games_finished', 'games_finished_3plus', 'players_in_finished_games', 'quizzes_created', 'quizzes_created_remake', 'rooms_created',
   ]);
   assert.equal(playerBucket(1), '1');
   assert.equal(playerBucket(5), '4-5');
@@ -322,7 +322,7 @@ test('KV: de-dup uses SET NX EX on a hashed key; the all-time hash never expires
   assert.equal(a.store, 'kv');
   assert.equal(a.summary.sessionsDone, 1);
   assert.equal(a.summary.sessionsDup, 1);
-  assert.deepEqual(a.cumulative, { games_finished: 1, games_finished_3plus: 1 });
+  assert.deepEqual(a.cumulative, { games_finished: 1, games_finished_3plus: 1, players_in_finished_games: 3 });
   const w = await (await h(get('?week=2026-W42'))).json();
   assert.equal(w.summary.sessionsDone, 1);
 });
@@ -340,7 +340,7 @@ test('p = players who took part: the 3+ headline needs p >= 3 and, for a quiz, a
   assert.equal(a.summary.sessionsDone3, 2);
   const ans = Object.keys(a.counters).filter((f) => f.startsWith('games_finished_by_answerers:'));
   assert.deepEqual(ans, ['games_finished_by_answerers:0', 'games_finished_by_answerers:1', 'games_finished_by_answerers:2']);
-  assert.deepEqual(a.cumulative, { games_finished: 4, games_finished_3plus: 2 });
+  assert.deepEqual(a.cumulative, { games_finished: 4, games_finished_3plus: 2, players_in_finished_games: 11 });
 });
 
 test('null optional fields are treated as absent', async () => {

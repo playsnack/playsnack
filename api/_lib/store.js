@@ -6,6 +6,13 @@
 //   stats:errors:<YYYY-MM-DD KST>  hash  sanitized error message -> count
 // Both expire 90 days after the last write of the instance that set them.
 //   stats:all_time                 hash  all-time counters for a fixed field list (no expiry; §9)
+//   stats:monthly:<YYYY-MM KST>    hash  the month's headline totals (schema.js MONTHLY_FIELDS) and the
+//                                        same per day, "<field>:day_<DD>" — no expiry (12 keys a year,
+//                                        ≤ 7 × 32 fields each): the /stats growth chart
+//   stats:devices:all_time · stats:devices:<YYYY-MM> · stats:devices:daily:<YYYY-MM-DD>
+//                                  HyperLogLog sketches of salted device-id hashes (≈1% error):
+//                                  only PFADD / PFCOUNT — the ids cannot be listed or reversed.
+//                                  Daily keys expire after 100 days; the others never.
 //   stats:dedupe:<hash>            string, 6 h — "this game was already counted" (hash of kind + game id)
 //   stats:budget:<YYYY-MM KST>     integer, ~40 days — Upstash commands this deployment sent that month
 // Other features keep their own top-level namespace in the same style — e.g. room results
@@ -28,6 +35,13 @@ export const errKey = (day) => `stats:errors:${day}`;
 export const ALL_KEY = 'stats:all_time';
 export const onceKey = (id) => `stats:dedupe:${id}`;
 export const budgetKey = (month) => `stats:budget:${month}`;
+export const monthlyKey = (month) => `stats:monthly:${month}`;
+export const DEVICES_ALL_KEY = 'stats:devices:all_time';
+export const devicesMonthKey = (month) => `stats:devices:${month}`;
+export const devicesDayKey = (day) => `stats:devices:daily:${day}`;
+export const DEVICES_DAY_TTL_SECONDS = 100 * 24 * 60 * 60;
+/** The per-day field inside a monthly hash: ("games_finished", "2026-10-14") -> "games_finished:day_14". */
+export const monthlyDayField = (field, day) => `${field}:day_${day.slice(8, 10)}`;
 /** Room results (the room-result lane): one key per room, `<hash>` = a hash, never a room code. */
 export const roomResultKey = (hash) => `results:room:${hash}`;
 /** Keys written before the readable scheme (2026-10-13/14 testing); nothing reads them. */
@@ -101,19 +115,29 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       return seen.month === month ? seen.used : null;
     },
     /** Apply increments; returns the day's running event total after this write. */
-    async apply(day, incr, errs, accepted, all = new Map(), month) {
+    async apply(day, incr, errs, accepted, all = new Map(), month, monthly = new Map(), devices = []) {
       const k = dayKey(day);
       const ek = errKey(day);
       const cmds = [['HINCRBY', k, TOTAL_FIELD, accepted]];
       for (const [f, n] of incr) cmds.push(['HINCRBY', k, f, n]);
       for (const [m, n] of errs) cmds.push(['HINCRBY', ek, m, n]);
       for (const [f, n] of all) cmds.push(['HINCRBY', ALL_KEY, f, n]);
+      // The month's headline totals + the same per day (never expire; the growth chart).
+      const mk = monthlyKey(month || day.slice(0, 7));
+      for (const [f, n] of monthly) cmds.push(['HINCRBY', mk, f, n], ['HINCRBY', mk, monthlyDayField(f, day), n]);
+      // Unique devices: one PFADD per sketch, however many (already salted-hashed) ids.
+      const dk = devicesDayKey(day);
+      if (devices.length) {
+        cmds.push(['PFADD', DEVICES_ALL_KEY, ...devices], ['PFADD', devicesMonthKey(month || day.slice(0, 7)), ...devices], ['PFADD', dk, ...devices]);
+        if (!expired.has(dk)) cmds.push(['EXPIRE', dk, DEVICES_DAY_TTL_SECONDS]);
+      }
       const ttl = [];
       if (!expired.has(k)) ttl.push(k);
       if (errs.size && !expired.has(ek)) ttl.push(ek);
       for (const key of ttl) cmds.push(['EXPIRE', key, TTL_SECONDS]);
       const out = await metered(month, cmds);
       for (const key of ttl) expired.add(key);
+      if (devices.length) expired.add(dk);
       return Number(out[0]) || 0;
     },
     /** Claim de-dup ids; returns one boolean per id: true = first time seen (within the TTL). */
@@ -134,6 +158,22 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       ]);
       return { counts: pairsToObject(counts), errs: pairsToObject(errSamples), all: pairsToObject(all) };
     },
+    /** The all-time counters + each listed month's headline hash, in one request. */
+    async readGrowth(months, month) {
+      const out = await metered(month, [
+        ['HGETALL', ALL_KEY],
+        ...months.map((m) => ['HGETALL', monthlyKey(m)]),
+        ['PFCOUNT', DEVICES_ALL_KEY],
+        ...months.map((m) => ['PFCOUNT', devicesMonthKey(m)]),
+      ]);
+      const n = months.length;
+      return {
+        all: pairsToObject(out[0]),
+        months: out.slice(1, 1 + n).map(pairsToObject),
+        devicesAll: Number(out[1 + n]) || 0,
+        devicesByMonth: out.slice(2 + n).map((v) => Number(v) || 0),
+      };
+    },
     /** Day counters for several days (one request) + the all-time counters. */
     async readDays(days, month) {
       const out = await metered(month, [...days.map((d) => ['HGETALL', dayKey(d)]), ['HGETALL', ALL_KEY]]);
@@ -145,6 +185,11 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
 export function createMemoryStore({ now = Date.now } = {}) {
   const data = new Map(); // key -> Map(field -> count)
   const once = new Map(); // onceKey -> expiry (ms)
+  const sketches = new Map(); // device key -> Set of salted hashes (stands in for HyperLogLog)
+  const pfadd = (key, ids) => {
+    if (!sketches.has(key)) sketches.set(key, new Set());
+    for (const id of ids) sketches.get(key).add(id);
+  };
   const hash = (key) => {
     if (!data.has(key)) data.set(key, new Map());
     return data.get(key);
@@ -158,9 +203,22 @@ export function createMemoryStore({ now = Date.now } = {}) {
     kind: 'memory',
     data, // exposed for tests (privacy assertions)
     once, // exposed for tests (privacy assertions)
+    sketches, // exposed for tests (privacy assertions)
     budgetUsed: () => null, // no KV commands are spent
-    async apply(day, incr, errs, accepted, all = new Map()) {
+    async apply(day, incr, errs, accepted, all = new Map(), month, monthly = new Map(), devices = []) {
       const h = hash(dayKey(day));
+      if (devices.length) {
+        pfadd(DEVICES_ALL_KEY, devices);
+        pfadd(devicesMonthKey(month || day.slice(0, 7)), devices);
+        pfadd(devicesDayKey(day), devices);
+      }
+      if (monthly.size) {
+        const m = hash(monthlyKey(month || day.slice(0, 7)));
+        for (const [f, n] of monthly) {
+          bump(m, f, n);
+          bump(m, monthlyDayField(f, day), n);
+        }
+      }
       const total = bump(h, TOTAL_FIELD, accepted);
       for (const [f, n] of incr) bump(h, f, n);
       if (errs.size) {
@@ -191,6 +249,14 @@ export function createMemoryStore({ now = Date.now } = {}) {
         counts: Object.fromEntries(data.get(dayKey(day)) || []),
         errs: Object.fromEntries(data.get(errKey(day)) || []),
         all: Object.fromEntries(data.get(ALL_KEY) || []),
+      };
+    },
+    async readGrowth(months) {
+      return {
+        all: Object.fromEntries(data.get(ALL_KEY) || []),
+        months: months.map((m) => Object.fromEntries(data.get(monthlyKey(m)) || [])),
+        devicesAll: (sketches.get(DEVICES_ALL_KEY) || new Set()).size,
+        devicesByMonth: months.map((m) => (sketches.get(devicesMonthKey(m)) || new Set()).size),
       };
     },
     async readDays(days) {

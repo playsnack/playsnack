@@ -21,6 +21,8 @@ export const KINDS = [
   'open', 'first_tap', 'result', 'share', 'room_join', 'err',
   // free-beta metrics (docs/telemetry.md §9)
   'session_done', 'rematch', 'room_create', 'game_created', 'ask_shown', 'ask_answer',
+  // unique-device estimate (docs/telemetry.md §4a): at most once per KST day per browser
+  'seen',
 ];
 export const SHARE_WHATS = new Set(['invite', 'result', 'app', 'other']);
 export const ROOM_KINDS = new Set(['public', 'friend']);
@@ -36,6 +38,8 @@ export const MAX_PLAYERS = 1000;
  */
 export const WIRED = true;
 const KNOWN = new Set(KINDS);
+/** A browser's random id for the unique-device estimate: 128 bits, base64url, no padding. */
+export const DEVICE_ID_RE = /^[A-Za-z0-9_-]{22}$/;
 /** A host-engine id (`sid` game, `gid` made quiz): 16–32 URL-safe chars (docs/telemetry.md §9). */
 export const SID_RE = /^[A-Za-z0-9_-]{16,32}$/;
 
@@ -47,6 +51,7 @@ const STRICT_KEYS = {
   game_created: new Set(['k', 'app', 'source', 'gid']),
   ask_shown: new Set(['k', 'app']),
   ask_answer: new Set(['k', 'app', 'a', 'why']),
+  seen: new Set(['k', 'd']),
 };
 
 /** Player-count bucket: 1 · 2 · 3 · 4-5 · 6-8 · 9+. */
@@ -127,7 +132,17 @@ export const KIND_FIELDS = {
   game_created: { n: 'quizzes_created', app: 'quizzes_created_by_app', dup: 'quizzes_created_duplicates' },
   ask_shown: { n: 'asked_again', app: 'asked_again_by_app' },
   ask_answer: { n: 'answered_again' },
+  seen: { n: 'device_checkins' },
 };
+/**
+ * The headline numbers kept per month forever (stats:monthly:<YYYY-MM>, docs/telemetry.md §3):
+ * the /stats page's growth chart. players_in_finished_games = sum of `p` over finished games
+ * (the same person in 5 games counts 5 — 연인원, not people).
+ */
+export const MONTHLY_FIELDS = [
+  'games_finished', 'games_finished_3plus', 'quizzes_created', 'quizzes_created_remake',
+  'rooms_created', 'players_in_finished_games', 'joins_ok',
+];
 /** A known kind whose event failed validation (value never stored): `rejected_events:<kind>`. */
 export const REJECTED_PREFIX = 'rejected_events:';
 /** Successful joins by time-to-join bucket — the p75 ≤ 2 s quality bar (docs/telemetry.md §9). */
@@ -135,8 +150,9 @@ export const JOIN_MS_PREFIX = 'join_ms_bucket:';
 
 /**
  * Normalize one event into counter fields. Returns null when the event is dropped.
- * Shape: { kind, fields: string[], err?: string, all: string[], once?: string }
- * `all` = all-time counters; `once` = de-dup id — such an event is counted only after
+ * Shape: { kind, fields: string[], err?: string, all: [field, n][], monthly: [field, n][], once?: string }
+ * `all` = all-time counters; `monthly` = this month's headline counters (MONTHLY_FIELDS,
+ * also per day — see store.js); `once` = de-dup id — such an event is counted only after
  * settleOnce() confirms it is the first with that id (host hand-over, resends).
  */
 export function normalizeEvent(raw) {
@@ -147,10 +163,11 @@ export function normalizeEvent(raw) {
   if (typeof k !== 'string' || !Object.hasOwn(KIND_FIELDS, k)) return null;
   const F = KIND_FIELDS[k];
   const fields = [];
-  const all = []; // all-time counters (stats:all_time)
+  const all = []; // all-time counters (stats:all_time): [field, n]
   let err;
   let errAt; // { where, build } of an err event (for the server's live log line)
   let once;
+  let device;
   if (Object.hasOwn(STRICT_KEYS, k) && Object.keys(ev).some((f) => !STRICT_KEYS[k].has(f))) return null;
   const withApp = () => {
     const app = normApp(ev.app);
@@ -205,20 +222,21 @@ export function normalizeEvent(raw) {
       if (ev.about !== undefined) fields.push(`${F.n}_quiz_kind:${ev.about ? 'about_someone' : 'default_quiz'}`);
       if (ev.ans !== undefined) fields.push(`${F.n}_by_answerers:${ev.ans === 0 ? '0' : playerBucket(ev.ans)}`);
       withApp();
-      all.push(F.n);
+      all.push([F.n, 1]);
+      if (k === 'session_done') all.push(['players_in_finished_games', ev.p]);
       // The headline: 3+ players took part — and, for a quiz, somebody answered.
       if (k === 'session_done' && ev.p >= 3 && ev.ans !== 0) {
         fields.push('games_finished_3plus');
         const app = normApp(ev.app);
         if (app) fields.push(`games_finished_3plus_by_app:${app}`);
-        all.push('games_finished_3plus');
+        all.push(['games_finished_3plus', 1]);
       }
       once = onceId(k, ev.sid);
       break;
     }
     case 'room_create':
       withApp();
-      all.push(F.n);
+      all.push([F.n, 1]);
       break;
     case 'game_created':
       // A valid quiz pack the host engine accepted; `remake` = sent from the result
@@ -226,8 +244,14 @@ export function normalizeEvent(raw) {
       if (!GAME_SOURCES.has(ev.source) || !validId(ev.gid)) return null;
       fields.push(`quizzes_created_${ev.source}`);
       withApp();
-      all.push(F.n, `quizzes_created_${ev.source}`);
+      all.push([F.n, 1], [`quizzes_created_${ev.source}`, 1]);
       once = onceId(k, ev.gid);
+      break;
+    case 'seen':
+      // `d` = the browser's random id (22 base64url chars = 128 bits). It is only ever
+      // salted-hashed into a HyperLogLog (api/ev.js) — never stored, logged or counted as is.
+      if (!DEVICE_ID_RE.test(ev.d)) return null;
+      device = ev.d;
       break;
     case 'ask_shown':
       withApp();
@@ -255,7 +279,9 @@ export function normalizeEvent(raw) {
       return null;
   }
   fields.unshift(F.n);
-  return { kind: k, fields, err, all, once, ...(errAt ? errAt : {}) };
+  const monthly = all.filter(([f]) => MONTHLY_FIELDS.includes(f));
+  if (fields.includes('joins_ok')) monthly.push(['joins_ok', 1]);
+  return { kind: k, fields, err, all, monthly, once, ...(device ? { device } : {}), ...(errAt ? errAt : {}) };
 }
 
 const add = (m, f, n = 1) => m.set(f, (m.get(f) || 0) + n);
@@ -263,7 +289,7 @@ const add = (m, f, n = 1) => m.set(f, (m.get(f) || 0) + n);
 /**
  * Parse a raw body string. Returns { status, error } on rejection, or
  * { status: 200, incr: Map<field,count>, errs: Map<sample,count>, all: Map<field,count>,
- *   once: [{id, kind, fields, all}], errLines: [{msg, where?, build?}], accepted, badCount, dropped }.
+ *   monthly: Map<field,count>, once: [{id, kind, fields, all, monthly}], errLines: [{msg, where?, build?}], accepted, badCount, dropped }.
  * errLines = the accepted error events, already sanitized (the server logs one line each).
  * badCount = events of a known kind dropped by validation; they are counted as
  * `rejected_events:<kind>` (in incr) so a wiring bug is visible instead of a silent 0.
@@ -282,6 +308,8 @@ export function parseBatch(text) {
   const incr = new Map();
   const errs = new Map();
   const all = new Map();
+  const monthly = new Map();
+  const devices = new Set(); // raw ids, in memory only: api/ev.js hashes them and drops these
   const once = [];
   const onceSeen = new Set();
   const errLines = [];
@@ -299,12 +327,14 @@ export function parseBatch(text) {
       if (onceSeen.has(n.once)) add(incr, KIND_FIELDS[n.kind].dup); // same game twice in one batch
       else {
         onceSeen.add(n.once);
-        once.push({ id: n.once, kind: n.kind, fields: n.fields, all: n.all });
+        once.push({ id: n.once, kind: n.kind, fields: n.fields, all: n.all, monthly: n.monthly });
       }
       continue;
     }
     for (const f of n.fields) add(incr, f);
-    for (const f of n.all) add(all, f);
+    for (const [f, c] of n.all) add(all, f, c);
+    for (const [f, c] of n.monthly) add(monthly, f, c);
+    if (n.device) devices.add(n.device);
     if (n.err) {
       add(errs, n.err);
       errLines.push({ msg: n.err, where: n.where, build: n.build });
@@ -312,7 +342,7 @@ export function parseBatch(text) {
   }
   const badCount = [...bad.values()].reduce((a, b) => a + b, 0);
   for (const [f, c] of bad) add(incr, f, c);
-  return { status: 200, incr, errs, all, once, errLines, accepted, badCount, dropped: body.events.length - accepted };
+  return { status: 200, incr, errs, all, monthly, devices: [...devices], once, errLines, accepted, badCount, dropped: body.events.length - accepted };
 }
 
 /** Count each `once` event whose id was claimed for the first time (fresh[i]); the rest count as that kind's `*_duplicates`. */
@@ -320,7 +350,8 @@ export function settleOnce(parsed, fresh) {
   parsed.once.forEach((o, i) => {
     if (!fresh[i]) return add(parsed.incr, KIND_FIELDS[o.kind].dup);
     for (const f of o.fields) add(parsed.incr, f);
-    for (const f of o.all) add(parsed.all, f);
+    for (const [f, c] of o.all) add(parsed.all, f, c);
+    for (const [f, c] of o.monthly) add(parsed.monthly, f, c);
   });
   return parsed;
 }

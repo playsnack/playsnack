@@ -236,7 +236,7 @@ test('accepted error events are logged as one sanitized line each (Vercel Logs),
   ]);
 });
 
-test('worst-case counts (docs/telemetry.md §5a): 20 different games in one POST ≤ 86, a /stats page view ≤ 25', async () => {
+test('worst-case counts (docs/telemetry.md §5a): 20 different games in one POST ≤ 92, a /stats page view ≤ 25', async () => {
   const t = Date.parse('2026-10-14T03:00:00Z'); // KST Wed 2026-10-14 (2026-W42)
   const up = fakeUpstash();
   const h = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
@@ -247,8 +247,9 @@ test('worst-case counts (docs/telemetry.md §5a): 20 different games in one POST
   assert.equal((await h(post(games))).status, 200);
   const [claim, apply] = up.calls.map((c) => c.length);
   assert.ok(claim <= 22, `claim ${claim}`); // INCRBY + EXPIRE(budget) + SET × 20
-  assert.ok(apply <= 64, `apply ${apply}`); // INCRBY + events_total + HINCRBY ≤ 60 + EXPIRE day
-  assert.ok(claim + apply <= 86, `post ${claim + apply}`);
+  // INCRBY + events_total + HINCRBY ≤ 60 + EXPIRE day + monthly (3 fields × total & day) = 6
+  assert.ok(apply <= 70, `apply ${apply}`);
+  assert.ok(claim + apply <= 92, `post ${claim + apply}`);
   // The /stats page: ?week= this week + last week, ?day= today (cold instance, nothing cached).
   const h2 = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
   const before = up.sent();
