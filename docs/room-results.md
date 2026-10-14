@@ -14,7 +14,7 @@
 - `sid`: 엔진의 판 id(`[A-Za-z0-9_-]{16,32}`), `result.sid`가 있으면 같아야 함.
 - 엄격 검증(`api/_lib/roomResult.js`): 플레이어 ≤ 20, 문제 ≤ 20, 보기 2–4, 글자 수 상한은 엔진과 같음(닉네임 10 · 제목 40 · 문제 80 · 보기 30 grapheme, grapheme당 UTF-16 4 이하, 제어문자 금지), 점수 · 시간 · 선택지 번호 범위. 하나라도 어긋나면 400(잘라서 받지 않음).
 - 저장되는 레코드는 **허용 필드로 새로 만든다** — 클라이언트가 더 보낸 필드(anonId 등)는 저장에 닿지 않는다. `endedAt`은 서버 시각(저장 시각).
-- **판마다 한 번만 쓴다**: `SET rr:sid:<sha256(room, sid)> 1 NX EX 7일`이 성공할 때만 결과를 쓴다. 호스트 교대로 같은 판이 두 번 와도 `{ok:true, saved:false}`. 다른 판(새 sid)은 덮어쓴다 = **방의 마지막 판**.
+- **판마다 한 번만 쓴다**: `SET results:once:<sha256(room, sid)> 1 NX EX 7일`이 성공할 때만 결과를 쓴다. 호스트 교대로 같은 판이 두 번 와도 `{ok:true, saved:false}`. 다른 판(새 sid)은 덮어쓴다 = **방의 마지막 판**.
 - 응답: `200 {ok:true, saved:true|false}` · 400/413 · 429(`rate_limited`, `daily_cap`) · 503(`budget_reached`, `store_unavailable`).
 
 ### GET `/api/room-result?room=<방 id>`
@@ -23,9 +23,9 @@
 ## 3. 저장 키 (Upstash Redis, `api/_lib/store.js`)
 | 키 | 값 | 만료 |
 |---|---|---|
-| `rr:<sha256("rr\0"+방 id)>` | 결과 JSON | **7일**(마지막 판 저장 시각부터) |
-| `rr:sid:<sha256(방 id, sid) 앞 40자>` | `1` | 7일 |
-| `rr:w:<KST 날짜>` / `rr:r:<KST 날짜>` | 그날 저장 / 읽기 수(일일 상한용) | 2일 |
+| `results:room:<sha256("rr\0"+방 id)>` | 결과 JSON | **7일**(마지막 판 저장 시각부터) |
+| `results:once:<sha256(방 id, sid) 앞 40자>` | `1` | 7일 |
+| `results:saves:<KST 날짜>` / `results:reads:<KST 날짜>` | 그날 저장 / 읽기 수(일일 상한용) | 2일 |
 
 KV가 없으면(로컬 · 테스트) 함수 인스턴스 메모리(같은 만료).
 
@@ -37,7 +37,7 @@ KV가 없으면(로컬 · 테스트) 함수 인스턴스 메모리(같은 만료
 - 7일이 지나면 Redis 만료로 사라진다(복구 없음). 지우기 요청 경로는 아직 없다 — 같은 방에서 한 판 더 하면 덮어쓴다.
 
 ## 5. 무료 보장 (`docs/telemetry.md` §5a와 같은 예산)
-- 모든 KV 파이프라인이 `/api/ev`와 **같은** `INCRBY ev:budget:<KST 연-월> <n>`으로 시작(`metered()`, `n` = 그 파이프라인의 명령 수 정확히). 예산(`EV_MONTHLY_BUDGET`, 기본 400000) 도달 후엔 KV 명령 0개: POST · GET 모두 503 `budget_reached`. 셸은 결과 화면을 안 띄우고 그냥 로비.
+- 모든 KV 파이프라인이 `/api/ev`와 **같은** 월 예산 카운터(`budgetKey()` — 지금 `ev:budget:<KST 연-월>`; stats 레인이 키 이름을 바꾸면 그대로 따라감)에 `INCRBY <n>`으로 시작(`metered()`, `n` = 그 파이프라인의 명령 수 정확히). 예산(`EV_MONTHLY_BUDGET`, 기본 400000) 도달 후엔 KV 명령 0개: POST · GET 모두 503 `budget_reached`. 셸은 결과 화면을 안 띄우고 그냥 로비.
 - 명령 수: 첫 저장 = claim(`INCRBY` + `SET NX` [+`EXPIRE`]) 2–3 + 쓰기(`INCRBY` + `SET` + `INCR` [+`EXPIRE`]) 3–4 = **5–7**; 같은 판 중복 = **2–3**; 읽기(캐시 안 맞음) = `INCRBY` + `GET` + `INCR` [+`EXPIRE`] = **3–4**; 검증 실패 · 캐시 맞음 · 예산 후 = **0**.
 - 일일 상한: 저장 `RR_DAILY_SAVES`(기본 200) → 429 `daily_cap`, 읽기 `RR_DAILY_READS`(기본 1000) → 503 `daily_cap`. 최악(매일 둘 다 채움) ≈ 200×7 + 1000×4 = 5.4K/일 ≈ **월 162K**. `/api/ev` 최악과 합치면 400K를 넘을 수 있다 → 그때 월 예산이 멈춘다(무료 유지가 우선). 실제 베타 규모는 하루 수십 판.
 - 속도 제한(클라이언트당 10회 버스트, 6초에 1회 회복, 인스턴스당 분당 300).

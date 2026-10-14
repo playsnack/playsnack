@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { startLocalBroker } from "../../packages/snack-room/tools/localBroker.js";
 import { createHandler } from "../../api/room-result.js";
-import { createMemoryStore } from "../../api/_lib/store.js";
+import { createMemoryStore, rrKey } from "../../api/_lib/store.js";
 import { roomHash } from "../../api/_lib/roomResult.js";
 import { runGate } from "./_gate.mjs";
 
@@ -156,7 +156,7 @@ try {
   await sleep(1500);
   const board = (await vars(A)).raceBoard;
   const posts = apiLog.filter((l) => l.method === "POST");
-  const savedRaw = store.rr.get(`rr:${roomHash(ROOM)}`)?.value;
+  const savedRaw = store.rr.get(rrKey(roomHash(ROOM)))?.value;
   const saved = savedRaw ? JSON.parse(savedRaw) : null;
   step("host saved one result for the room", posts.length >= 1 && posts.filter((p) => p.status === 200).length === posts.length && saved?.board?.length === 2 && saved?.quizRecap?.rounds?.length === 6, { posts, board, savedBoard: saved?.board });
   if (SHOTS) {

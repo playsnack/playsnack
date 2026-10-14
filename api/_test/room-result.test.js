@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandler, DEFAULT_DAILY_READS, DEFAULT_DAILY_SAVES, DEFAULT_MONTHLY_BUDGET } from '../room-result.js';
 import { DEFAULT_MONTHLY_BUDGET as EV_BUDGET } from '../ev.js';
-import { createMemoryStore, RR_TTL_SECONDS } from '../_lib/store.js';
+import { budgetKey, createMemoryStore, rrKey, RR_TTL_SECONDS } from '../_lib/store.js';
 import { createLimiter } from '../_lib/ratelimit.js';
 import { parseRoomResult, roomHash, RR_MAX_BODY_BYTES } from '../_lib/roomResult.js';
 
@@ -167,7 +167,7 @@ test('privacy: no anonId, IP, room id or code in storage; unknown fields are dro
   assert.equal((await h(post({ room: ROOM, sid: SID, result: res, anonId: ANON }))).status, 200);
   const dump = JSON.stringify([...memoryStore.rr]);
   for (const secret of [ANON, IP, 'QWERTYZ234', ROOM, SID]) assert.ok(!dump.includes(secret), `stored: ${secret}`);
-  assert.ok([...memoryStore.rr.keys()].some((k) => k === `rr:${roomHash(ROOM)}`));
+  assert.ok([...memoryStore.rr.keys()].some((k) => k === rrKey(roomHash(ROOM)) && k === `results:room:${roomHash(ROOM)}`));
 });
 
 test('KV: every command is metered into the shared monthly budget; TTLs set; write-once by SET NX', async () => {
@@ -176,23 +176,23 @@ test('KV: every command is metered into the shared monthly budget; TTLs set; wri
   assert.equal((await h(post({ room: ROOM, sid: SID, result: result() }))).status, 200);
   assert.equal((await h(post({ room: ROOM, sid: SID, result: result() }))).status, 200);
   assert.equal((await h(get())).status, 200);
-  const month = [...up.db.keys()].find((k) => k.startsWith('ev:budget:'));
+  const month = [...up.db.keys()].find((k) => k === budgetKey(k.slice(k.lastIndexOf(':') + 1)));
   assert.ok(month, 'the /api/ev budget key');
   assert.equal(up.db.get(month), up.sent(), 'budget count = commands actually sent');
-  const key = `rr:${roomHash(ROOM)}`;
+  const key = `results:room:${roomHash(ROOM)}`;
   assert.equal(up.ttl.get(key), RR_TTL_SECONDS);
-  const sidKey = [...up.db.keys()].find((k) => k.startsWith('rr:sid:'));
+  const sidKey = [...up.db.keys()].find((k) => k.startsWith('results:once:'));
   assert.equal(up.ttl.get(sidKey), RR_TTL_SECONDS);
   assert.ok(up.calls.flat().some((c) => c[0] === 'SET' && c[1] === sidKey && c.includes('NX')));
   assert.equal(up.calls.flat().filter((c) => c[0] === 'SET' && c[1] === key).length, 1, 'the second post wrote nothing');
   for (const k of up.ttl.keys()) assert.ok(up.ttl.get(k) > 0);
-  assert.ok([...up.db.keys()].filter((k) => k.startsWith('rr:w:') || k.startsWith('rr:r:')).every((k) => up.ttl.has(k)));
+  assert.ok([...up.db.keys()].filter((k) => k.startsWith('results:saves:') || k.startsWith('results:reads:')).every((k) => up.ttl.has(k)));
 });
 
 test('budget reached: no KV command; daily save / read caps', async () => {
   const up = fakeUpstash();
   const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
-  up.db.set(`ev:budget:${month}`, 999);
+  up.db.set(budgetKey(month), 999);
   const h = createHandler({ env: { ...KV, EV_MONTHLY_BUDGET: '1000' }, fetch: up.fetch, limiter: roomy() });
   assert.equal((await h(post({ room: ROOM, sid: SID, result: result() }))).status, 200); // learns the count
   const before = up.sent();

@@ -1,5 +1,5 @@
 // /api/room-result — a friends room's last finished game (docs/room-results.md).
-//   POST {room, sid, result}  -> saved for 7 days under rr:<sha256(room id)>, write-once per game
+//   POST {room, sid, result}  -> saved for 7 days under results:room:<sha256(room id)>, write-once per game
 //                                (the host device sends it when a game reaches its result)
 //   GET  ?room=<id>            -> {ok, result} or 404 (opened by a device alone in that room)
 // Only friends rooms (`<slug>~<code>`). Stored: the app slug, the server's save time, the
