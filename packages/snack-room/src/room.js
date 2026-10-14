@@ -134,6 +134,10 @@ const buildMatchups = (cands) => {
  * @param {() => number} [o.random]
  * @param {(fn: () => void, ms: number) => any} [o.setTimer]
  * @param {(handle: any) => void} [o.clearTimer]
+ * @param {number} [o.claimWindowMs]  server-authoritative rooms (edge/room): the engine's clock IS the
+ *   referee, so a device-measured time (answer / reaction ms) is believed only within
+ *   [server-observed elapsed − claimWindowMs, server-observed elapsed]. Unset (a player hosts,
+ *   whose own elapsed is no better than the device's) → only the upper bound applies.
  * Free-beta metrics hooks (docs/telemetry.md §9.5) — fired on the engine that runs the
  * room (the host), at most once per game / pack on that engine; ids come from the
  * triggering action's clientMsgId, so a host hand-over that replays it reports the same id.
@@ -166,7 +170,10 @@ export function createRoom(o) {
     onSessionEnd = () => {},
     onGameCreated = () => {},
     onResult = () => {},
+    claimWindowMs = null,
   } = o;
+  // A claim never better than the referee's own elapsed time minus the window (network + render).
+  const floorClaim = (ms, elapsed) => (claimWindowMs == null ? ms : Math.max(ms, Math.round(elapsed - claimWindowMs)));
   // A metrics hook must never break the room.
   const report = (hook, e) => {
     try {
@@ -421,7 +428,7 @@ export function createRoom(o) {
     const host = Math.max(0, now() - S.roundStart);
     const m = claim === null || claim === undefined || claim === "" ? NaN : Number(claim);
     const ok = Number.isFinite(m) && m >= 0 && m <= S.answerMs + ANSWER_GRACE_MS;
-    return Math.min(ok ? Math.min(Math.round(m), host + REACTION_TOLERANCE_MS) : host, S.answerMs);
+    return Math.min(ok ? floorClaim(Math.min(Math.round(m), host + REACTION_TOLERANCE_MS), host) : host, S.answerMs);
   };
   const quizRecap = () => {
     const players = S.players.slice(0, RECAP_PLAYERS_MAX);
@@ -742,7 +749,7 @@ export function createRoom(o) {
   const reactionScore = (ms) => {
     if (!(S.goAt > 0) || ms < MIN_REACTION_MS) return 0;
     if (ms > S.playWindow) return null;
-    const m = Math.min(ms, now() - S.goAt + REACTION_TOLERANCE_MS);
+    const m = floorClaim(Math.min(ms, now() - S.goAt + REACTION_TOLERANCE_MS), now() - S.goAt);
     return Math.max(1, 2000 - Math.round(m));
   };
 
@@ -952,6 +959,18 @@ export function createRoom(o) {
       }
       if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard()); // back after a flap: unmarked (MP-12)
       onActivity("join", "입장");
+    },
+    /**
+     * Re-attach a peer to an engine restored from a snapshot (a Durable Object woke from
+     * hibernation): no messages — the peer already shows this state.
+     */
+    rejoin(peerId, { anonId, nick }) {
+      anonId = String(anonId ?? "");
+      nick = String(nick ?? "");
+      r.peers.set(peerId, { anonId, nick });
+      pidOf(anonId);
+      r.roster.set(anonId, cleanNick(nick) || "게스트");
+      if (!r.nicks.has(anonId)) r.nicks.set(anonId, cleanNick(nick) || "게스트");
     },
     /** A peer leaves. Returns true when the room is now empty (and torn down). */
     leave(peerId) {

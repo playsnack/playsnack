@@ -89,15 +89,19 @@ export function RoomSlowNotice({ text, solo }: { text: string; solo: Btn }) {
 }
 
 /** Bottom sheet when the shared room can't be joined. */
-export function RoomFailedSheet({ onRetry, solo }: { onRetry: () => void; solo: Btn }) {
+/** Edge rooms past today's free-tier guard (docs/edge-rooms.md §무료 한도): limits reset 00:00 UTC = 09:00 KST. */
+export const ROOM_FULL_TODAY = "room_full_today";
+export function RoomFailedSheet({ onRetry, solo, reason }: { onRetry: () => void; solo: Btn; reason?: string }) {
+  const full = reason === ROOM_FULL_TODAY;
+  const title = full ? "오늘 준비한 방이 다 찼어요" : "같이 하는 방에 못 들어갔어요";
   return (
     <div style={dim}>
-      <div style={sheet} role="alertdialog" aria-label="같이 하는 방에 못 들어갔어요">
-        <div style={{ fontSize: 36, lineHeight: 1 }}>📡</div>
-        <h2 style={{ ...titleStyle, margin: `${S.s3}px 0 ${S.s2}px` }}>같이 하는 방에 못 들어갔어요</h2>
-        <p style={bodyStyle}>인터넷이 불안정하거나 방 연결이 잠시 막혔을 수 있어요.</p>
+      <div style={sheet} role="alertdialog" aria-label={title}>
+        <div style={{ fontSize: 36, lineHeight: 1 }}>{full ? "🌙" : "📡"}</div>
+        <h2 style={{ ...titleStyle, margin: `${S.s3}px 0 ${S.s2}px` }}>{title}</h2>
+        <p style={bodyStyle}>{full ? "한국 시간 오전 9시에 다시 열려요" : "인터넷이 불안정하거나 방 연결이 잠시 막혔을 수 있어요."}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: S.s3, marginTop: S.s5 }}>
-          <button className="blk" style={primaryBtn} onClick={onRetry}>다시 시도</button>
+          {!full && <button className="blk" style={primaryBtn} onClick={onRetry}>다시 시도</button>}
           <button className="blk" style={secondaryBtn} onClick={solo.onClick}>{solo.label}</button>
         </div>
       </div>

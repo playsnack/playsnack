@@ -58,6 +58,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const [err, setErr] = useState<LoadError | null>(null);
   const [loadGen, setLoadGen] = useState(0);
   const [conn, setConn] = useState<ConnState>("connecting");
+  const [connReason, setConnReason] = useState<string | undefined>(undefined);
   const [roomGen, setRoomGen] = useState(0);
   const [participants, setParticipants] = useState(1);
   const [solo, setSolo] = useState<CatalogEntry | null>(null);
@@ -161,6 +162,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         quizRef.current.live = state === "connected"; // a pack sent before this is dropped (and burns a resend gap)
         join.conn(state, m.d.reason as string | undefined);
         setConn(state);
+        setConnReason(m.d.reason as string | undefined);
         if (state === "connecting") waitForRoom();
         else clearTimeout(silence);
         return;
@@ -487,7 +489,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         </Suspense>
       )}
       {withRoom && conn === "failed" && (
-        <RoomFailedSheet onRetry={() => retryRef.current()} solo={soloBtn} />
+        <RoomFailedSheet reason={connReason} onRetry={() => retryRef.current()} solo={soloBtn} />
       )}
       {slowText && <RoomSlowNotice text={slowText} solo={soloBtn} />}
       {withRoom && conn === "connected" && showSpectatorNotice(doc, spectator.me, spectator.phase) && (

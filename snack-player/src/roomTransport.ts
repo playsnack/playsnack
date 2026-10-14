@@ -8,6 +8,7 @@
 import { debugEnabled, dlog, noteRoomMessage } from "./debugLog";
 import { engineMetrics } from "./telemetry";
 import { engineResults } from "./roomResult";
+import type { Bus } from "@snack/room/mesh-client";
 
 export type RoomMessage = { t: string; d: Record<string, unknown> };
 
@@ -119,8 +120,18 @@ abstract class BaseTransport implements RoomTransport {
 export class ServerTransport extends BaseTransport {
   private ws: WebSocket | null = null;
 
-  constructor(private url: string, private me: Identity) {
+  constructor(private url: string, protected me: Identity) {
     super();
+  }
+
+  /** What the first frame carries (the edge room adds its tokens). */
+  protected helloData(): Record<string, unknown> {
+    return this.me;
+  }
+
+  /** A transport-level frame (not a room message)? Handle it and return true. */
+  protected control(_m: RoomMessage): boolean {
+    return false;
   }
 
   connect() {
@@ -128,7 +139,7 @@ export class ServerTransport extends BaseTransport {
     this.setConn("connecting");
     const ws = new WebSocket(this.url);
     this.ws = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", d: this.me }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", d: this.helloData() }));
     ws.onmessage = (ev) => {
       let m: RoomMessage;
       try {
@@ -136,7 +147,7 @@ export class ServerTransport extends BaseTransport {
       } catch {
         return;
       }
-      if (gen === this.gen) this.receive(m);
+      if (gen === this.gen && !this.control(m)) this.receive(m);
     };
     ws.onclose = () => {
       if (gen === this.gen) this.fail(this.connState === "connected" ? "disconnected" : "unreachable");
@@ -170,6 +181,32 @@ export class ServerTransport extends BaseTransport {
 
   private send(m: { t: string; d: unknown }) {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
+  }
+}
+
+/**
+ * Edge room (VITE_ROOM_URL, docs/edge-rooms.md): the room engine runs in a Cloudflare
+ * Durable Object — server-authoritative, the snack-server /ws protocol. Adds the seat token
+ * (a reload / reconnect takes this device's seat back) and the organizer token.
+ */
+export class EdgeRoomTransport extends ServerTransport {
+  constructor(roomUrl: string, me: Identity) {
+    super(`${roomUrl.replace(/\/+$/, "")}/room/${encodeURIComponent(me.slug)}`, me);
+  }
+
+  protected helloData() {
+    const token = sessionTokens.get(this.me.slug);
+    const organizerToken = sessionTokens.get(`org:${this.me.slug}`);
+    return { ...this.me, ...(token ? { token } : {}), ...(organizerToken ? { organizerToken } : {}) };
+  }
+
+  protected control(m: RoomMessage) {
+    const token = typeof m.d?.token === "string" ? m.d.token : "";
+    if (m.t === "token") sessionTokens.set(this.me.slug, token);
+    else if (m.t === "organizer") sessionTokens.set(`org:${this.me.slug}`, token);
+    else if (m.t === "denied") this.fail(String(m.d?.reason ?? "denied"));
+    else return false;
+    return true;
   }
 }
 
@@ -274,6 +311,8 @@ export class MeshTransport extends EngineTransport {
     private brokerUrl: string | undefined,
     private getPack: PackFn,
     private freshRoom = false,
+    /** Edge room relay (VITE_ROOM_URL): rooms go through it instead of the MQTT broker. */
+    private roomUrl?: string,
     /** Tests only: shorter broker / join timings (a slow local broker in seconds, not minutes). */
     private tuning: { bus?: MeshBusTuning; connectTimeoutMs?: number } = {},
   ) {
@@ -281,18 +320,28 @@ export class MeshTransport extends EngineTransport {
     if (tuning.connectTimeoutMs) this.connectTimeoutMs = tuning.connectTimeoutMs;
   }
 
-  protected async open(gen: number) {
-    const [{ connectMesh }, { mqttBus, DEFAULT_BROKER }] = await Promise.all([import("@snack/room/mesh-client"), import("@snack/room/mqtt-bus")]);
-    if (gen !== this.gen) return null;
+  /** The bus: the edge relay when roomUrl is set, else the MQTT broker (the default). */
+  private async bus(): Promise<(peerId: string) => Bus> {
+    if (this.roomUrl) {
+      const { wsBus } = await import("@snack/room/ws-bus");
+      if (debugEnabled()) dlog("broker", `edge ${hostOf(this.roomUrl)}`);
+      return wsBus({ url: this.roomUrl, room: this.me.slug, tokens: sessionTokens });
+    }
+    const { mqttBus, DEFAULT_BROKER } = await import("@snack/room/mqtt-bus");
     if (debugEnabled()) dlog("broker", hostOf(this.brokerUrl || DEFAULT_BROKER));
+    return mqttBus({ ...this.tuning.bus, room: this.me.slug, url: this.brokerUrl || undefined });
+  }
+
+  protected async open(gen: number) {
+    const [{ connectMesh }, busFor] = await Promise.all([import("@snack/room/mesh-client"), this.bus()]);
+    if (gen !== this.gen) return null;
     let drops = 0;
     const fresh = this.freshRoom;
     this.freshRoom = false;
-    const busFor = mqttBus({ ...this.tuning.bus, room: this.me.slug, url: this.brokerUrl || undefined });
     // Every broker connect try is passed on ({t: "connAttempt"}: the join tracker counts them).
     const createBus = (peerId: string) => {
-      const bus = busFor(peerId);
-      if (gen === this.gen) this.emit({ t: "connAttempt", d: { n: bus.attempts } });
+      const bus = busFor(peerId) as Bus & { attempts?: number };
+      if (gen === this.gen && bus.attempts != null) this.emit({ t: "connAttempt", d: { n: bus.attempts } });
       bus.onStatus?.((s) => {
         if (s.state === "attempt" && gen === this.gen) this.emit({ t: "connAttempt", d: { n: s.attempt, reason: s.reason } });
       });
@@ -329,6 +378,25 @@ export type MeshBusTuning = { failAfterMs?: number; dropAfterMs?: number; connec
 
 /** Discovery wait in a room this device has just made (see MeshTransport). */
 export const FRESH_DISCOVERY_MS = 150;
+
+// Edge relay tokens (15 min) survive a reload of this tab, so a PIN room is not asked again.
+const TOKEN_KEY = "snk-room-token:";
+const sessionTokens = {
+  get(room: string): string | null {
+    try {
+      return sessionStorage.getItem(TOKEN_KEY + room);
+    } catch {
+      return null;
+    }
+  },
+  set(room: string, token: string) {
+    try {
+      sessionStorage.setItem(TOKEN_KEY + room, token);
+    } catch {
+      /* storage blocked: the token lives as long as this page */
+    }
+  },
+};
 
 function hostOf(url: string): string {
   try {

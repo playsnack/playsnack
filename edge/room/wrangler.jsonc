@@ -1,0 +1,19 @@
+// Not deployed yet — see docs/edge-rooms.md §owner steps.
+// ROOM_TOKEN_SECRET is a secret: `wrangler secret put ROOM_TOKEN_SECRET` (never in this file).
+{
+  "name": "snack-room",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-15",
+  "durable_objects": {
+    "bindings": [
+      { "name": "GAMES", "class_name": "Game" },
+      { "name": "ROOMS", "class_name": "Room" },
+      { "name": "METER", "class_name": "Meter" }
+    ]
+  },
+  // Free plan: Durable Objects must be SQLite-backed.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Game", "Room", "Meter"] }],
+  // Round content: the player's static data/multi-content/<game>.json (same files the mesh host uses).
+  "vars": { "PACK_BASE_URL": "https://playsnack.vercel.app/data/multi-content" },
+  "observability": { "enabled": false }
+}

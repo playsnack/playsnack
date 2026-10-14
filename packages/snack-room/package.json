@@ -23,6 +23,10 @@
     "./mqtt-bus": {
       "types": "./src/mqttBus.d.ts",
       "default": "./src/mqttBus.js"
+    },
+    "./ws-bus": {
+      "types": "./src/wsBus.d.ts",
+      "default": "./src/wsBus.js"
     }
   },
   "scripts": {

@@ -10,11 +10,33 @@
 //   G. 나 맞히기 퀴즈: the host leaves mid-quiz → same pack, subject, recap and device-ms
 //      scores on every peer; the pack is still there for the next game
 // PRE: server running.   node snack-server/tools/host-handover-sim.mjs
+// SIM_EDGE=1 → the same scenarios serverless over the edge room relay (no snack-server):
+// a local Node hub (edge/room core.js), or SIM_EDGE_URL=ws://127.0.0.1:4551 (wrangler dev).
+// The mesh has no relay-chosen host, so the first client joins alone first (it founds the
+// room and hosts); C's silent host is a socket that announced itself and then stopped
+// beating; D checks what the host engine reported (there is no /api/events to post to).
 import { WebSocket } from "ws";
 import { runGate } from "./_gate.mjs";
 
-process.env.SIM_RELAY = "1";
-const { SimClient, sleep, WS_URL } = await import("./_wsclient.mjs");
+const EDGE_MODE = Boolean(process.env.SIM_EDGE);
+if (!EDGE_MODE) process.env.SIM_RELAY = "1";
+const { SimClient, sleep, WS_URL, prepareMesh, stopMesh, engineEvents } = await import("./_wsclient.mjs");
+await prepareMesh();
+// Clients for one room. Edge mode: the first one joins alone (so it is the host), then the rest.
+async function joinRoom(slug, n, nick) {
+  const mk = (i) => new SimClient(slug, `${slug}-c${i}`, nick ? `${nick}${i}` : undefined);
+  if (!EDGE_MODE) {
+    const c = Array.from({ length: n }, (_, i) => mk(i));
+    await Promise.all(c.map((x) => x.ready));
+    return c;
+  }
+  const first = mk(0);
+  await first.ready;
+  const c = [first, ...Array.from({ length: n - 1 }, (_, i) => mk(i + 1))];
+  await Promise.all(c.map((x) => x.ready));
+  await until(() => c.every((x) => x.participants === n), 6000);
+  return c;
+}
 const RUN = Date.now().toString(36);
 const until = async (fn, ms, step = 100) => {
   for (let t = 0; t < ms; t += step) {
@@ -29,8 +51,8 @@ const results = [];
 // A — host leaves mid-game
 {
   const slug = `handover-${RUN}-a`;
-  const c = [0, 1, 2].map((i) => new SimClient(slug, `${slug}-c${i}`));
-  await Promise.all(c.map((x) => x.ready));
+  const c = await joinRoom(slug, 3);
+  const hostLeft = c[0].relay.isHost;
   c[1].start({ duration: 6000 });
   await until(() => c[1].shared.sessionPhase === "play", 6000);
   c[1].tap(); c[1].tap(); c[1].tap(); c[2].tap(); c[2].tap(); c[0].tap();
@@ -40,16 +62,15 @@ const results = [];
   c[1].tap(); // the new host (c1) keeps counting
   const done = await until(() => c[1].shared.sessionPhase === "result" && c[2].shared.sessionPhase === "result", 9000);
   const board = (x) => (x.shared.raceBoard || []).map((r) => r.score).sort((a, b) => b - a);
-  const ok = done && same(board(c[1]), board(c[2])) && same(board(c[1]), [4, 2, 1]);
-  results.push({ id: "A host leaves mid-game", ok, detail: { done, board1: board(c[1]), board2: board(c[2]) } });
+  const ok = done && (hostLeft || !EDGE_MODE) && same(board(c[1]), board(c[2])) && same(board(c[1]), [4, 2, 1]);
+  results.push({ id: "A host leaves mid-game", ok, detail: { done, hostLeft, board1: board(c[1]), board2: board(c[2]) } });
   c.forEach((x) => x.close());
 }
 
 // B — host hands off (went to the background) during the countdown
 {
   const slug = `handover-${RUN}-b`;
-  const c = [0, 1, 2].map((i) => new SimClient(slug, `${slug}-c${i}`));
-  await Promise.all(c.map((x) => x.ready));
+  const c = await joinRoom(slug, 3);
   c[2].start({ duration: 3000 });
   await until(() => c[0].shared.sessionPhase === "countdown", 4000);
   await sleep(400);
@@ -66,7 +87,28 @@ const results = [];
 }
 
 // C — host stays connected but goes silent → watchdog hand-over
-{
+if (EDGE_MODE) {
+  // A peer announces itself as the host, then stays connected without another heartbeat
+  // (a frozen tab): the others adopt it, notice the silence and take over.
+  const slug = `handover-${RUN}-c`;
+  const silent = new WebSocket(`${process.env.SIM_EDGE_URL}/relay/${encodeURIComponent(slug)}`);
+  await new Promise((r) => silent.on("open", r));
+  const sid = "silent0000000000";
+  silent.send(JSON.stringify({ t: "auth", peer: sid }));
+  const here = () => silent.send(JSON.stringify({ from: sid, t: "here", anonId: `${slug}-silent`, nick: "", ack: 1, line: [sid], term: 1 }));
+  await sleep(200);
+  const beats = setInterval(here, 300);
+  const c = [1, 2].map((i) => new SimClient(slug, `${slug}-c${i}`));
+  await sleep(1500); // they hear the "host"…
+  clearInterval(beats); // …which then goes silent, connected
+  const joined = await until(() => c.every((x) => x.participants > 0), 9000);
+  c[0].start({ duration: 3000 });
+  const done = await until(() => c.every((x) => x.shared.sessionPhase === "result"), 9000);
+  const ok = joined && done && (c[0].relay.isHost || c[1].relay.isHost);
+  results.push({ id: "C silent host → watchdog", ok, detail: { joined, done, silentStillOpen: silent.readyState === 1 } });
+  c.forEach((x) => x.close());
+  silent.close();
+} else {
   const slug = `handover-${RUN}-c`;
   const silent = new WebSocket(WS_URL);
   await new Promise((r) => silent.on("open", r));
@@ -85,7 +127,18 @@ const results = [];
 // D — global stats from a host-run room. The host's batches go to a capture
 // endpoint (so test players never land on the real leaderboard); the server's
 // /api/events is then checked with a nick-less event (nick-less users are not ranked).
-{
+if (EDGE_MODE) {
+  const slug = `handover-${RUN}-d`;
+  const c = await joinRoom(slug, 2);
+  engineEvents.length = 0;
+  c[1].vote("o0"); // peer action → host engine → +1 for c1
+  c[0].score(42); // host's own action → +2 (record)
+  await until(() => engineEvents.filter((e) => e.k === "pts").length >= 2, 4000);
+  const pts = (id) => engineEvents.filter((e) => e.k === "pts" && e.anonId === id).reduce((n, e) => n + e.pts, 0);
+  const ok = c[0].relay.isHost && pts(`${slug}-c0`) === 2 && pts(`${slug}-c1`) === 1 && engineEvents.some((e) => e.k === "act" && e.kind === "vote");
+  results.push({ id: "D host-run stats are reported", ok, detail: { events: engineEvents.length, pts0: pts(`${slug}-c0`), pts1: pts(`${slug}-c1`), note: "edge: engine hooks checked (no snack-server /api/events here)" } });
+  c.forEach((x) => x.close());
+} else {
   const { createServer } = await import("node:http");
   const got = [];
   const capture = createServer((req, res) => {
@@ -121,8 +174,7 @@ const results = [];
 // after its last broadcast included — and the same board (MP-06).
 {
   const slug = `handover-${RUN}-e`;
-  const c = [0, 1, 2].map((i) => new SimClient(slug, `${slug}-c${i}`, `E${i}`));
-  await Promise.all(c.map((x) => x.ready));
+  const c = await joinRoom(slug, 3, "E");
   c[1].start({ game: "majority", mode: "guess", rounds: 1, roundMs: 5000, revealMs: 1500 });
   await until(() => c.every((x) => x.shared.sessionPhase === "play"), 6000);
   c[0].vote("o1"); c[1].vote("o1"); c[2].vote("o0"); // nothing is broadcast until the reveal
@@ -140,8 +192,7 @@ const results = [];
 // F — best-score leaderboard: the host leaves, a peer scores again → same board everywhere.
 {
   const slug = `handover-${RUN}-f`;
-  const c = [0, 1, 2].map((i) => new SimClient(slug, `${slug}-c${i}`, `F${i}`));
-  await Promise.all(c.map((x) => x.ready));
+  const c = await joinRoom(slug, 3, "F");
   c[0].score(10); c[1].score(30); c[2].score(50);
   await until(() => c.every((x) => same(x.shared.leaderboard, [50, 30, 10])), 4000);
   await sleep(700); // let the host snapshot (200 ms debounce) land at the relay — as in A
@@ -159,8 +210,7 @@ const results = [];
 // still be there for the next game on the new host.
 {
   const slug = `handover-${RUN}-g`;
-  const c = [0, 1, 2, 3].map((i) => new SimClient(slug, `${slug}-c${i}`, `G${i}`));
-  await Promise.all(c.map((x) => x.ready));
+  const c = await joinRoom(slug, 4, "G");
   const ANSWER_MS = 5000;
   const pack = {
     title: "G1 맞히기",
@@ -202,4 +252,5 @@ const results = [];
 }
 
 for (const r of results) console.error(`${r.ok ? "✅" : "❌"} ${r.id}  ${JSON.stringify(r.detail)}`);
-runGate("host-handover", results, (r) => r.ok);
+await stopMesh();
+runGate("host-handover", results, (r) => r.ok, ({ passed, total, ok }) => `host-handover${EDGE_MODE ? ` (edge relay @ ${process.env.SIM_EDGE_URL})` : ""}: ${passed}/${total} pass${ok ? "" : " — FAIL"}`);

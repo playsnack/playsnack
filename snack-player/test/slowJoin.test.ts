@@ -26,7 +26,7 @@ const BUS = { connectTimeoutMs: 400, reconnectMs: 100 };
 
 function player(url: string, room: string, n: number, tuning: ConstructorParameters<typeof MeshTransport>[4]) {
   const me = { slug: room, anonId: `anon${n}`, nick: `느림${n}` };
-  const t = new MeshTransport(me, url, async () => null, false, tuning);
+  const t = new MeshTransport(me, url, async () => null, false, undefined, tuning);
   const log: { at: number; m: RoomMessage }[] = [];
   const t0 = Date.now();
   let people = 0;
