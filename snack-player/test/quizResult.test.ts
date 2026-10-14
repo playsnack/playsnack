@@ -55,7 +55,7 @@ test("group: equal scores share the rank (공동 1위) and the next rank skips",
   assert.equal(b.rankLabel, "공동 1위");
   assert.ok(a.top && b.top);
   assert.equal(c.rankLabel, "3위");
-  assert.equal(v.mine, `내 순위 공동 1위 · ${fmtScore(b.score)} · 5/6 · 83%`);
+  assert.equal(v.mine, `내 순위 공동 1위 · ${fmtScore(b.score)} · 5/6 · 83% · 평균 2.0초`);
 });
 
 test("group: a player who left stays ranked, marked (board mark stripped from the name)", () => {
@@ -253,4 +253,13 @@ test("percentages: per question '<pct>% 맞힘 (n/m명)', per person 'correct/to
   assert.equal(pctOf(199, 200), 99);
   assert.equal(pctOf(4, 4), 100);
   assert.equal(pctOf(0, 0), 0);
+});
+
+test("speed: average time of the right answers per person (rank rows and 1:1), points kept", async () => {
+  const { speedLabel } = await import("../src/quizResult.ts");
+  assert.equal(speedLabel(2349), "평균 2.3초");
+  assert.equal(speedLabel(0), "평균 0.0초");
+  const v = buildResultView(duo);
+  assert.equal(v.mode, "duo");
+  assert.match(v.duo.speed, /점/);
 });
