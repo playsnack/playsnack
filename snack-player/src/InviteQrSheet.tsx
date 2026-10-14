@@ -5,6 +5,7 @@
 // write resolved; with no clipboard, the link is selected to copy by hand.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QUIET_ZONE, qrMatrix, qrPath } from "./qr";
+import BlockButton from "./BlockButton";
 import { primaryBtn, secondaryBtn } from "./ui";
 import { C, S, TOKENS } from "./tokens.gen";
 
@@ -70,8 +71,8 @@ export default function InviteQrSheet({ url, onClose, onCopied }: { url: string;
             {copy === "copied" ? "링크를 복사했어요" : "복사가 안 돼요. 위 링크를 길게 눌러 복사해 주세요"}
           </p>
         )}
-        <button className="blk" style={primaryBtn} onClick={() => void copyLink()}>링크 복사</button>
-        <button ref={closeRef} className="blk" style={secondaryBtn} onClick={onClose}>닫기</button>
+        <BlockButton style={primaryBtn} onClick={() => void copyLink()}>링크 복사</BlockButton>
+        <BlockButton buttonRef={closeRef} style={secondaryBtn} onClick={onClose}>닫기</BlockButton>
       </div>
     </div>
   );

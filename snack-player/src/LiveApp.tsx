@@ -24,6 +24,7 @@ import {
 const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m.QuizMaker })));
 import { makerLink, resultHooks, useResultExtras } from "./ResultExtras";
 import { InviteQrSheet, QrButton } from "./InviteQr";
+import Toast from "./Toast";
 import { lastResultWatcher, type SavedResult } from "./roomResult";
 // The room's last finished game (docs/room-results.md) — loaded only when there is one.
 const LastResult = lazy(() => import("./LastResult.tsx").then((m) => ({ default: m.LastResult })));
@@ -394,7 +395,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // What happened to the invite link (only what really happened is said).
   const inviteFeedback = (
     <>
-      {invite === "copied" && <div style={inviteNote} role="status">초대 링크를 복사했어요</div>}
+      <Toast shown={invite === "copied"} style={inviteNote} role="status">초대 링크를 복사했어요</Toast>
       {invite === "show" && (code || inResult) && (
         <div style={inviteNote} role="status">
           <span style={{ userSelect: "all", wordBreak: "break-all" }}>{inviteUrl()}</span>
