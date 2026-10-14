@@ -6,6 +6,10 @@
 //   ev:all        hash  all-time counters for a fixed field list (no expiry; docs/telemetry.md §9)
 //   ev:once:<id>  string, 6 h — "this game was already counted" (id = hash of kind + game id)
 //   ev:budget:<YYYY-MM KST>  integer, ~40 days — Upstash commands this deployment sent that month
+// Saved room results (api/room-result.js, docs/room-results.md), 7 days each:
+//   results:room:<sha256(room id)>      string  the room's last finished game (JSON)
+//   results:once:<sha256(room,sid)>     string  "this game was already saved" (write-once per game)
+//   results:saves:<day> / results:reads:<day>  integer saves / reads that KST day (daily caps), 2 days
 //
 // Free-plan guard: EVERY KV pipeline (apply, claim, release, read, readDays) starts with
 // INCRBY ev:budget:<month> <n>, n = the exact number of commands in that pipeline (the
@@ -22,6 +26,12 @@ export const errKey = (day) => `ev:${day}:err`;
 export const ALL_KEY = 'ev:all';
 export const onceKey = (id) => `ev:once:${id}`;
 export const budgetKey = (month) => `ev:budget:${month}`;
+export const RR_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const RR_DAY_TTL_SECONDS = 2 * 24 * 60 * 60;
+export const rrKey = (roomHash) => `results:room:${roomHash}`;
+export const rrSidKey = (sidHash) => `results:once:${sidHash}`;
+/** kind: "saves" | "reads" */
+export const rrDayKey = (kind, day) => `results:${kind}:${day}`;
 
 export class StoreError extends Error {}
 
@@ -129,6 +139,35 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       const out = await metered(month, [...days.map((d) => ['HGETALL', dayKey(d)]), ['HGETALL', ALL_KEY]]);
       return { days: out.slice(0, days.length).map(pairsToObject), all: pairsToObject(out[days.length]) };
     },
+    // ── saved room results (api/room-result.js) ──
+    /** Claim a game's save (SET NX): true = first time this game is saved. */
+    async rrClaim(sidHash, month) {
+      const [r] = await metered(month, [['SET', rrSidKey(sidHash), '1', 'NX', 'EX', RR_TTL_SECONDS]]);
+      return r === 'OK';
+    },
+    async rrRelease(sidHash, month) {
+      await metered(month, [['DEL', rrSidKey(sidHash)]]);
+    },
+    /** Store the room's result (7 days); returns the day's save count after this one. */
+    async rrPut(roomHash, json, day, month) {
+      const dk = rrDayKey('saves', day);
+      const cmds = [['SET', rrKey(roomHash), json, 'EX', RR_TTL_SECONDS], ['INCR', dk]];
+      const ttl = !expired.has(dk);
+      if (ttl) cmds.push(['EXPIRE', dk, RR_DAY_TTL_SECONDS]);
+      const out = await metered(month, cmds);
+      if (ttl) expired.add(dk);
+      return Number(out[1]) || 0;
+    },
+    /** The room's result JSON (null if none) and the day's read count after this one. */
+    async rrGet(roomHash, day, month) {
+      const dk = rrDayKey('reads', day);
+      const cmds = [['GET', rrKey(roomHash)], ['INCR', dk]];
+      const ttl = !expired.has(dk);
+      if (ttl) cmds.push(['EXPIRE', dk, RR_DAY_TTL_SECONDS]);
+      const out = await metered(month, cmds);
+      if (ttl) expired.add(dk);
+      return { json: typeof out[0] === 'string' ? out[0] : null, reads: Number(out[1]) || 0 };
+    },
   };
 }
 
@@ -138,6 +177,21 @@ export function createMemoryStore({ now = Date.now } = {}) {
   const hash = (key) => {
     if (!data.has(key)) data.set(key, new Map());
     return data.get(key);
+  };
+  const rr = new Map(); // saved room results: key -> { value, exp (ms) }
+  const live = (k) => {
+    const e = rr.get(k);
+    if (e && e.exp <= now()) rr.delete(k);
+    return e && e.exp > now() ? e.value : undefined;
+  };
+  const put = (k, value, ttl) => {
+    if (rr.size > 10000) for (const [key, e] of rr) if (e.exp <= now()) rr.delete(key);
+    rr.set(k, { value, exp: now() + ttl * 1000 });
+  };
+  const count = (k) => {
+    const n = (Number(live(k)) || 0) + 1;
+    put(k, n, RR_DAY_TTL_SECONDS);
+    return n;
   };
   const bump = (h, f, n) => {
     const v = (h.get(f) || 0) + n;
@@ -188,6 +242,24 @@ export function createMemoryStore({ now = Date.now } = {}) {
         days: days.map((d) => Object.fromEntries(data.get(dayKey(d)) || [])),
         all: Object.fromEntries(data.get(ALL_KEY) || []),
       };
+    },
+    // ── saved room results: key -> { value, exp } (exposed for tests) ──
+    rr,
+    async rrClaim(sidHash) {
+      const k = rrSidKey(sidHash);
+      if (live(k) !== undefined) return false;
+      put(k, '1', RR_TTL_SECONDS);
+      return true;
+    },
+    async rrRelease(sidHash) {
+      rr.delete(rrSidKey(sidHash));
+    },
+    async rrPut(roomHash, json, day) {
+      put(rrKey(roomHash), json, RR_TTL_SECONDS);
+      return count(rrDayKey('saves', day));
+    },
+    async rrGet(roomHash, day) {
+      return { json: live(rrKey(roomHash)) ?? null, reads: count(rrDayKey('reads', day)) };
     },
   };
 }
