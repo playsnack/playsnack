@@ -3,6 +3,8 @@ import { setNick, randomNick, uploadPhoto } from "./identity";
 import { NICK_INPUT_MAX_UNITS, NICK_MAX, capGraphemes, clampNick } from "./nick";
 import { SERVERLESS } from "./backend";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
+import BlockButton from "./BlockButton";
+import { BLOCK_CSS } from "./ui";
 
 // First-visit onboarding: pick a nickname + (optional) selfie before entering.
 // Stored per-browser (localStorage) so each browser is an independent player;
@@ -78,9 +80,9 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
           <button className="blk" onClick={() => setValue(randomNick())} title="랜덤" style={diceBtn}>🎲</button>
         </div>
 
-        <button className="blk" onClick={() => void commit()} disabled={!v || busy} style={{ ...cta, opacity: v && !busy ? 1 : 0.4, cursor: v && !busy ? "pointer" : "default" }}>
+        <BlockButton onClick={() => void commit()} disabled={!v || busy} style={{ ...cta, opacity: v && !busy ? 1 : 0.4, cursor: v && !busy ? "pointer" : "default" }}>
           {busy ? "사진 올리는 중…" : "시작하기"}
-        </button>
+        </BlockButton>
         <p style={{ color: "#5b606b", margin: `${S.s4}px 0 0`, fontSize: TOKENS.size.caption, textAlign: "center" }}>
           이 브라우저에만 저장돼요 · 가입 없음
         </p>
@@ -110,13 +112,8 @@ function downscale(file: File): Promise<string> {
   });
 }
 
-const BEVEL = "inset 2px 2px 0 rgba(255,255,255,0.10), inset -2px -2px 0 rgba(0,0,0,0.45)";
 const CSS = `
-.blk{ transition: transform .06s ease, box-shadow .06s ease; }
-.blk:hover{ transform: translateY(2px); box-shadow: ${BEVEL}, 0 4px 0 ${C.shadow}; }
-.blk:active{ transform: translateY(6px); box-shadow: ${BEVEL}, 0 0 0 ${C.shadow}; }
-.blk:focus-visible{ outline: 3px solid ${C.ink}; outline-offset: 3px; }
-@media (prefers-reduced-motion: reduce){ .blk{ transition: none; } }
+${BLOCK_CSS}
 `;
 const shell: React.CSSProperties = {
   position: "fixed", inset: 0, background: C.bg, color: C.ink,

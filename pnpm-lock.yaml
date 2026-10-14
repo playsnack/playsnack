@@ -65,6 +65,9 @@ importers:
 
   snack-player:
     dependencies:
+      '@nudg/core':
+        specifier: 0.2.0
+        version: 0.2.0(react@19.2.7)
       '@snack/bite':
         specifier: workspace:*
         version: link:../packages/bite
@@ -537,6 +540,16 @@ packages:
     engines: {node: '>= 10.16.0'}
     peerDependencies:
       jsep: ^0.4.0||^1.0.0
+
+  '@nudg/core@0.2.0':
+    resolution: {integrity: sha512-PEhY4b4dtdS+ul9TEyx0ltHyrrMnfLPjDXvxTG4ODfGiBtJZ1IZJ6b1rSBjPY6LkfntUE48evF1WMGYfPL1UEw==}
+    engines: {node: '>=22.4'}
+    hasBin: true
+    peerDependencies:
+      react: '>=18'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@pixi/colord@2.9.6':
     resolution: {integrity: sha512-nezytU2pw587fQstUu1AsJZDVEynjskwOL+kibwcdxsMBFqPsFFNA7xl0ii/gXuDi6M0xj3mfRJj8pBSc2jCfA==}
@@ -1750,6 +1763,10 @@ snapshots:
   '@jsep-plugin/arrow@1.0.6(jsep@1.4.0)':
     dependencies:
       jsep: 1.4.0
+
+  '@nudg/core@0.2.0(react@19.2.7)':
+    optionalDependencies:
+      react: 19.2.7
 
   '@pixi/colord@2.9.6': {}
 

@@ -1,0 +1,10 @@
+{
+  "nudg": "0.2",
+  "note": "Motion for the Mini-Block Arcade skin, in one place. The signature is the block press: it sinks fast and flat (press), then springs back with a little bounce (release). Components import this file and use the names; change a value here and every block follows.",
+  "motions": {
+    "press": { "spring": { "duration": 0.08, "bounce": 0 }, "note": "Sinking: quick, no overshoot." },
+    "release": { "spring": { "duration": 0.3, "bounce": 0.3 }, "note": "Coming back up: a little bounce." },
+    "standard": { "spring": { "duration": 0.35, "bounce": 0.15 } },
+    "fade": { "spring": { "duration": 0.25, "bounce": 0 }, "note": "For opacity and color; never bounces." }
+  }
+}
