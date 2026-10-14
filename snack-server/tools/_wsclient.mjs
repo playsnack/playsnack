@@ -6,19 +6,43 @@ import { WebSocket } from "ws";
 import { connectRelay } from "@snack/room/relay-client";
 import { connectMesh } from "@snack/room/mesh-client";
 import { mqttBus } from "@snack/room/mqtt-bus";
+import { wsBus } from "@snack/room/ws-bus";
 import { readFileSync } from "node:fs";
 import { startLocalBroker, isLocalBroker } from "../../packages/snack-room/tools/localBroker.js";
+import { startEdgeHub, isLocalRelay } from "../../packages/snack-room/tools/edgeHub.js";
 
 const PORT = process.env.PORT || 4399;
 export const RELAY = Boolean(process.env.SIM_RELAY);
 // SIM_MESH=1 → serverless: clients meet on an MQTT broker, no snack-server at all.
 // Always a LOCAL broker (started here, lossy unless SIM_LOSSY=0) — a gate never
 // touches a public broker; SIM_BROKER may point at another local one.
-export const MESH = Boolean(process.env.SIM_MESH);
+// SIM_EDGE=1 → serverless over the EDGE room relay (edge/room, docs/edge-relay.md) instead of
+// MQTT: a local Node hub running the Worker's own core.js is started on :4550, or
+// SIM_EDGE_URL points at another LOCAL relay (e.g. `wrangler dev --local` on :4551).
+export const EDGE = Boolean(process.env.SIM_EDGE);
+export const MESH = Boolean(process.env.SIM_MESH) || EDGE;
+// SIM_EDGE_ROOM=1 → server-authoritative edge rooms: the room engine runs in the room's
+// Durable Object (edge/room/src/game.js); clients speak the server /ws protocol to
+// <SIM_EDGE_URL>/room/<slug>. Same hub / SIM_EDGE_URL rules as SIM_EDGE.
+export const EDGE_ROOM = Boolean(process.env.SIM_EDGE_ROOM);
 let localBroker = null;
+let edgeHub = null;
+/** The local edge hub this process started (message accounting), or null. */
+export const localEdgeHub = () => edgeHub;
+// What the hosting engine reported (onPoints / onActivity) — host-handover D in mesh modes.
+export const engineEvents = [];
 /** Mesh mode: make sure SIM_BROKER is a local broker (start one if unset). Call before any SimClient. */
 export async function prepareMesh() {
-  if (!MESH) return null;
+  if (!MESH && !EDGE_ROOM) return null;
+  if (EDGE || EDGE_ROOM) {
+    if (process.env.SIM_EDGE_URL) {
+      if (!isLocalRelay(process.env.SIM_EDGE_URL)) throw new Error(`SIM_EDGE_URL must be a local relay, not ${process.env.SIM_EDGE_URL}`);
+      return null;
+    }
+    edgeHub = await startEdgeHub({ port: Number(process.env.SIM_EDGE_PORT || 4550) });
+    process.env.SIM_EDGE_URL = edgeHub.url;
+    return null;
+  }
   if (process.env.SIM_BROKER) {
     if (!isLocalBroker(process.env.SIM_BROKER)) throw new Error(`SIM_BROKER must be a local broker, not ${process.env.SIM_BROKER}`);
     return null;
@@ -30,6 +54,8 @@ export async function prepareMesh() {
 export async function stopMesh() {
   await localBroker?.close();
   localBroker = null;
+  await edgeHub?.close();
+  edgeHub = null;
 }
 const staticPack = async (game) => {
   try { return JSON.parse(readFileSync(new URL(`../data/multi-content/${game}.json`, import.meta.url), "utf8")); } catch { return null; }
@@ -63,10 +89,14 @@ export class SimClient {
       }
     };
     if (MESH) {
-      const url = process.env.SIM_BROKER;
-      if (!url || !isLocalBroker(url)) throw new Error(`mesh sim needs a local broker (call prepareMesh first), got ${url}`);
+      const url = EDGE ? process.env.SIM_EDGE_URL : process.env.SIM_BROKER;
+      if (!url || !(EDGE ? isLocalRelay(url) : isLocalBroker(url))) throw new Error(`mesh sim needs a local ${EDGE ? "relay" : "broker"} (call prepareMesh first), got ${url}`);
       this.relay = connectMesh({
-        createBus: mqttBus({ room: slug, url }),
+        createBus: EDGE ? wsBus({ url, room: slug }) : mqttBus({ room: slug, url }),
+        engine: {
+          onPoints: (anonId, nick, pts) => engineEvents.push({ k: "pts", anonId, nick, pts }),
+          onActivity: (kind, label) => engineEvents.push({ k: "act", kind, label }),
+        },
         me: { slug, anonId, nick: this.nick ?? "" },
         onMessage,
         getPack: staticPack,
@@ -87,7 +117,7 @@ export class SimClient {
       });
       return;
     }
-    this.ws = new WebSocket(WS_URL);
+    this.ws = new WebSocket(EDGE_ROOM ? `${process.env.SIM_EDGE_URL}/room/${encodeURIComponent(slug)}` : WS_URL);
     this.ws.on("open", () => this._send("hello", { slug, anonId, nick: this.nick ?? "" }));
     this.ws.on("message", (buf) => {
       let m; try { m = JSON.parse(buf.toString()); } catch { return; }

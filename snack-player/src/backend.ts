@@ -6,7 +6,7 @@
 //    the server serves this build itself (what the oracle gate plays).
 import type { BiteDoc } from "@snack/bite";
 import { contentFor, parseContentUrl, type ContentData } from "@snack/content";
-import { MeshTransport, RelayTransport, ServerTransport, type Identity, type RoomTransport } from "./roomTransport";
+import { EdgeRoomTransport, MeshTransport, RelayTransport, ServerTransport, type Identity, type RoomTransport } from "./roomTransport";
 import { appApiPath, parseRoute, playPath, type Route } from "./links";
 
 const SERVER_ENV = (import.meta.env.VITE_SERVER_URL as string | undefined) || "";
@@ -150,6 +150,12 @@ export async function getPack(game: string, opts: { theme?: string } = {}): Prom
 // (hivemq), or VITE_BROKER_URL set at build time (the gate points it at a local broker).
 // Never per client — players on different brokers would never meet.
 export const BROKER_URL = (import.meta.env.VITE_BROKER_URL as string | undefined) || undefined;
+// Edge rooms (edge/room, docs/edge-rooms.md), e.g. wss://snack-room.<account>.workers.dev.
+// Set → the room engine runs in a Durable Object per room (server-authoritative);
+// VITE_ROOM_MODE=relay instead keeps the player-hosted mesh, over the edge relay.
+// Unset (the default) → the MQTT broker above. Build time only, never per client.
+export const ROOM_URL = (import.meta.env.VITE_ROOM_URL as string | undefined) || undefined;
+const ROOM_MODE = (import.meta.env.VITE_ROOM_MODE as string | undefined) || "game";
 // Room ids this page has just made a new code for (nobody can be in them yet): their
 // first join skips the mesh's wait for an existing host. In memory, used once.
 const freshRooms = new Set<string>();
@@ -157,7 +163,8 @@ export const markFreshRoom = (roomId: string) => void freshRooms.add(roomId);
 /** Whether this page made the room a moment ago (read before createRoom, which uses it up). */
 export const isFreshRoom = (roomId: string) => freshRooms.has(roomId);
 export function createRoom(me: Identity, params: URLSearchParams): RoomTransport {
-  if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts), freshRooms.delete(me.slug));
+  if (ROOM_URL && ROOM_MODE !== "relay") return new EdgeRoomTransport(ROOM_URL, me);
+  if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts), freshRooms.delete(me.slug), ROOM_MODE === "relay" ? ROOM_URL : undefined);
   const ws = (SERVER_URL || location.origin).replace(/^http/, "ws");
   return params.has("host") ? new RelayTransport(`${ws}/relay`, me, `${SERVER_URL}/api/pack`, `${SERVER_URL}/api/events`) : new ServerTransport(`${ws}/ws`, me);
 }

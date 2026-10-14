@@ -5,7 +5,7 @@
 import { rmSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { listIds, loadDoc, TPL_DIR, varNames, findEmit } from "./_doc.mjs";
-import { SimClient, sleep, WS_URL, MESH, prepareMesh, stopMesh } from "./_wsclient.mjs";
+import { SimClient, sleep, WS_URL, MESH, EDGE, EDGE_ROOM, prepareMesh, stopMesh, localEdgeHub } from "./_wsclient.mjs";
 import { emit } from "./_gate.mjs";
 
 // A broker (SIM_MESH; lossy by default) adds up to ~300ms per hop, host → peer, and a
@@ -313,6 +313,22 @@ async function simSpectator(id) {
   };
 }
 
+// SIM_EDGE with the local hub: messages each room's players published (docs/edge-relay.md §3).
+// Room slugs are SLUG_PREFIX + id + "-" + clients (or "-spectate").
+function edgeAccounting(hub) {
+  const rows = [];
+  for (const [key, st] of hub.history()) {
+    const room = key.slice(key.indexOf(":") + 1);
+    if (!room.startsWith(SLUG_PREFIX)) continue;
+    const m = /^(.*)-(\d+|spectate)$/.exec(room.slice(SLUG_PREFIX.length));
+    if (!m) continue;
+    const players = m[2] === "spectate" ? 4 : Number(m[2]);
+    const seconds = Math.max(1, (st.last - st.first) / 1000);
+    rows.push({ id: m[1] + (m[2] === "spectate" ? ":spectator" : ""), players, seconds: Math.round(seconds * 10) / 10, in: st.in, out: st.out, perPlayer: Math.round(st.in / players), perPlayerPerMin: Math.round((st.in / players / seconds) * 60), byType: st.byType, conns: st.conns });
+  }
+  return rows;
+}
+
 async function main() {
   const broker = await prepareMesh();
   const argv = process.argv.slice(2);
@@ -354,13 +370,15 @@ async function main() {
 
   // Lossy evidence from the local broker (mesh mode): loss was requested AND happened.
   // With an external SIM_BROKER nothing is known about it → nulls.
-  const stats = MESH
+  const stats = EDGE || EDGE_ROOM
+    ? { relay: localEdgeHub() ? "edge hub (node, same core as the DO)" : process.env.SIM_EDGE_URL, ...(localEdgeHub() ? { accounting: edgeAccounting(localEdgeHub()) } : {}) }
+    : MESH
     ? broker
       ? { lossy: broker.lossy, dropped: broker.stats.dropped, delivered: broker.stats.delivered, publishes: broker.stats.publishes, bytes: broker.stats.bytes, seconds: Math.round((Date.now() - broker.stats.startedAt) / 1000) }
       : { lossy: null, dropped: null, delivered: null }
     : null;
   const lossOk = !stats?.lossy || stats.dropped > 0;
-  const where = MESH ? `mqtt mesh @ local broker${stats?.lossy ? ` (lossy: ${stats.dropped} dropped / ${stats.delivered} delivered)` : ""}` : WS_URL;
+  const where = EDGE_ROOM ? `edge room (DO engine) @ ${stats.relay}` : EDGE ? `edge relay @ ${stats.relay}` : MESH ? `mqtt mesh @ local broker${stats?.lossy ? ` (lossy: ${stats.dropped} dropped / ${stats.delivered} delivered)` : ""}` : WS_URL;
   await stopMesh();
   const passed = results.filter((r) => r.ok).length;
   const failed = results.length - passed;

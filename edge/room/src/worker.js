@@ -1,64 +1,51 @@
-// Cloudflare Worker + Durable Objects: the room relay (spike, not deployed).
-//   GET /room/<roomId>  (WebSocket upgrade) → the room's Durable Object (one per room id)
-//   anything else       → 404 (there is no room listing)
-// The room logic is core.js — the same module the Node test hub runs.
+// Cloudflare Worker + Durable Objects: snack rooms at the edge (spike, not deployed).
+//   GET /room/<roomId>   (WebSocket) → GameRoom DO: the room engine runs here (server-authoritative)
+//   GET /relay/<roomId>  (WebSocket) → Relay DO: a dumb relay for the serverless mesh
+//   anything else        → 404 (there is no room listing)
+// One DO per room id. The logic is game.js / core.js — the same modules the Node hub runs.
 import { DurableObject } from "cloudflare:workers";
 import { RoomRelay, UsageMeter, ROOM_ID_RE } from "./core.js";
+import { GameRoom } from "./game.js";
 
 const num = (v) => (v === undefined || v === "" || Number.isNaN(Number(v)) ? undefined : Number(v));
-// Test knobs (wrangler dev --var …); unset in production → core.js LIMITS.
+// Test knobs (wrangler dev --var …); unset in production → the LIMITS in core.js / game.js.
 const limitsFrom = (env) => {
-  const l = { roomTtlMs: num(env.ROOM_TTL_MS), pinIterations: num(env.PIN_ITERATIONS), lockMs: num(env.LOCK_MS) };
+  const l = { roomTtlMs: num(env.ROOM_TTL_MS), pinIterations: num(env.PIN_ITERATIONS), lockMs: num(env.LOCK_MS), claimWindowMs: num(env.CLAIM_WINDOW_MS) };
   return Object.fromEntries(Object.entries(l).filter(([, v]) => v !== undefined));
 };
 
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
-    const m = /^\/room\/([^/]+)$/.exec(url.pathname);
-    if (!m || !ROOM_ID_RE.test(m[1])) return new Response("not found", { status: 404 });
+    const m = /^\/(room|relay)\/([^/]+)$/.exec(url.pathname);
+    if (!m || !ROOM_ID_RE.test(m[2])) return new Response("not found", { status: 404 });
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("websocket only", { status: 426 });
     if (!env.ROOM_TOKEN_SECRET) return new Response("not configured", { status: 503 });
-    const stub = env.ROOMS.get(env.ROOMS.idFromName(m[1]));
+    const ns = m[1] === "room" ? env.GAMES : env.ROOMS;
     const fwd = new Request(req);
-    fwd.headers.set("x-room-id", m[1]);
-    return stub.fetch(fwd);
+    fwd.headers.set("x-room-id", m[2]);
+    return ns.get(ns.idFromName(m[2])).fetch(fwd);
   },
 };
 
-export class Room extends DurableObject {
-  constructor(ctx, env) {
-    super(ctx, env);
-    this.states = new WeakMap(); // ws → its attachment (cached while awake)
-    this.relay = null;
+/** Socket adapters over hibernatable WebSockets (state = the attachment, cached while awake). */
+class Sockets {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.cache = new WeakMap(); // ws → adapter
   }
-
-  core(roomId) {
-    if (!this.relay) {
-      const meter = this.env.METER.get(this.env.METER.idFromName("global"));
-      this.relay = new RoomRelay({
-        roomId,
-        store: this.ctx.storage,
-        secret: this.env.ROOM_TOKEN_SECRET,
-        usage: { admit: () => meter.admit(), add: (d) => meter.add(d) },
-        setAlarm: (at) => this.ctx.storage.setAlarm(at),
-        limits: limitsFrom(this.env),
-      });
-    }
-    return this.relay;
-  }
-
-  sock(ws) {
-    const states = this.states;
-    return {
+  of(ws) {
+    let a = this.cache.get(ws);
+    if (a) return a;
+    let state;
+    a = {
       ws,
       get state() {
-        let s = states.get(ws);
-        if (!s) states.set(ws, (s = ws.deserializeAttachment() ?? {}));
-        return s;
+        state ??= ws.deserializeAttachment() ?? {};
+        return state;
       },
       save(s) {
-        states.set(ws, s);
+        state = s;
         ws.serializeAttachment(s);
       },
       send(str) {
@@ -76,42 +63,116 @@ export class Room extends DurableObject {
         }
       },
     };
+    this.cache.set(ws, a);
+    return a;
   }
-
-  // Wrappers must be stable within one event (the core compares them by identity).
-  all(except) {
-    return this.ctx.getWebSockets().map((ws) => (except && ws === except.ws ? except : this.sock(ws)));
+  all() {
+    return this.ctx.getWebSockets().map((ws) => this.of(ws));
   }
-
-  async fetch(req) {
-    const roomId = req.headers.get("x-room-id");
+  accept(roomId) {
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server);
-    const s = this.sock(server);
-    const core = this.core(roomId);
-    core.onOpen(s, this.all(s));
+    const s = this.of(server);
+    s.save({ room: roomId });
+    return { client, s };
+  }
+}
+
+const meterOf = (env) => {
+  const meter = env.METER.get(env.METER.idFromName("global"));
+  return { admit: () => meter.admit(), add: (d) => meter.add(d) };
+};
+
+/** Server-authoritative game room (game.js). */
+export class Game extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.socks = new Sockets(ctx);
+    this.room = null;
+  }
+  core(roomId) {
+    const base = this.env.PACK_BASE_URL;
+    this.room ??= new GameRoom({
+      roomId,
+      store: this.ctx.storage,
+      secret: this.env.ROOM_TOKEN_SECRET,
+      usage: meterOf(this.env),
+      setAlarm: (at) => this.ctx.storage.setAlarm(at),
+      limits: limitsFrom(this.env),
+      sockets: () => this.socks.all().filter((s) => s.ws.readyState !== WebSocket.CLOSED),
+      // Round content: the same static files the player serves (data/multi-content/<game>.json).
+      getPack: async (game) => {
+        if (!base || !/^[a-z0-9-]{1,40}$/.test(String(game ?? ""))) return null;
+        const r = await fetch(`${base.replace(/\/+$/, "")}/${game}.json`).catch(() => null);
+        return r?.ok ? r.json().catch(() => null) : null;
+      },
+    });
+    return this.room;
+  }
+  roomOf(ws) {
+    return this.core(this.socks.of(ws).state.room);
+  }
+  async fetch(req) {
+    const roomId = req.headers.get("x-room-id");
+    const { client, s } = this.socks.accept(roomId);
+    this.core(roomId).onOpen(s);
     s.save({ ...s.state, room: roomId });
     return new Response(null, { status: 101, webSocket: client });
   }
-
   async webSocketMessage(ws, msg) {
-    const s = this.sock(ws);
-    await this.core(s.state.room).onMessage(s, msg, this.all(s));
+    await this.roomOf(ws).onMessage(this.socks.of(ws), msg);
   }
-
   async webSocketClose(ws) {
-    const s = this.sock(ws);
-    await this.core(s.state.room).onClose(s, this.all(s).filter((x) => x.ws !== ws && x.ws.readyState !== WebSocket.CLOSED));
-    s.close(1000, "bye");
+    await this.roomOf(ws).onClose(this.socks.of(ws));
+    this.socks.of(ws).close(1000, "bye");
   }
-
   async webSocketError(ws) {
     await this.webSocketClose(ws);
   }
-
   async alarm() {
-    const live = this.ctx.getWebSockets();
-    if (!live.length) await this.ctx.storage.deleteAll(); // also clears the alarm
+    if (!this.ctx.getWebSockets().length) await this.ctx.storage.deleteAll();
+  }
+}
+
+/** Dumb relay for the serverless mesh (core.js RoomRelay). */
+export class Room extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.socks = new Sockets(ctx);
+    this.relay = null;
+  }
+  core(roomId) {
+    this.relay ??= new RoomRelay({
+      roomId,
+      store: this.ctx.storage,
+      secret: this.env.ROOM_TOKEN_SECRET,
+      usage: meterOf(this.env),
+      setAlarm: (at) => this.ctx.storage.setAlarm(at),
+      limits: limitsFrom(this.env),
+    });
+    return this.relay;
+  }
+  async fetch(req) {
+    const roomId = req.headers.get("x-room-id");
+    const { client, s } = this.socks.accept(roomId);
+    this.core(roomId).onOpen(s, this.socks.all());
+    s.save({ ...s.state, room: roomId });
+    return new Response(null, { status: 101, webSocket: client });
+  }
+  async webSocketMessage(ws, msg) {
+    const s = this.socks.of(ws);
+    await this.core(s.state.room).onMessage(s, msg, this.socks.all());
+  }
+  async webSocketClose(ws) {
+    const s = this.socks.of(ws);
+    await this.core(s.state.room).onClose(s, this.socks.all().filter((x) => x.ws !== ws && x.ws.readyState !== WebSocket.CLOSED));
+    s.close(1000, "bye");
+  }
+  async webSocketError(ws) {
+    await this.webSocketClose(ws);
+  }
+  async alarm() {
+    if (!this.ctx.getWebSockets().length) await this.ctx.storage.deleteAll(); // also clears the alarm
   }
 }
 

@@ -1,4 +1,6 @@
 // Not deployed yet — see docs/edge-relay.md for the owner's steps.
+// PACK_BASE_URL: where round content lives (the player's static data/multi-content/), e.g.
+//   wrangler deploy --var PACK_BASE_URL:https://playsnack.vercel.app/data/multi-content
 // ROOM_TOKEN_SECRET is a secret: `wrangler secret put ROOM_TOKEN_SECRET` (never in this file).
 {
   "name": "snack-room",
@@ -6,11 +8,12 @@
   "compatibility_date": "2026-09-15",
   "durable_objects": {
     "bindings": [
+      { "name": "GAMES", "class_name": "Game" },
       { "name": "ROOMS", "class_name": "Room" },
       { "name": "METER", "class_name": "Meter" }
     ]
   },
   // Free plan: Durable Objects must be SQLite-backed.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room", "Meter"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Game", "Room", "Meter"] }],
   "observability": { "enabled": false }
 }

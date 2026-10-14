@@ -27,7 +27,7 @@ after(async () => hub?.close());
 
 /** A raw socket that records frames. */
 function raw(room) {
-  const ws = new WebSocket(`${URL_}/room/${room}`);
+  const ws = new WebSocket(`${URL_}/relay/${room}`);
   const got = [];
   const waiters = [];
   let closed = null;
@@ -185,8 +185,9 @@ test("a token lets a dropped player back in without the PIN; another room refuse
 
 test("no room listing: only /room/<id> WebSocket upgrades exist", async () => {
   const http = URL_.replace(/^ws/, "http");
-  for (const p of ["/", "/rooms", "/room", "/room/", "/room/a/b", "/room/..%2F"]) assert.equal((await fetch(http + p)).status, 404, p);
+  for (const p of ["/", "/rooms", "/room", "/room/", "/room/a/b", "/room/..%2F", "/relay", "/relay/", "/relays"]) assert.equal((await fetch(http + p)).status, 404, p);
   assert.equal((await fetch(`${http}/room/${rid("x")}`)).status, 426);
+  assert.equal((await fetch(`${http}/relay/${rid("x")}`)).status, 426);
 });
 
 test("bye: a socket that vanishes is announced once; a graceful leaver is not doubled", async () => {
@@ -210,7 +211,7 @@ test("cleanup alarm: storage is deleted after the last socket leaves (PIN gone, 
   const ok = await a.auth("la", { pin: "5555" });
   a.close();
   await sleep(TTL_MS + 800);
-  if (hub) assert.equal(hub.rooms.has(room), false, "room dropped after the alarm");
+  if (hub) assert.equal(Boolean(hub.relay(room)), false, "room dropped after the alarm");
   // Same id again: a NEW room (no PIN), and the old token's epoch no longer matches.
   const b = raw(room);
   const again = await b.auth("lb", { pin: "7777" });
@@ -231,8 +232,8 @@ test("an occupied room is not cleaned up", { skip: EXTERNAL ? "hub only" : false
   b.close();
   await sleep(100);
   await hub.fireAlarm(room);
-  assert.equal(hub.rooms.has(room), true);
-  assert.ok(hub.rooms.get(room).store.map.get("meta"));
+  assert.equal(Boolean(hub.relay(room)), true);
+  assert.ok(hub.relay(room).store.map.get("meta"));
   a.close();
 });
 
@@ -293,7 +294,7 @@ test("core: tokens are signed, expire and name their room", async () => {
 });
 
 test("meshClient over wsBus: two players meet, one hosts, actions round-trip", async () => {
-  const room = rid("mesh");
+  const room = `${rid("mesh")}~ABCDEFGHJK`; // a friends room id (slug~CODE)
   const mk = (n) => {
     const shared = {};
     const st = [];

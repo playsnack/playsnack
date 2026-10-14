@@ -2,7 +2,7 @@
 // Durable Object per room, or the Node hub in tests). Same interface as mqttBus:
 // {ready, publish, onMessage, onStatus, close} — meshClient cannot tell them apart.
 //
-// One WebSocket per player at <url>/room/<room>. The first frame authenticates
+// One WebSocket per player at <url>/relay/<room>. The first frame authenticates
 // ({t:"auth", peer, pin?, token?}); the relay answers {ctl:"ok", token} and only then
 // relays. The token (15 min, refreshed by the relay) lets a dropped connection come
 // back without the PIN. The relay never echoes our own publishes (meshClient drops
@@ -24,7 +24,7 @@ export const memoryTokens = () => {
  * @param {{url: string, room: string, pin?: string, WebSocket?: any, failAfterMs?: number, tokens?: {get(room: string): string | null, set(room: string, tok: string): void}}} o
  */
 export function wsBus({ url, room, pin, WebSocket: WS = globalThis.WebSocket, failAfterMs = FAIL_AFTER_MS, tokens = memoryTokens() }) {
-  const endpoint = `${url.replace(/\/+$/, "")}/room/${encodeURIComponent(room)}`;
+  const endpoint = `${url.replace(/\/+$/, "")}/relay/${encodeURIComponent(room)}`;
   return (peerId) => {
     const handlers = [];
     const statusFns = [];

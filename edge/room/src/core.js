@@ -36,7 +36,8 @@ export const LIMITS = {
   authTimeoutMs: 10000, // an unauthed socket older than this is closed on the next connect
 };
 
-export const ROOM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+// Room ids are `slug` or `slug~CODE` (snack-player links.ts roomIdFor): URL-unreserved chars.
+export const ROOM_ID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const PEER_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const PIN_RE = /^.{1,32}$/su;
 
@@ -287,62 +288,91 @@ export class RoomRelay {
     const st = sock.state ?? {};
     if (st.authed) return;
     const peer = typeof m.peer === "string" ? m.peer : "";
-    const pin = m.pin == null || m.pin === "" ? null : String(m.pin);
-    if (!PEER_RE.test(peer) || (pin !== null && !PIN_RE.test(pin))) {
+    if (!PEER_RE.test(peer)) {
       this.deny(sock, "bad");
       return sock.close(4000, "bad auth");
     }
+    this.gate ??= new RoomGate({ roomId: this.roomId, store: this.store, secret: this.secret, usage: this.usage, now: this.now, limits: this.L });
+    const g = await this.gate.check(m, st);
+    if (g.deny) {
+      sock.save(st);
+      this.deny(sock, g.deny, g.retryIn ? { retryIn: g.retryIn } : {});
+      if (g.close) sock.close(g.close, g.deny);
+      return;
+    }
+    Object.assign(st, { authed: true, peer, epoch: g.meta.epoch, issuedAt: this.now(), wrong: 0 });
+    sock.save(st);
+    sock.send(JSON.stringify({ ctl: "ok", token: await this.token(g.meta.epoch) }));
+  }
+}
+
+/**
+ * Who may enter a room: creates it (usage guard, optional PIN, optional organizer),
+ * checks tokens, PINs and the wrong-PIN limiter. Shared by the relay and the game room.
+ * `st` is the socket's record: st.wrong counts this connection's wrong PINs.
+ * → {meta, claims?, organizer, created?} or {deny, retryIn?, close?}
+ */
+export class RoomGate {
+  constructor({ roomId, store, secret, usage, now = Date.now, limits = {} }) {
+    Object.assign(this, { roomId, store, secret, usage, now, L: { ...LIMITS, ...limits } });
+  }
+
+  tokenFor(meta, extra = {}, ttl = this.L.tokenTtlMs) {
+    return signToken(this.secret, { r: this.roomId, p: meta.epoch, exp: this.now() + ttl, ...extra });
+  }
+
+  /** The token's claims if it is valid for THIS room incarnation, else null. */
+  async claims(meta, token) {
+    if (!token) return null;
+    const p = await verifyToken(this.secret, token);
+    return p && p.r === this.roomId && p.p === meta.epoch && p.exp > this.now() ? p : null;
+  }
+
+  async check(m, st) {
+    const pin = m.pin == null || m.pin === "" ? null : String(m.pin);
+    if (pin !== null && !PIN_RE.test(pin)) return { deny: "bad", close: 4000 };
     let meta = await this.store.get("meta");
     if (!meta) {
       // A new room (or one deleted after 24 h idle): the usage guard decides.
-      if (this.usage && !(await this.usage.admit())) {
-        this.deny(sock, "busy");
-        return sock.close(4029, "busy");
-      }
+      if (this.usage && !(await this.usage.admit())) return { deny: "busy", close: 4029 };
       meta = { epoch: randomId(), created: this.now() };
       if (pin !== null) {
         meta.salt = randomId(16);
         meta.iter = this.L.pinIterations;
         meta.hash = await hashPin(pin, meta.salt, meta.iter);
       }
+      if (m.organize === true) meta.org = 1; // whoever creates it organizes it
       await this.store.put("meta", meta);
-      return this.admit(sock, st, peer, meta);
+      return { meta, organizer: Boolean(meta.org), created: true };
     }
-    if (m.token) {
-      const p = await verifyToken(this.secret, m.token);
-      if (p && p.r === this.roomId && p.p === meta.epoch && p.exp > this.now()) return this.admit(sock, st, peer, meta);
-    }
-    if (!meta.hash) return this.admit(sock, st, peer, meta);
-    if (pin === null) return this.deny(sock, "pin-required");
+    const org = meta.org ? await this.claims(meta, m.organizerToken) : null;
+    if (org?.o === 1) return { meta, claims: org, organizer: true };
+    const claims = await this.claims(meta, m.token);
+    if (claims && !claims.o) return { meta, claims, organizer: false };
+    if (!meta.hash) return { meta, organizer: false };
+    if (pin === null) return { deny: "pin-required" };
 
     const t = this.now();
     const lock = (await this.store.get("lock")) ?? { fails: 0, until: 0, step: this.L.lockMs, hour: [] };
     lock.hour = lock.hour.filter((x) => t - x < 3600000);
-    if (t < lock.until) return this.deny(sock, "locked", { retryIn: lock.until - t });
-    if (lock.hour.length >= this.L.wrongPerHour) return this.deny(sock, "locked", { retryIn: lock.hour[0] + 3600000 - t });
+    if (t < lock.until) return { deny: "locked", retryIn: lock.until - t };
+    if (lock.hour.length >= this.L.wrongPerHour) return { deny: "locked", retryIn: lock.hour[0] + 3600000 - t };
     if (sameHex(await hashPin(pin, meta.salt, meta.iter), meta.hash)) {
       if (lock.fails || lock.step !== this.L.lockMs) await this.store.put("lock", { fails: 0, until: 0, step: this.L.lockMs, hour: lock.hour });
-      return this.admit(sock, st, peer, meta);
+      return { meta, organizer: false };
     }
     lock.fails += 1;
     lock.hour.push(t);
-    let extra = {};
+    let retryIn = 0;
     if (lock.fails >= this.L.lockAfter) {
       lock.until = t + lock.step;
-      extra = { retryIn: lock.step };
+      retryIn = lock.step;
       lock.step = Math.min(lock.step * 2, this.L.maxLockMs);
       lock.fails = 0;
     }
     await this.store.put("lock", lock);
     st.wrong = (st.wrong ?? 0) + 1;
-    sock.save(st);
-    this.deny(sock, extra.retryIn ? "locked" : "pin", extra);
-    if (st.wrong >= this.L.wrongPerConn) sock.close(4003, "too many wrong PINs");
-  }
-
-  async admit(sock, st, peer, meta) {
-    Object.assign(st, { authed: true, peer, epoch: meta.epoch, issuedAt: this.now(), wrong: 0 });
-    sock.save(st);
-    sock.send(JSON.stringify({ ctl: "ok", token: await this.token(meta.epoch) }));
+    const close = st.wrong >= this.L.wrongPerConn ? 4003 : 0;
+    return retryIn ? { deny: "locked", retryIn, close } : { deny: "pin", close };
   }
 }
