@@ -90,7 +90,7 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
         <Note warn>지금은 시험 중이라 이 숫자는 잠깐만 남는 임시 숫자예요.</Note>
       )}
       {m.budgetReached && (
-        <Note warn>이번 달 무료로 셀 수 있는 양을 다 써서 다음 달 1일까지 새로 세지 않아요(게임은 그대로 돼요).</Note>
+        <Note warn>이번 달 집계 한도에 닿아 다음 달 1일까지 새로 세지 않아요(게임은 그대로 돼요).</Note>
       )}
       {m.stale && <Note>조금 전에 읽은 숫자를 보여 주고 있어요.</Note>}
 
@@ -223,17 +223,17 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
         )}
         {m.rejected.length > 0 && (
           <p style={{ ...help, marginBottom: 0 }}>
-            잘못된 모양으로 들어와 세지 않은 기록: {m.rejected.map((r) => `${r.label} ${fmtInt(r.n)}`).join(" · ")} (고칠 거리예요)
+            잘못된 모양으로 들어와 세지 않은 기록: {m.rejected.map((r) => `${r.label} ${fmtInt(r.n)}`).join(" · ")}
           </p>
         )}
       </section>
 
-      <H2>이번 달 무료 한도</H2>
+      <H2>이번 달 집계 사용량</H2>
       <section style={card}>
         <Row label="이번 달 기록·읽기 횟수" value={b.used} sub={`/ ${b.limit}`} />
         <div style={track} aria-hidden="true"><div style={{ ...fill, width: `${b.pct ?? 0}%` }} /></div>
         <p style={{ ...help, marginBottom: 0 }}>
-          숫자를 모아 두는 곳(Upstash)은 한 달 50만 번까지 무료예요. 40만 번에 닿으면 그달은 스스로 세기를 멈춰서 돈이 들지 않아요.
+          이번 달 숫자를 기록하고 읽은 횟수예요. 한도에 닿으면 다음 달 1일까지 새로 세지 않아요(게임은 그대로 돼요).
           {b.pct === null && " 이번 달 사용량은 아직 알 수 없어요."}
         </p>
       </section>
