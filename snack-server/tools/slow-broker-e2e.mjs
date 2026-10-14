@@ -1,6 +1,6 @@
 // Joining a friends room through a SLOW broker, end to end: the real serverless player
 // (built against a local broker), real browsers, and a local broker that swallows CONNECTs
-// (no CONNACK → the client's "connack timeout" — what broker.hivemq.com did live on 2026-10-14).
+// (no CONNACK → the client's "connack timeout" — what the public broker did live on 2026-10-14).
 //   1. healthy broker: two browsers meet ("👥 2명"), no slow notice (baseline time)
 //   2. each browser's first 2 CONNECTs swallowed: both keep trying, the slow notice shows
 //      after ~6 s with the seconds and "혼자 하기", no failed sheet, both reach "👥 2명"
