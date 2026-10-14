@@ -1,0 +1,18 @@
+{
+  "name": "@snack/edge-room",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Room relay on Cloudflare Workers + Durable Objects (spike, not deployed). Kept OUT of the pnpm workspace so the player/server installs never pull wrangler: install here with `pnpm install --ignore-workspace`.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --ip 127.0.0.1 --port 4551 --var ROOM_TOKEN_SECRET:dev-only-secret",
+    "check": "wrangler deploy --dry-run --outdir .wrangler/dry",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260921.1",
+    "miniflare": "5.20260921.0-alpha",
+    "wrangler": "4.136.3"
+  }
+}
