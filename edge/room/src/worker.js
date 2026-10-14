@@ -31,16 +31,21 @@ export default {
 
 // GET /usage: today's estimate and % of each free limit. Cached 60 s at the edge so a page
 // refreshing it costs (almost) nothing; a cache miss counts itself as one Worker request.
+// The Cache API is a no-op on *.workers.dev, so the isolate also keeps the last answer 60 s.
+let usageMemo = null; // { at, body }
 async function usage(req, env, ctx) {
+  if (usageMemo && Date.now() - usageMemo.at < 60000) return usageResponse(usageMemo.body);
   const cache = caches.default;
   const key = new Request(new URL("/usage", req.url).toString());
   const hit = await cache.match(key);
   if (hit) return hit;
-  const body = await env.METER.get(env.METER.idFromName("global")).report({ countRequest: true });
-  const res = new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": "public, max-age=60", "access-control-allow-origin": "*" } });
+  const body = JSON.stringify(await env.METER.get(env.METER.idFromName("global")).report({ countRequest: true }));
+  usageMemo = { at: Date.now(), body };
+  const res = usageResponse(body);
   ctx.waitUntil(cache.put(key, res.clone()));
   return res;
 }
+const usageResponse = (body) => new Response(body, { headers: { "content-type": "application/json", "cache-control": "public, max-age=60", "access-control-allow-origin": "*" } });
 
 /** Socket adapters over hibernatable WebSockets (state = the attachment, cached while awake). */
 class Sockets {
