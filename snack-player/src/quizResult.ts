@@ -44,7 +44,7 @@ export type ResultInput = {
   canMake?: boolean;
 };
 
-export type RankRow = { key: string; rank: number; rankLabel: string; nick: string; score: number; scoreLabel: string; correct: number; left: boolean; me: boolean; top: boolean };
+export type RankRow = { key: string; rank: number; rankLabel: string; nick: string; score: number; scoreLabel: string; correct: number; accuracyLabel: string; speedLabel: string; left: boolean; me: boolean; top: boolean };
 export type Chip = { nick: string; pick: string; state: "ok" | "bad" | "none" };
 export type QuestionRow = { n: number; q: string; answer: string; summary: string; correctCount: number; answered: number; chips: Chip[] };
 export type Tier = { key: "cold" | "close" | "bestie" | "soulmate"; label: string };
@@ -62,7 +62,7 @@ export type ResultView = {
   /** This device's place, e.g. "내 순위 공동 1위 · 1,820점" ("" for the subject / a spectator / ambiguous). */
   mine: string;
   ranks: RankRow[];
-  duo: { line: string; score: string; tier: string; tierKey: string };
+  duo: { line: string; score: string; tier: string; tierKey: string; speed: string };
   emptyText: string;
   questions: QuestionRow[];
   subject: string | null;
@@ -79,7 +79,7 @@ export const LEFT_MARK = "(나감)";
 
 export const EMPTY_VIEW: ResultView = {
   mode: "", kicker: "", title: "", headline: "", mine: "", ranks: [],
-  duo: { line: "", score: "", tier: "", tierKey: "" }, emptyText: "", questions: [],
+  duo: { line: "", score: "", tier: "", tierKey: "", speed: "" }, emptyText: "", questions: [],
   subject: null, iAmSubject: false, total: 0, next: "", nextText: "", sharePrimary: true,
 };
 
@@ -123,6 +123,17 @@ const stripLeft = (nick: string) => {
 /** The player key: the engine's pid; a nick-based key only for an engine without pids. */
 const keyOf = (row: { pid?: string; nick: string }) => (row.pid ? `p:${row.pid}` : `n:${stripLeft(row.nick)}`);
 
+/** Average time of the right answers: "평균 2.3초" (one decimal). */
+export function speedLabel(avgMs: number): string {
+  return `평균 ${(Math.max(0, avgMs) / 1000).toFixed(1)}초`;
+}
+
+/** Whole-number percent, never 100 unless all (99.6 → 99). */
+export function pctOf(n: number, of: number): number {
+  if (of <= 0) return 0;
+  return n >= of ? 100 : Math.floor((n / of) * 100);
+}
+
 /** Ranks with honest ties: rank = 1 + number of strictly higher scores. */
 export function rankScores<T extends { score: number }>(rows: T[]): (T & { rank: number; tied: boolean })[] {
   const sorted = [...rows].sort((a, b) => b.score - a.score); // stable: equal scores keep their order
@@ -165,11 +176,11 @@ export function buildResultView(input: ResultInput): ResultView {
 
   // Answerers: everyone in any round's picks (the engine lists each answerer in
   // every round), plus board rows not in the picks (an engine without a recap).
-  type P = { key: string; pid?: string; nick: string; score: number; fromPicks: boolean; correct: number; left: boolean };
+  type P = { key: string; pid?: string; nick: string; score: number; fromPicks: boolean; correct: number; okMs: number; okN: number; left: boolean };
   const players = new Map<string, P>();
   const add = (row: { pid?: string; nick: string }) => {
     const key = keyOf(row);
-    if (!players.has(key)) players.set(key, { key, pid: row.pid, nick: stripLeft(row.nick), score: 0, fromPicks: false, correct: 0, left: false });
+    if (!players.has(key)) players.set(key, { key, pid: row.pid, nick: stripLeft(row.nick), score: 0, fromPicks: false, correct: 0, okMs: 0, okN: 0, left: false });
     return players.get(key)!;
   };
   for (const r of rounds) {
@@ -180,7 +191,11 @@ export function buildResultView(input: ResultInput): ResultView {
         p.score += Number(pk.points);
         p.fromPicks = true;
       }
-      if (pk.correct) p.correct += 1;
+      if (pk.correct) {
+        p.correct += 1;
+        const ms = Number(pk.ms);
+        if (Number.isFinite(ms) && ms >= 0) { p.okMs += ms; p.okN += 1; }
+      }
     }
   }
   for (const e of board) {
@@ -215,6 +230,8 @@ export function buildResultView(input: ResultInput): ResultView {
     score: r.score,
     scoreLabel: fmtScore(r.score),
     correct: r.correct,
+    accuracyLabel: total > 0 ? `${r.correct}/${total} · ${pctOf(r.correct, total)}%` + (r.okN ? ` · ${speedLabel(r.okMs / r.okN)}` : "") : "",
+    speedLabel: r.okN ? speedLabel(r.okMs / r.okN) : "",
     left: r.left,
     me: isMe(r),
     top: r.rank === 1,
@@ -231,7 +248,7 @@ export function buildResultView(input: ResultInput): ResultView {
     const summary = answered === 0 ? "답한 친구가 없어요"
       : correctCount === 0 ? "아무도 못 맞혔어요"
       : correctCount === chips.length ? (chips.length === 1 ? "맞혔어요" : "모두 맞혔어요")
-      : `${chips.length}명 중 ${correctCount}명 맞힘`;
+      : `${pctOf(correctCount, chips.length)}% 맞힘 (${correctCount}/${chips.length}명)`;
     return { n: i + 1, q: r.q, answer: r.options?.[r.answer] ?? "", summary, correctCount, answered, chips };
   });
 
@@ -254,7 +271,7 @@ export function buildResultView(input: ResultInput): ResultView {
       ...base,
       mode: "duo",
       headline: subjectWord ? `${eulReul(subjectWord)} 얼마나 잘 알까?` : "결과",
-      duo: { line: p.left ? `${line} · 나감` : line, score: total > 0 ? `${p.correct}/${total}` : fmtScore(p.score), tier: tier?.label ?? "", tierKey: tier?.key ?? "" },
+      duo: { line: p.left ? `${line} · 나감` : line, score: total > 0 ? `${p.correct}/${total}` : fmtScore(p.score), tier: tier?.label ?? "", tierKey: tier?.key ?? "", speed: `${fmtScore(p.score)}` + (p.okN ? ` · 맞힌 문제 ${speedLabel(p.okMs / p.okN)}` : "") },
     };
   }
 
@@ -263,7 +280,7 @@ export function buildResultView(input: ResultInput): ResultView {
     ...base,
     mode: "rank",
     headline: subjectWord ? `${eulReul(subjectWord)} 제일 잘 아는 친구는?` : "누가 제일 잘 맞혔을까?",
-    mine: meRow ? `내 순위 ${meRow.rankLabel} · ${meRow.scoreLabel}` : "",
+    mine: meRow ? `내 순위 ${meRow.rankLabel} · ${meRow.scoreLabel}${meRow.accuracyLabel ? ` · ${meRow.accuracyLabel}` : ""}` : "",
   };
 }
 

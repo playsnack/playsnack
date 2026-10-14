@@ -441,7 +441,7 @@
             "children": [
               {
                 "id": "lobbyCount",
-                "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
+                "text": "{phase == 'lobby' ? (quizInfo.custom ? ('출제자 ' + quizInfo.about + ' · 친구 ' + (roster.length - (quizInfo.subjectHere === false ? 0 : 1)) + '명') : ('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
                 "width": 320,
                 "size": 26,
                 "font": "display",
@@ -1011,14 +1011,34 @@
                         "lines": 1
                       },
                       {
-                        "id": "rkScore",
-                        "text": "{item.scoreLabel}",
+                        "id": "rkScoreCol",
+                        "box": "column",
                         "width": "fill",
-                        "size": 16,
-                        "weight": 800,
-                        "color": "{item.top ? '#0b0c0e' : '#ffffff'}",
-                        "align": "right",
-                        "lines": 1
+                        "gap": 0,
+                        "align": "end",
+                        "children": [
+                          {
+                            "id": "rkScore",
+                            "text": "{item.scoreLabel}",
+                            "width": "fill",
+                            "size": 15,
+                            "weight": 800,
+                            "color": "{item.top ? '#0b0c0e' : '#ffffff'}",
+                            "align": "right",
+                            "lines": 1
+                          },
+                          {
+                            "id": "rkAcc",
+                            "text": "{item.accuracyLabel}",
+                            "show": "item.accuracyLabel !== ''",
+                            "width": "fill",
+                            "size": 12,
+                            "weight": 600,
+                            "color": "{item.top ? '#0b0c0e' : '#9aa3af'}",
+                            "align": "right",
+                            "lines": 1
+                          }
+                        ]
                       }
                     ]
                   }
@@ -1054,6 +1074,17 @@
                     "color": "#ffffff",
                     "align": "center",
                     "lines": 2
+                  },
+                  {
+                    "id": "duoSpeed",
+                    "text": "{resultView.duo.speed}",
+                    "show": "resultView.duo.speed !== ''",
+                    "size": 15,
+                    "weight": 700,
+                    "color": "#9aa3af",
+                    "align": "center",
+                    "lines": 1,
+                    "width": "fill"
                   },
                   {
                     "id": "duoTier",

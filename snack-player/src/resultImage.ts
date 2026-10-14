@@ -112,6 +112,10 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
     text(view.duo.score, IMG_W / 2, y, big, COL.accent, "center");
     y += lineH(big) + 8;
     y = para(view.duo.line, y, { font: "body", weight: 700, size: 44 }, COL.ink, 2, "center");
+    if (view.duo.speed) {
+      y += 8;
+      y = para(view.duo.speed, y, { font: "body", weight: 600, size: 34 }, COL.muted, 1, "center");
+    }
     if (view.duo.tier) {
       y += 20;
       const tier = { font: "body" as const, weight: 800, size: 52 }; // a label, not a score: body face
@@ -120,7 +124,7 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
     }
     y += 40;
   } else if (view.mode === "rank") {
-    const rowH = 84;
+    const rowH = 104;
     const maxRows = 5;
     const rows = view.ranks.slice(0, maxRows);
     for (const r of rows) {
@@ -133,8 +137,10 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
       const scoreStyle = { font: "display" as const, weight: 700, size: 40 };
       const ty = y + (rowH - 10 - lineH(nickStyle)) / 2;
       text(r.rankLabel, PAD + 28, ty + 4, rankStyle, sub, "left", 170);
+      // Points (speed counts) on the right; under the name: hit rate and average time.
       const scoreW = Math.min(300, measure(r.scoreLabel, scoreStyle));
-      text(r.scoreLabel, PAD + INNER - 28, ty, scoreStyle, ink, "right", 300);
+      text(r.scoreLabel, PAD + INNER - 28, ty - 14, scoreStyle, ink, "right", 300);
+      if (r.accuracyLabel) text(r.accuracyLabel, PAD + INNER - 28, ty + 34, { font: "body", weight: 600, size: 26 }, sub, "right", 420);
       const nickX = PAD + 28 + 180;
       const leftTag = r.left ? " (나감)" : "";
       text(r.nick + leftTag, nickX, ty, nickStyle, ink, "left", PAD + INNER - 28 - scoreW - 24 - nickX);
