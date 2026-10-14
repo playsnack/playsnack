@@ -18,7 +18,7 @@ const check = (ok, what) => { console.log(`${ok ? "ok  " : "FAIL"} ${what}`); if
 
 const browser = await chromium.launch();
 async function device(path) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, permissions: ["clipboard-read", "clipboard-write"] });
   await ctx.addInitScript(() => { try { localStorage.setItem("snack_nick", "스냅봇"); } catch {} });
   const page = await ctx.newPage();
   const requests = [];
@@ -56,6 +56,10 @@ async function openSheetAndRead(d, name, expected) {
   check(shown === expected, `${name}: link text under the QR is the same link`);
   const btns = await d.page.locator('[role="dialog"] button').evaluateAll((bs) => bs.map((b) => [b.textContent, b.getBoundingClientRect().height]));
   check(btns.length === 2 && btns.every(([, h]) => h >= 44), `${name}: 링크 복사 / 닫기 are 44 px+ (${JSON.stringify(btns)})`);
+  await d.page.getByRole("button", { name: "링크 복사" }).click();
+  await d.page.getByText("링크를 복사했어요").waitFor({ timeout: 3000 });
+  const clip = await d.page.evaluate(() => navigator.clipboard.readText());
+  check(clip === expected, `${name}: 링크 복사 put the same link on the clipboard`);
   await d.page.getByRole("button", { name: "닫기" }).click();
   check(await d.page.getByRole("dialog").count() === 0, `${name}: 닫기 closes the sheet`);
 }
