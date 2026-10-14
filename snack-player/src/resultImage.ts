@@ -133,8 +133,10 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
       const scoreStyle = { font: "display" as const, weight: 700, size: 40 };
       const ty = y + (rowH - 10 - lineH(nickStyle)) / 2;
       text(r.rankLabel, PAD + 28, ty + 4, rankStyle, sub, "left", 170);
-      const scoreW = Math.min(300, measure(r.scoreLabel, scoreStyle));
-      text(r.scoreLabel, PAD + INNER - 28, ty, scoreStyle, ink, "right", 300);
+      // Friends read "how much did they know" — the share image shows the hit rate, not speed points.
+      const right = r.accuracyLabel || r.scoreLabel;
+      const scoreW = Math.min(340, measure(right, scoreStyle));
+      text(right, PAD + INNER - 28, ty, scoreStyle, ink, "right", 340);
       const nickX = PAD + 28 + 180;
       const leftTag = r.left ? " (나감)" : "";
       text(r.nick + leftTag, nickX, ty, nickStyle, ink, "left", PAD + INNER - 28 - scoreW - 24 - nickX);
