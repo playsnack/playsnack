@@ -131,7 +131,7 @@ curl https://snack-room.playsnack.workers.dev/usage
 ```
 - **결과 · 통계(#96) 배포**: ① (권장) `S=$(openssl rand -base64 32)` → Vercel 환경 변수 `ROOM_SERVER_SECRET=$S`(Production · Preview) 넣고 재배포 → ② `cd edge/room && printf %s "$S" | npx wrangler secret put ROOM_SERVER_SECRET` → ③ `npx wrangler deploy`. 순서가 바뀌면(Worker 먼저) API는 비밀이 없어 헤더를 무시하고 보통 클라이언트로 받는다(동작은 함, 주소 버킷 공유). 확인: `curl -i https://snack-room.playsnack.workers.dev/room/tpl-speed-trivia-score~ABCDEFGH/result` → 404 `not_found`(빈 방).
 - 사이트를 옮기면 `wrangler.jsonc`의 `STATS_URL` · `PACK_BASE_URL`을 새 주소로(예: `https://playsnack.pages.dev/...`).
-- 라운드 콘텐츠는 `wrangler.jsonc`의 `PACK_BASE_URL`(= playsnack.vercel.app의 정적 `data/multi-content`).
+- 라운드 콘텐츠는 `wrangler.jsonc`의 `PACK_BASE_URL`(= playsnack.pages.dev의 정적 `data/multi-content`).
 - 플레이어 시험 빌드만: `VITE_ROOM_URL=wss://snack-room.playsnack.workers.dev pnpm player:build` (프로덕션 기본값은 그대로 MQTT).
 - 되돌리기: `npx wrangler delete snack-room` (방은 휘발성이라 잃을 데이터 없음).
 
@@ -169,5 +169,5 @@ curl https://snack-room.playsnack.workers.dev/usage
 
 - **무료 한도**: 결과 저장 = rows 3(쓰기 · 알람 이동 · 나중 삭제), 결과 읽기 = Worker 1 + DO 1 요청 — 방의 `UsageReporter`가 Meter에 보고. 통계 POST는 DO의 하위 요청(Cloudflare 요청 한도에 안 들어감, 10초에 최대 1번).
 - **동면**: 통계 큐는 메모리. 대기 중인 10초 타이머가 있는 동안 DO는 동면하지 않고, 방이 비면 바로 보낸다. 그래도 사라지면 그 이벤트만 빠진다(통계, 게임 아님). 결과는 저장소에 있으므로 동면과 무관.
-- **변수 · 비밀**: `STATS_URL`(wrangler.jsonc vars, 기본 `https://playsnack.vercel.app/api/ev`, `""` = 끔) · `ROOM_SERVER_SECRET`(선택 비밀, Vercel과 같은 값). §9 배포 순서 참고.
+- **변수 · 비밀**: `STATS_URL`(wrangler.jsonc vars, 지금 `https://playsnack.pages.dev/api/ev`, `""` = 끔) · `ROOM_SERVER_SECRET`(Worker와 Pages 프로젝트에 같은 값). §9 배포 순서 참고.
 - 테스트: `packages/snack-room/test/edge-results.test.js` · `api/_test/room-server.test.js` · `snack-player/test/roomResult.test.ts`(`roomResultUrl`).

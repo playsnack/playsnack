@@ -1,6 +1,6 @@
 # Cloudflare Pages — 사이트 + 통계 API 이전 (#75)
 
-상태: **1단계 = 병행 시험 배포** (2026-10-14). 라이브 사이트는 여전히 Vercel(`playsnack.vercel.app`)이고 건드리지 않았다.
+상태: **전환 완료 (2026-10-14, #100)**. 라이브 = `https://playsnack.pages.dev` (Cloudflare Pages + Pages Functions, 방 = 방 서버 `snack-room.playsnack.workers.dev`). `playsnack.vercel.app`은 같은 경로·쿼리로 새 주소에 넘겨 주는 리다이렉트만 남았다(`vercel.json`). 배포는 아직 수동(`node scripts/pages-build.mjs` → `wrangler pages deploy --branch main`); 자동 배포는 별도 이슈.
 시험 주소: **https://test.playsnack.pages.dev** (Pages 프로젝트 `playsnack`의 Preview 브랜치 `test`). 프로덕션(`playsnack.pages.dev`)은 아직 비어 있다(404).
 
 ## 1. 무엇이 어디에

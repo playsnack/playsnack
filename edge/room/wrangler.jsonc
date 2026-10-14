@@ -17,6 +17,6 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Game", "Room", "Meter"] }],
   // Round content: the player's static data/multi-content/<game>.json (same files the mesh host uses).
   // STATS_URL: where the rooms' game stats go (the site's /api/ev; "" = none).
-  "vars": { "PACK_BASE_URL": "https://playsnack.vercel.app/data/multi-content", "STATS_URL": "https://playsnack.vercel.app/api/ev" },
+  "vars": { "PACK_BASE_URL": "https://playsnack.pages.dev/data/multi-content", "STATS_URL": "https://playsnack.pages.dev/api/ev" },
   "observability": { "enabled": false }
 }
