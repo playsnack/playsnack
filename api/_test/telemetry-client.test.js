@@ -236,3 +236,12 @@ test('game helpers DO send the random per-game id (sid / gid) — and nothing el
   assert.deepEqual(evs.map((e) => e.sid ?? e.gid), ['gameSid00000000000A', 'gameSid00000000000B', 'packGid00000000000C']);
   for (const e of evs) assert.deepEqual(Object.keys(e).filter((f) => !['k', 'app', 'p', 'sid', 'gid', 'source'].includes(f)), []);
 });
+
+test('automatedBrowser: webdriver or a headless/bot user agent stops collection; phones do not', async () => {
+  const { automatedBrowser } = await import('../../snack-player/src/telemetry.ts');
+  assert.equal(automatedBrowser({ webdriver: true, userAgent: 'Mozilla/5.0 (iPhone)' }), true);
+  assert.equal(automatedBrowser({ webdriver: false, userAgent: 'Mozilla/5.0 HeadlessChrome/131.0' }), true);
+  assert.equal(automatedBrowser({ webdriver: false, userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/131.0 Mobile Safari/537.36' }), false);
+  assert.equal(automatedBrowser({ webdriver: false, userAgent: 'Mozilla/5.0 (iPhone) KAKAOTALK 10.8.0' }), false);
+  assert.equal(automatedBrowser(undefined), false);
+});
