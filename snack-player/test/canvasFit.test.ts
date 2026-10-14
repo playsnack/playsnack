@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createBite } from "../../packages/bite/src/index.js";
 import { absBoxes, computeScene, initLayout } from "../../packages/bite-layout/src/index.js";
-import { PILLS_BOTTOM, bandBottom, canvasDrop } from "../src/canvasFit.ts";
+import { PILLS_BOTTOM, bandBottom, canvasDrop, frameFit, quizInviteBandRect } from "../src/canvasFit.ts";
 import { buildResultView } from "../src/quizResult.ts";
 import { duo, group } from "./fixtures/quizResult.ts";
 
@@ -93,4 +93,59 @@ test("quiz result at 360×640 (1:1 and group): the 결과 line clears ← 홈", 
     const vars = { sessionPhase: "result", resultView: buildResultView(input), raceBoard: input.raceBoard, roster: input.roster ?? [] };
     assert.deepEqual(await underPills(doc, vars, true), []);
   }
+});
+
+// The quiz lobby's invite band (#94) — the shell's 🔗 친구 초대하기 / 친구 더 부르기 + QR,
+// in CSS px over the canvas. It used to sit at a fixed 34px above the bottom, 52 tall:
+// right for 390×844, but at 360×640 the frame shrinks (0.74) and the band covered the
+// lower half of 시작하기 (a tap there opened the invite / QR instead of starting).
+// Now it is the template's empty band through the canvas fit: on every phone size,
+// in every lobby the quiz shows, it covers no template button or text, and stays on
+// screen. (The result screen: the band is lobby-only — LiveApp quizInvite — and the
+// result's own 친구 초대 / QR take over.)
+type TapInst = Inst & { node: Record<string, unknown>; tap?: { node: { id?: string } } };
+const tappable = (i: TapInst) => Boolean(i.tap); // what the hit test taps (bite-layout hit.js), components included
+async function screenBoxes(doc: { frame: [number, number] }, vars: Record<string, unknown>, w: number, h: number) {
+  await ready;
+  let t = 0;
+  const app = createBite(doc, { now: () => t, random: () => 0.5, warn: () => {} });
+  app.start();
+  app.setVars(vars);
+  for (let f = 0; f < 3; f++) { t += 16; app.tick(); }
+  const { root } = computeScene(doc, app);
+  const boxes = absBoxes(root, new Map()) as Map<string, Box>;
+  const { s, x: ox, y: oy } = frameFit(w, h, doc.frame);
+  const out: { what: string; box: Box }[] = [];
+  for (const inst of walk(root as unknown as Inst) as Generator<TapInst>) {
+    const b = boxes.get(inst.key)!;
+    const a = inst.style?.align;
+    if (tappable(inst)) out.push({ what: `button ${inst.tap!.node.id ?? inst.key}`, box: { x: ox + b.x * s, y: oy + b.y * s, w: b.w * s, h: b.h * s } });
+    (inst.text?.lines ?? []).forEach((l, n) => {
+      if (!l.text.trim()) return;
+      const x = b.x + (a === "center" ? (b.w - l.width) / 2 : a === "right" ? b.w - l.width : 0);
+      out.push({ what: `"${l.text}"`, box: { x: ox + x * s, y: oy + (b.y + n * inst.text!.lineHeight) * s, w: l.width * s, h: inst.text!.lineHeight * s } });
+    });
+  }
+  return out;
+}
+test("quiz lobby: the invite band covers no button or text, on every phone size (#94)", async () => {
+  const doc = JSON.parse(readFileSync(new URL("speed-trivia-score.bite.json", DIR), "utf8"));
+  const mine = { title: "하늘 맞히기", count: 6, custom: true, about: "하늘", answerMs: 9000, packId: "pack-x" };
+  const lobbies: Record<string, unknown>[] = [
+    { roster: ["하늘"], participants: 1 }, // alone: the big 🔗 친구 초대하기
+    { roster: ["가나다라마바사아자차", "하늘"], participants: 2 }, // friends in: 시작하기
+    { roster: ["가나다라마바사아자차", "하늘"], participants: 2, quizInfo: mine, iAmSubject: true }, // my own quiz loaded
+  ];
+  for (const [w, h] of [...SHORT, ...ROOMY]) {
+    const band = quizInviteBandRect(w, h, doc.frame);
+    const ink = { ...band, h: band.h + 4 }; // the 4px block shadow
+    assert.ok(band.h >= 44 && band.y + ink.h <= h && band.x >= 0 && band.x + band.w <= w, `${w}×${h}: band on screen, ${JSON.stringify(band)}`);
+    for (const vars of lobbies) {
+      const over = (await screenBoxes(doc, { sessionPhase: "lobby", ...vars }, w, h)).filter((o) => hit(o.box, ink));
+      assert.deepEqual(over.map((o) => `${o.what} at ${JSON.stringify(o.box)}`), [], `${w}×${h} ${JSON.stringify(vars.roster)}`);
+    }
+  }
+});
+test("quiz lobby band at 390×844 is where it always was (16, 758, 358×52)", () => {
+  assert.deepEqual(quizInviteBandRect(390, 844), { x: 16, y: 758, w: 358, h: 52 });
 });
