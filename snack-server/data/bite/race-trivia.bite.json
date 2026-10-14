@@ -132,7 +132,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -197,7 +197,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -346,7 +346,7 @@
                 "id": "readyTitle",
                 "text": "30초 안에 최대한 많이 맞히세요",
                 "size": 30,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -483,7 +483,7 @@
                 "id": "questionText",
                 "text": "{phase == 'play' ? (('' + (questions[currentQ].q))) : '문제'}",
                 "size": 24,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               }
@@ -672,7 +672,7 @@
                 "id": "finalScore",
                 "text": "{phase == 'result' ? (('' + (score) + '점')) : '0점'}",
                 "size": 44,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },

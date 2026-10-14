@@ -31,7 +31,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -94,7 +94,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -303,7 +303,7 @@
                 "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
                 "width": 320,
                 "size": 26,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },
@@ -525,7 +525,7 @@
                 "id": "tapTxt",
                 "text": "다 같이 탭!",
                 "size": 24,
-                "font": "display",
+                "weight": 700,
                 "color": "#0b0c0e",
                 "align": "center"
               }
@@ -579,7 +579,7 @@
                 "text": "{phase == 'result' ? (coopTotal >= max(60, roster.length * 50) ? '성공! 다 같이 해냈어요' : '아쉽다… 조금 모자랐어요') : ''}",
                 "width": 320,
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },

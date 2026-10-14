@@ -101,7 +101,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -164,7 +164,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -414,7 +414,7 @@
                 "text": "{packPending != '' ? (packPending + ' · 준비 중…') : (quizInfo.custom ? (quizInfo.about + ' 맞히기 · ' + quizInfo.count + '문제' + (iAmSubject ? '' : ' · 곧 시작해요')) : '스피드 퀴즈')}",
                 "width": 320,
                 "size": 22,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center",
                 "lines": 2
@@ -446,7 +446,7 @@
                 "text": "{phase == 'lobby' ? (quizInfo.custom ? ('출제자 ' + quizInfo.about + ' · 친구 ' + (roster.length - (quizInfo.subjectHere === false ? 0 : 1)) + '명') : ('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
                 "width": 320,
                 "size": 26,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },
@@ -1002,7 +1002,7 @@
                 "id": "resTitle",
                 "text": "{resultView.headline || '결과'}",
                 "size": 24,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "lines": 2
               }

@@ -18,7 +18,7 @@ const PAD = 80;
 const INNER = IMG_W - PAD * 2;
 
 // Design system (snack-server/src/tokens.mjs): black + lime as the single hero
-// colour, pixel face (display) only for the title, scores and brand.
+// colour, pixel face (display) only for Latin/digit-only text (score "4/6", brand).
 const COL = { bg: "#0B0C0E", surface: "#16181C", surface2: "#1E2127", ink: "#FFFFFF", muted: "#9AA3AF", accent: "#D9FF00", accentInk: "#0B0C0E", ok: "#22C55E", hairline: "#2A2D33" };
 
 export type FontKind = "body" | "display";
@@ -102,7 +102,7 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
   let y = PAD + 8;
   text(view.subject ? "나 맞히기 퀴즈 결과" : "퀴즈 결과", PAD, y, { font: "body", weight: 700, size: 32 }, COL.muted);
   y += 56;
-  y = para(view.title || "스피드 퀴즈", y, { font: "display", weight: 700, size: 76 }, COL.accent, 2);
+  y = para(view.title || "스피드 퀴즈", y, { font: "body", weight: 700, size: 76 }, COL.accent, 2); // Korean: body 700, not the pixel face (#84)
   y += 16;
   y = para(view.headline, y, { font: "body", weight: 800, size: 44 }, COL.ink, 2);
   y += 36;
@@ -134,7 +134,7 @@ export function planResultImage(view: ResultView, measure: Measure, opts: PlanOp
       const sub = top ? COL.accentInk : COL.muted;
       const rankStyle = { font: "body" as const, weight: 800, size: 34 };
       const nickStyle = { font: "body" as const, weight: 700, size: 40 };
-      const scoreStyle = { font: "display" as const, weight: 700, size: 40 };
+      const scoreStyle = { font: "body" as const, weight: 700, size: 40 }; // "4,111점" has Korean: body face
       const ty = y + (rowH - 10 - lineH(nickStyle)) / 2;
       text(r.rankLabel, PAD + 28, ty + 4, rankStyle, sub, "left", 170);
       // Points (speed counts) on the right; under the name: hit rate and average time.

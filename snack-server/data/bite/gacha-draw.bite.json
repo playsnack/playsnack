@@ -29,7 +29,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -94,7 +94,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -261,7 +261,7 @@
                         "x": 0,
                         "y": 0,
                         "size": 58,
-                        "font": "display",
+                        "weight": 700,
                         "color": "#ffffff",
                         "align": "center"
                       }
@@ -272,7 +272,7 @@
                     "text": "{rarity === 'READY' ? '소환 준비' : rarity}",
                     "width": 280,
                     "size": 32,
-                    "font": "display",
+                    "weight": 700,
                     "color": "{rarity === '전설' ? '#0b0c0e' : '#ffffff'}",
                     "align": "center"
                   },

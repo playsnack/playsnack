@@ -48,12 +48,17 @@ export const TOKENS = {
   shadow: { hardY: 6, hardYsm: 5 },
 
   // ── 서체 (픽셀은 외침=display, 본문은 가독=body) ──
-  // display = Galmuri11(한글+라틴 픽셀, 셀프호스팅 /fonts/galmuri11.woff2) → 제목·점수·뱃지·브랜드.
+  // 규칙(#84): 픽셀 폰트(Galmuri11)는 영문·숫자만 있는 텍스트(로고·점수)에만;
+  //   한글이 들어간 제목은 Pretendard 700. 한 텍스트에는 한 서체 — 한글이 하나라도
+  //   섞이면(동적 값 포함) heading/body 700. 템플릿은 snack-player/test/displayFont.test.ts가 지킨다.
+  // display = Galmuri11(라틴·숫자 픽셀, 셀프호스팅 /fonts/galmuri11*.woff2) → 점수·카운터·라틴 뱃지.
   //   Press Start 2P(라틴 전용 아케이드)는 보조 폴백. @font-face는 index.html.
-  // body = 가독 폰트(긴 한글·잔글씨). 22px 미만 한글엔 display 금지.
+  // heading = Pretendard 700 서브셋("Snack Body", /fonts/snackbody-700.woff2) → 셸의 한글 제목.
+  // body = 가독 폰트(긴 한글·잔글씨).
   font: {
-    display: '"Galmuri11", "Press Start 2P", ui-monospace, monospace',          // 한글+라틴 픽셀 (제목/점수)
+    display: '"Galmuri11", "Press Start 2P", ui-monospace, monospace',          // 라틴/숫자 픽셀 (점수)
     displayLatin: '"Press Start 2P", "Galmuri11", ui-monospace, monospace',      // 라틴/숫자 전용 강한 아케이드 (브랜드마크)
+    heading: '"Snack Body", -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif', // 한글 제목 (Pretendard 700)
     body:    '-apple-system, "Apple SD Gothic Neo", "Pretendard", system-ui, "Segoe UI", Roboto, sans-serif',
   },
 

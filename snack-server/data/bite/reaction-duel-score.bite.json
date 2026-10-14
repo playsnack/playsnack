@@ -35,7 +35,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -98,7 +98,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -328,7 +328,7 @@
                 "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
                 "width": 320,
                 "size": 26,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },
@@ -515,7 +515,7 @@
                 "text": "{phase == 'play' ? (myReacted ? (myResult === 'foul' ? '부정출발! 결과 대기…' : '반응 완료! 결과 대기…') : (reactionGo ? '지금 탭!!' : '초록 되면 탭!')) : '기다려…'}",
                 "width": 320,
                 "size": 30,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               }
@@ -569,7 +569,7 @@
                 "text": "{phase == 'result' ? (raceBoard.length > 0 ? (raceBoard[0].score > 0 ? ((raceBoard.length > 1 && raceBoard[1].score === raceBoard[0].score) ? ('🤝 공동 1위 · ' + (2000 - raceBoard[0].score) + 'ms') : ('' + (raceBoard[0].nick) + ' · ' + (2000 - raceBoard[0].score) + 'ms ⚡')) : '모두 부정출발 😱') : '아무도 안 눌렀어요') : ''}",
                 "width": 330,
                 "size": 23,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               }

@@ -13,7 +13,7 @@ import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 // (master plan D0) — only what is true: the app, its kind, and whether it's
 // played together.
 // Skin = "Mini-Block Arcade": chunky blocks (radius 0 + 2px border + blur:0 hard
-// shadow), lime is the single hero color. Pixel font only for big headings.
+// shadow), lime is the single hero color. Pixel font only for Latin/digit-only text (logo, scores); Korean headings are Pretendard 700.
 
 const CAT: Record<string, string> = {
   worldcup: "월드컵", vote: "투표", quiz: "퀴즈", psych: "테스트", game: "게임",
@@ -103,15 +103,15 @@ const shell: React.CSSProperties = {
   padding: `calc(var(--snack-safe-top) + ${S.s5}px) 16px 40px`, font: `16px ${TOKENS.font.body}`,
 };
 const brand: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: 11, color: C.accent, letterSpacing: 1 };
-const h1: React.CSSProperties = { fontFamily: TOKENS.font.display, fontSize: 22, fontWeight: 800, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 };
-const sectionTitle: React.CSSProperties = { fontFamily: TOKENS.font.display, fontSize: 22, fontWeight: 800, margin: `${S.s5}px 0 ${S.s3}px`, lineHeight: 1.4 };
+const h1: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 700, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 };
+const sectionTitle: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 700, margin: `${S.s5}px 0 ${S.s3}px`, lineHeight: 1.4 };
 const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: S.s3 };
 const card: React.CSSProperties = {
   background: C.surface, border: `${TOKENS.border.block}px solid ${C.borderBlock}`, borderRadius: R.block,
   boxShadow: blockShadow, padding: S.s4, textAlign: "left", cursor: "pointer", color: C.ink,
   display: "flex", flexDirection: "column", alignItems: "flex-start", font: `16px ${TOKENS.font.body}`,
 };
-// Body font: the pixel face is only for headings ≥22px (design system rule).
+// Body font: the pixel face is only for Latin/digit-only text (design system rule).
 const cardTitle: React.CSSProperties = { fontWeight: 800, fontSize: TOKENS.size.bodyMd, marginTop: S.s2, lineHeight: 1.35 };
 const tag: React.CSSProperties = { border: `1px solid ${C.accent}`, color: C.accent, borderRadius: R.chip, padding: "1px 7px", fontSize: 11, fontWeight: 800 };
 const tagInline: React.CSSProperties = { ...tag, fontSize: 12, padding: "1px 6px" };
