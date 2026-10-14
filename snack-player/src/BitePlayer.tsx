@@ -21,6 +21,8 @@ type Props = {
   onSelectText?: (sel: TextSelection) => void;
   /** Visible text nodes (editable = plain authored text, not data-driven). */
   onEditableRects?: (items: EditableRect[]) => void;
+  /** The play area's size (CSS px, below the safe-area top), on mount and on every resize. */
+  onArea?: (w: number, h: number) => void;
 };
 
 // Text nodes the editor can offer: they have an id, sit outside `each` lists and
@@ -41,7 +43,7 @@ function editableTexts(root: Instance) {
 }
 
 /** Plays a Bite document: runtime + Pixi renderer, sized to the parent. */
-export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPhase, onSelectText, onEditableRects }: Props) {
+export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPhase, onSelectText, onEditableRects, onArea }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const hostEventRef = useRef(onHostEvent);
   hostEventRef.current = onHostEvent;
@@ -51,6 +53,8 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
   selectRef.current = onSelectText;
   const rectsRef = useRef(onEditableRects);
   rectsRef.current = onEditableRects;
+  const areaCbRef = useRef(onArea);
+  areaCbRef.current = onArea;
   // On a short phone the canvas starts a little lower so the shell's top row
   // never covers the app's top line (canvasFit.ts).
   const areaRef = useRef<HTMLDivElement>(null);
@@ -59,7 +63,10 @@ export function BitePlayer({ doc, onHostEvent, onReady, editable = false, editPh
   const fh = doc.frame?.[1] ?? 844;
   useEffect(() => {
     const area = areaRef.current!;
-    const measure = () => setDrop(canvasDrop(area.clientWidth, area.clientHeight, [fw, fh]));
+    const measure = () => {
+      setDrop(canvasDrop(area.clientWidth, area.clientHeight, [fw, fh]));
+      areaCbRef.current?.(area.clientWidth, area.clientHeight);
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(area);

@@ -28,6 +28,7 @@ import Toast from "./Toast";
 import { lastResultWatcher, type SavedResult } from "./roomResult";
 // The room's last finished game (docs/room-results.md) — loaded only when there is one.
 const LastResult = lazy(() => import("./LastResult.tsx").then((m) => ({ default: m.LastResult })));
+import { quizInviteBandRect } from "./canvasFit";
 import { SPECTATOR_NOTICE_BOX, SPECTATOR_NOTICE_TEXT, forTemplate, showSpectatorNotice } from "./spectate";
 
 // "나도 만들기" on the quiz result screen opens the maker over this room (lane B).
@@ -362,6 +363,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // reported. A present-but-invalid code never falls back to the public room.
   const code = roomParam.kind === "code" ? roomParam.code : null;
   const [invite, setInvite] = useState<"copied" | "show" | null>(null);
+  const [area, setArea] = useState<[number, number]>([0, 0]); // the play area (BitePlayer), for the quiz invite band
   const [qrOpen, setQrOpen] = useState(false); // the same link as a QR, for friends right here
   const openFriendRoom = () => {
     const p = shareableParams(params);
@@ -432,23 +434,26 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // the shell adds only the invite button, in the band the template leaves
   // empty for it (y 758–810 of the 390×844 frame). Big while only one person is
   // in (by the room's roster), small once friends are there.
-  const quizInvite = isQuiz && withRoom && conn === "connected" && phase === "lobby" && Boolean(code);
+  // Never on the result screen, even if the room's phase reached the template first: its buttons own that band (#94).
+  const quizInvite = isQuiz && withRoom && conn === "connected" && phase === "lobby" && !inResult && Boolean(code) && area[0] > 0;
+  // Placed through the canvas fit, so on a short phone it stays in the template's band, off 시작하기 (#94).
+  const band = quizInviteBandRect(area[0], area[1], doc.frame ?? [390, 844]);
   const alone = roster.length <= 1;
   const people = isQuiz && roster.length ? roster.length : participants;
   // A quiz that did not reach the room is said in the lobby / result only — never over a question being played.
   const showPackFail = Boolean(packFail) && (phase === "lobby" || phase === "result");
   return (
     <>
-      <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} />
+      <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} onArea={(w, h) => setArea([w, h])} />
       <HomeButton />
       {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} />}
       {quizInvite && (
-        <div style={quizInviteBand}>
-          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: 52, flex: 1 } : { ...pill, height: 52 }}
+        <div style={{ ...quizInviteBand, top: `calc(var(--snack-safe-top) + ${band.y}px)`, left: band.x, width: band.w, height: band.h }}>
+          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: band.h, flex: 1 } : { ...pill, height: band.h }}
             onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">
             {alone ? "🔗 친구 초대하기" : "🔗 친구 더 부르기"}
           </button>
-          <QrButton style={{ height: 52, minWidth: 52 }} onClick={() => setQrOpen(true)} />
+          <QrButton style={{ height: band.h, minWidth: band.h }} onClick={() => setQrOpen(true)} />
         </div>
       )}
       {/* Quiz notices (top, under the home row): the invite result while the
@@ -551,12 +556,11 @@ const closeBtn: React.CSSProperties = {
   color: C.ink, fontSize: 16, cursor: "pointer",
 };
 // The quiz lobby's invite band: the template leaves y 758–810 × x 16–374 of its
-// 390×844 frame empty for it (34 px above the frame's bottom edge). The big
-// button fills it; the small one sits at its left (the reaction button, shown
-// once others are in, takes the bottom-right corner).
+// 390×844 frame empty for it; its place on screen is that box through the
+// canvas fit (canvasFit.ts quizInviteBandRect), never a fixed CSS offset (#94).
+// The big button fills it; the small one sits at its left.
 const quizInviteBand: React.CSSProperties = {
-  position: "fixed", left: 16, right: 16, bottom: "calc(var(--snack-safe-bottom) + 34px)", maxWidth: 488, margin: "0 auto",
-  display: "flex", justifyContent: "flex-start", gap: 8, zIndex: 13,
+  position: "fixed", display: "flex", justifyContent: "flex-start", gap: 8, zIndex: 13,
 };
 // Notices over the top of the play area, under the home / people row.
 const topDock: React.CSSProperties = {
