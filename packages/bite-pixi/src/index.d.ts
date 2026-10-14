@@ -7,6 +7,8 @@ export interface BiteView {
   readonly scene: { root: Instance; deps: Set<string> };
   readonly scale: number;
   readonly scroll: ScrollOffsets;
+  /** True while a released list is still moving. */
+  readonly flinging: boolean;
   toClient(x: number, y: number): { x: number; y: number };
   refresh(): void;
   destroy(): void;
@@ -28,3 +30,8 @@ export function mountBite(opts: {
 export function loadFonts(doc: BiteDoc, base?: string): Promise<void>;
 export function fontFamily(font?: string): string;
 export const FAMILY: { body: string; display: string };
+
+/** Where a frame lands in a canvas (contain, centred) — the renderer's fit. */
+export function fitFrame(width: number, height: number, fw: number, fh: number): { scale: number; x: number; y: number };
+/** Client (CSS px) point → frame units, given the canvas's client rect and the fit. */
+export function clientToFrame(clientX: number, clientY: number, rect: { left: number; top: number }, fit: { scale: number; x: number; y: number }): { x: number; y: number };

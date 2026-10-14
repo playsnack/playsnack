@@ -8,7 +8,7 @@ import { readFileSync, mkdirSync, readdirSync } from "node:fs";
 import { createBite } from "../../packages/bite/src/index.js";
 import { initLayout, computeScene, absBoxes } from "../../packages/bite-layout/src/index.js";
 
-const BASE = "http://localhost:5290";
+const BASE = process.env.BITE_CHECK_BASE || "http://localhost:5290"; // another dev port: BITE_CHECK_BASE=http://localhost:<port>
 const outDir = process.argv[2] ?? "/tmp/bite-check";
 mkdirSync(outDir, { recursive: true });
 const results = [];
