@@ -156,7 +156,7 @@ curl https://snack-room.playsnack.workers.dev/usage
 
 ¹ 첫 실행에서 majority-guess 8명 행 1개가 countdown에 멈춤 — 그 시각에 `wrangler.jsonc`를 고쳐 wrangler가 핫리로드(DO 재시작)한 탓(로그로 확인), 재실행 11/11.
 - 명령: `SIM_EDGE_ROOM=1 node snack-server/tools/multiclient-sim.mjs` (허브 자동) / `+ SIM_EDGE_URL=ws://127.0.0.1:4551`(wrangler dev, 콘텐츠는 `--var PACK_BASE_URL:http://127.0.0.1:4550` + 정적 서버).
-- 결과 · 통계(#96): `edge-results`(7) — 허브에서 통과. 포트 `EDGE_TEST_PORT_RESULTS`(기본 4556).
+- 결과 · 통계(#96): `edge-results`(7) — 허브에서 통과. 포트 `EDGE_TEST_PORT_RESULTS`(기본 4556). 2026-10-14 wrangler dev(Miniflare)에서: 친구 방 퀴즈 → `GET /room/<id>/result` 200(혼자 들어온 사람도), 정적 서버로 받은 통계 POST 1번(`game_created` + `session_done` 각 1, UA · `X-Room-Server` 확인, 방 코드 없음); `SIM_EDGE_ROOM=1` multiclient-sim 허브 11/11 · Miniflare 11/11; `edge-room` EDGE_URL 6/6(+1 허브 전용 skip).
 - 포트: 4550 허브(sim) · 4551 wrangler dev · 4552 relay 테스트 · 4553 room 테스트 · 4554 usage 테스트 · 4555 wrangler inspector. wrangler sim 때 콘텐츠 정적 서버는 4550(허브 안 쓸 때).
 
 ## 12. 결과 · 통계 — 호스트 폰이 하던 일을 DO가 (#96)
