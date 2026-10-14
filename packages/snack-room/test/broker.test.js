@@ -93,7 +93,7 @@ test("mqttBus: unreachable broker → failed after the deadline (no endless retr
   await b.close(); // nothing listens there now
   const statuses = [];
   const bus = mqttBus({ url, room: "x", failAfterMs: 400 })("p");
-  bus.onStatus((s) => statuses.push(s));
+  bus.onStatus((s) => s.state !== "attempt" && statuses.push(s)); // outcomes only (tries are reported too)
   assert.ok(await until(() => statuses.length > 0, 2000));
   assert.deepEqual(statuses, [{ state: "failed", reason: "timeout" }]);
   bus.close();
@@ -104,7 +104,7 @@ test("mqttBus: a broker that refuses the connection → failed at once", async (
   const statuses = [];
   const t0 = Date.now();
   const bus = mqttBus({ url: b.url, room: "x", failAfterMs: 5000 })("p");
-  bus.onStatus((s) => statuses.push(s));
+  bus.onStatus((s) => s.state !== "attempt" && statuses.push(s)); // outcomes only (tries are reported too)
   assert.ok(await until(() => statuses.length > 0, 3000));
   assert.equal(statuses[0].state, "failed");
   assert.match(statuses[0].reason, /^refused/);
@@ -119,7 +119,7 @@ test("mqttBus: the connection drops before SUBACK → reconnects and subscribes 
   const b = await startLocalBroker({ cutOnSubscribe: 1 });
   const statuses = [];
   const bus = mqttBus({ url: b.url, room: "cut", failAfterMs: 6000 })("cutp");
-  bus.onStatus((s) => statuses.push(s));
+  bus.onStatus((s) => s.state !== "attempt" && statuses.push(s)); // outcomes only (tries are reported too)
   let ready = false;
   bus.ready.then(() => (ready = true));
   assert.ok(await until(() => ready || statuses.length > 0, 6000), "neither ready nor failed");
@@ -144,7 +144,7 @@ test("mqttBus: the connection keeps dropping before SUBACK → failed 'subscribe
   const statuses = [];
   const t0 = Date.now();
   const bus = mqttBus({ url: b.url, room: "cut2", failAfterMs: 8000 })("cutr");
-  bus.onStatus((s) => statuses.push(s));
+  bus.onStatus((s) => s.state !== "attempt" && statuses.push(s)); // outcomes only (tries are reported too)
   assert.ok(await until(() => statuses.length > 0, 9000));
   assert.deepEqual(statuses, [{ state: "failed", reason: "subscribe" }]);
   assert.ok(b.stats.cut >= 3, `tried ${b.stats.cut}×`);
@@ -162,7 +162,7 @@ test("mqttBus: a refused subscription (SUBACK 0x80) is tried again on the same c
   b.aedes.authorizeSubscribe = (_client, sub, cb) => (refusals-- > 0 ? cb(null, null) : cb(null, sub)); // null → granted 0x80
   const statuses = [];
   const bus = mqttBus({ url: b.url, room: "refused" })("refp");
-  bus.onStatus((s) => statuses.push(s));
+  bus.onStatus((s) => s.state !== "attempt" && statuses.push(s)); // outcomes only (tries are reported too)
   let ready = false;
   bus.ready.then(() => (ready = true));
   assert.ok(await until(() => ready || statuses.length > 0, 4000));
@@ -205,6 +205,88 @@ test("mesh over the lossy local broker: 3 players, exact tap race", async () => 
   assert.equal(new Set(ps.map((p) => JSON.stringify(p.shared.raceBoard))).size, 1);
   ps.forEach((p) => p.conn.close());
   await sleep(150);
+  await b.close();
+});
+
+// A slow public broker (seen live 2026-10-14: "connack timeout" twice, then in after ~20 s).
+// Timings scaled down: one try waits 400 ms for CONNACK, the next starts 100 ms later.
+const SLOW = { connectTimeoutMs: 400, reconnectMs: 100 };
+
+test("mqttBus: the broker swallows the first 2 CONNECTs → joins on the 3rd try, each try reported", async () => {
+  const b = await startLocalBroker({ dropConnects: 2 });
+  const statuses = [];
+  const t0 = Date.now();
+  const bus = mqttBus({ url: b.url, room: "slow", failAfterMs: 4000, ...SLOW })("slowp");
+  bus.onStatus((s) => statuses.push(s));
+  let ready = false;
+  bus.ready.then(() => (ready = true));
+  assert.ok(await until(() => ready || statuses.some((s) => s.state === "failed"), 5000));
+  assert.ok(ready, JSON.stringify(statuses));
+  const ms = Date.now() - t0;
+  assert.ok(ms >= 2 * SLOW.connectTimeoutMs, `joined after ${ms} ms — too fast for 2 swallowed CONNECTs`);
+  assert.equal(b.stats.droppedConnects, 2);
+  assert.equal(b.stats.connects, 3);
+  assert.equal(bus.attempts, 3);
+  assert.deepEqual(statuses, [
+    { state: "attempt", attempt: 2, reason: "connack timeout" },
+    { state: "attempt", attempt: 3, reason: "connack timeout" },
+  ]);
+  bus.close();
+  await sleep(100);
+  await b.close();
+});
+
+test("mqttBus: a CONNACK slower than usual but inside one try's wait → in on the 1st try", async () => {
+  const b = await startLocalBroker({ connackDelayMs: 250 });
+  const bus = mqttBus({ url: b.url, room: "late", failAfterMs: 4000, ...SLOW })("latep");
+  const t0 = Date.now();
+  await bus.ready;
+  assert.ok(Date.now() - t0 >= 250);
+  assert.equal(bus.attempts, 1);
+  bus.close();
+  await sleep(100);
+  await b.close();
+});
+
+test("mqttBus: a broker that never answers → keeps trying for the whole join budget, then failed 'timeout' (and stops)", async () => {
+  const b = await startLocalBroker({ dropConnects: 1000 });
+  const statuses = [];
+  const t0 = Date.now();
+  const bus = mqttBus({ url: b.url, room: "never", failAfterMs: 1800, ...SLOW })("neverp");
+  bus.onStatus((s) => s.state === "failed" && statuses.push({ ...s, at: Date.now() - t0 }));
+  assert.ok(await until(() => statuses.length > 0, 4000));
+  const [f] = statuses;
+  assert.equal(f.reason, "timeout");
+  assert.ok(f.at >= 1800 && f.at < 2300, `failed at ${f.at} ms (budget 1800)`);
+  assert.ok(b.stats.connects >= 3, `only ${b.stats.connects} tries in the budget`);
+  assert.equal(bus.attempts, b.stats.connects);
+  const tries = b.stats.connects;
+  await sleep(800); // no more tries after giving up
+  assert.equal(b.stats.connects, tries);
+  bus.close();
+  await b.close();
+});
+
+test("mesh over a slow broker: 2 players, each CONNACK-less twice, still meet (2명)", async () => {
+  const b = await startLocalBroker({ dropConnects: 4 });
+  const T = { discoveryMs: 400, beatMs: 200, silenceMs: 1500, snapshotMs: 100, resendMs: 700 };
+  const ps = [1, 2].map((n) => {
+    const s = { participants: 0, statuses: [] };
+    connectMesh({
+      createBus: mqttBus({ url: b.url, room: "slowmesh", failAfterMs: 5000, ...SLOW }),
+      me: { slug: "slowmesh", anonId: `s${n}`, nick: `느림${n}` },
+      timing: T,
+      onStatus: (st) => s.statuses.push(st.state),
+      onMessage: (m) => {
+        if (m.t === "state" && typeof m.d.participants === "number") s.participants = m.d.participants;
+        else if (m.t === "participants") s.participants = m.d.count;
+      },
+    });
+    return s;
+  });
+  assert.ok(await until(() => ps.every((p) => p.participants === 2), 8000), JSON.stringify(ps));
+  assert.equal(b.stats.droppedConnects, 4);
+  assert.ok(ps.every((p) => p.statuses.join() === "connecting,connected"));
   await b.close();
 });
 
