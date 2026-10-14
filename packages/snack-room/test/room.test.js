@@ -1370,15 +1370,18 @@ test("early reveal: an answerer who already answered leaving does not reveal whi
   assert.equal(revealed(h), true, "full window");
 });
 
-test("early reveal: someone joining during the beat reopens the round to the window's own end", async () => {
+test("early reveal: a player coming back during the beat reopens the round to the window's own end (a newcomer only watches)", async () => {
   const h = harness();
-  [1, 2].forEach(h.join);
+  [1, 2, 3].forEach(h.join);
   h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
   h.act(1, "start", QUIZ_START);
   await h.advance(3000 + 1000);
+  h.room.leave("p3"); // drops out before answering (e.g. app switch)
   h.act(2, "answer", { option: 0, ms: 900 });
   await h.advance(300);
-  h.join(3); // mid-beat: a new answerer is now on the roster
+  h.join(4); // a newcomer mid-game is a spectator: the beat stays
+  assert.deepEqual(prog(h), { answered: 1, of: 1 });
+  h.join(3); // mid-beat: a player of this game is back on the roster
   assert.deepEqual(prog(h), { answered: 1, of: 2 });
   await h.advance(8000 - 1300 - 1);
   assert.equal(revealed(h), false, "not revealed early — p3 may still answer");
@@ -1441,4 +1444,189 @@ test("early reveal: a hand-over during the beat keeps it (timer as remaining ms)
   d.act(3, "answer", { option: 0, ms: 2000 });
   await d.advance(600);
   assert.equal(revealed(d), true, "the real last answer pulls it in");
+});
+
+// ── Spectators: a first join during countdown / play watches until the next start ──
+const ackFor = (h, n, name) => h.out.filter((m) => m.type === "actionAck" && m.to === `p${n}` && m.d.clientMsgId === `m${n}${name}`).at(-1)?.d;
+const flagOf = (h, n) => h.room.playerVars(`p${n}`).iAmSpectator;
+
+test("spectate: a late joiner mid-quiz watches — flag in its state, answers refused (spectator), not in progress / board / recap / acted", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 2) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 1000);
+  h.join(4);
+  assert.equal(stateTo(h, "p4").iAmSpectator, true, "the flag rides in the joiner's state");
+  assert.equal(flagOf(h, 2), undefined, "players never get the flag");
+  assert.equal(h.v("spectators"), 1);
+  assert.deepEqual(prog(h), { answered: 0, of: 2 });
+  h.act(4, "answer", { option: shownAnswer(h), ms: 100 });
+  assert.deepEqual(ackFor(h, 4, "answer"), { clientMsgId: "m4answer", accepted: false, reason: "spectator" });
+  assert.deepEqual(prog(h), { answered: 0, of: 2 });
+  h.act(2, "answer", { option: shownAnswer(h), ms: 900 });
+  h.act(3, "answer", { option: shownAnswer(h), ms: 900 });
+  await h.advance(600);
+  assert.ok(revealed(h), "early reveal is not held up by the spectator");
+  assert.deepEqual(rows(h.v("raceBoard")).map((x) => x.nick), ["닉2", "닉3"]);
+  await h.advance(60000);
+  assert.equal(h.v("sessionPhase"), "result");
+  const recap = h.v("quizRecap");
+  assert.ok(recap.rounds.every((r) => r.picks.every((p) => p.nick !== "닉4")), "no recap row for the spectator");
+  assert.deepEqual([...h.room._state.session.acted].sort(), ["a1", "a2", "a3"]);
+  assert.equal(flagOf(h, 4), true, "still watching in the result (until the next start)");
+  // next start: a normal player
+  h.act(1, "start", QUIZ_START);
+  await h.advance(0);
+  assert.equal(flagOf(h, 4), false);
+  assert.ok(h.out.some((m) => m.to === "p4" && m.type === "setVar" && m.d.id === "iAmSpectator" && m.d.value === false));
+  assert.equal(h.v("spectators"), 0);
+  await h.advance(3000 + 500);
+  assert.deepEqual(prog(h), { answered: 0, of: 3 });
+  h.room.action("p4", { name: "answer", payload: { option: shownAnswer(h), ms: 300 }, clientMsgId: "m4again" });
+  assert.equal(h.out.filter((m) => m.d?.clientMsgId === "m4again").at(-1).d.accepted, true);
+  assert.deepEqual(prog(h), { answered: 1, of: 3 });
+});
+
+test("spectate: joining during the countdown watches too; joining during the content fetch plays", async () => {
+  const h = harness({ pack: QS });
+  [1, 2].forEach(h.join);
+  h.act(1, "start", QUIZ_START);
+  h.join(3); // the lobby is still up while the pack loads
+  await h.advance(1000); // countdown
+  h.join(4);
+  assert.equal(stateTo(h, "p3").iAmSpectator, undefined);
+  assert.equal(stateTo(h, "p4").iAmSpectator, true);
+  await h.advance(2500);
+  assert.deepEqual(prog(h), { answered: 0, of: 3 });
+});
+
+test("spectate: a player's reload mid-play is not a spectator (same anonId); a spectator's reload stays one", async () => {
+  const h = harness();
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
+  h.act(1, "start", QUIZ_START);
+  await h.advance(3000 + 1000);
+  h.room.leave("p2");
+  h.room.join("p2b", { anonId: "a2", nick: "닉2" }); // reloaded tab
+  assert.equal(stateTo(h, "p2b").iAmSpectator, undefined);
+  h.room.action("p2b", { name: "answer", payload: { option: 0, ms: 500 }, clientMsgId: "r2" });
+  assert.equal(h.out.filter((m) => m.d?.clientMsgId === "r2").at(-1).d.accepted, true);
+  h.room.leave("p1");
+  h.room.join("p1b", { anonId: "a1", nick: "닉1" }); // the subject is back: never a spectator
+  assert.notEqual(stateTo(h, "p1b").iAmSpectator, true);
+  h.join(5);
+  h.room.leave("p5");
+  h.room.join("p5b", { anonId: "a5", nick: "닉5" });
+  assert.equal(stateTo(h, "p5b").iAmSpectator, true);
+  assert.equal(h.v("spectators"), 1);
+});
+
+test("spectate: a hand-over keeps spectators and members (arrays in the snapshot); rejoins change nothing", async () => {
+  const a = harness();
+  [1, 2, 3].forEach(a.join);
+  a.act(1, "quizPack", { title: "나", questions: QS.slice(0, 2) });
+  a.act(1, "start", QUIZ_START);
+  await a.advance(3000 + 1000);
+  a.join(4);
+  const snap = JSON.parse(JSON.stringify(a.room.snapshot()));
+  assert.deepEqual(snap.session.spectators, ["a4"]);
+  assert.deepEqual(snap.session.members, ["a1", "a2", "a3"]);
+  a.room.destroy();
+  const b = harness();
+  await b.advance(55555);
+  b.room.restore(snap, 0);
+  [4, 1, 2, 3].forEach(b.join); // the spectator back first
+  assert.equal(stateTo(b, "p4").iAmSpectator, true);
+  assert.equal(stateTo(b, "p2").iAmSpectator, undefined);
+  b.act(4, "answer", { option: 0, ms: 100 });
+  assert.equal(ackFor(b, 4, "answer").reason, "spectator");
+  b.act(2, "answer", { option: b.room._state.session.rounds[0].answer, ms: 900 });
+  b.act(3, "answer", { option: b.room._state.session.rounds[0].answer, ms: 900 });
+  assert.deepEqual(prog(b), { answered: 2, of: 2 });
+  await b.advance(600);
+  assert.ok(revealed(b));
+});
+
+test("spectate: tap battle / reaction / vote / guess / nunchi / tally / score — a spectator never scores or counts", async () => {
+  // tap race
+  const t = harness();
+  [1, 2].forEach(t.join);
+  t.act(1, "start", { duration: 6000 });
+  await t.advance(3000 + 1000);
+  t.join(3);
+  t.act(3, "taps", { count: 10 });
+  t.act(3, "tap");
+  t.act(3, "tally", { delta: 5 });
+  t.act(3, "score", { score: 999 });
+  t.act(2, "taps", { count: 5 });
+  for (const name of ["taps", "tap", "tally", "score"]) assert.equal(ackFor(t, 3, name).reason, "spectator", name);
+  await t.advance(6000);
+  assert.deepEqual(rows(t.v("raceBoard")), [{ nick: "닉2", score: 5 }]);
+  assert.ok(!t.room._state.session.acted.has("a3"));
+  assert.equal(t.room._state.coop, 0);
+  // reaction
+  const r = harness({ random: () => 0 });
+  [1, 2].forEach(r.join);
+  r.act(1, "start", { mode: "reaction" });
+  await r.advance(3000 + 1500 + 100);
+  r.join(3);
+  r.act(3, "reaction", { ms: 120 });
+  assert.equal(ackFor(r, 3, "reaction").reason, "spectator");
+  await r.advance(5000);
+  assert.ok(!(r.v("raceBoard") ?? []).some((x) => x.nick === "닉3"));
+  // bracket: the spectator's vote neither counts nor holds up "everyone voted"
+  const b = harness({ pack: ["A", "B", "C", "D"], defaults: { o0: 0, o1: 0 } });
+  [1, 2].forEach(b.join);
+  b.act(1, "start", { game: "wc", bracket: true, matchupMs: 8000 });
+  await b.advance(3000 + 100);
+  b.join(3);
+  b.act(3, "vote", { option: "o1" });
+  assert.equal(ackFor(b, 3, "vote").reason, "spectator");
+  assert.deepEqual(b.v("votesByOption"), { o0: 0, o1: 0 });
+  b.act(1, "vote", { option: "o0" });
+  b.act(2, "vote", { option: "o0" });
+  await b.advance(600);
+  assert.equal(b.v("matchWinner"), 0, "everyone playing voted → advances early");
+  // guess
+  const g = harness({ pack: [{ a: "x", b: "y" }] });
+  [1, 2].forEach(g.join);
+  g.act(1, "start", { game: "majority", mode: "guess", rounds: 1, roundMs: 5000 });
+  await g.advance(3000);
+  g.join(3);
+  g.act(3, "vote", { option: "o0" });
+  g.act(1, "vote", { option: "o0" });
+  await g.advance(5000);
+  assert.ok(!g.v("raceBoard").some((x) => x.nick === "닉3"));
+  // nunchi: a spectator is never "alive" (no 공동 생존 with a watcher)
+  const n = harness();
+  [1, 2].forEach(n.join);
+  n.act(1, "start", { mode: "nunchi" });
+  await n.advance(3000);
+  n.join(3);
+  n.act(3, "tap");
+  assert.equal(ackFor(n, 3, "tap").reason, "spectator");
+  await n.advance(30000);
+  assert.ok(!String(n.v("nunchiWinner")).includes("닉3"), n.v("nunchiWinner"));
+  // the lobby is not a session: nobody is refused there
+  const l = harness({ defaults: { A: 0 } });
+  l.join(1);
+  l.act(1, "start", { duration: 3000 });
+  await l.advance(3000 + 100);
+  l.join(2);
+  l.act(1, "lobby");
+  l.act(2, "vote", { option: "A" });
+  assert.equal(ackFor(l, 2, "vote").accepted, true);
+});
+
+test("spectate: a room that never had a spectator never sends the flag or the count (MP-13)", async () => {
+  const h = harness();
+  [1, 2].forEach(h.join);
+  h.act(1, "start", { duration: 3000 });
+  await h.advance(6000);
+  h.join(3); // after the game: a player
+  h.act(1, "start", { duration: 3000 });
+  await h.advance(6000);
+  assert.ok(!h.out.some((m) => m.d?.id === "iAmSpectator" || m.d?.id === "spectators"));
+  assert.ok(!("spectators" in h.room.sharedState()));
 });
