@@ -261,6 +261,58 @@ async function simOne(id, n) {
   return { id, kind, clients: n, ok, converged, desyncEvents, tallyError, participantsAccurate };
 }
 
+// Spectator row (나 맞히기): c0 (subject) + c1, c2 play; c3 opens the link mid-round. c3 is
+// told it is watching (iAmSpectator, spectators = 1 everywhere), its fastest-of-all answer is
+// refused, the round is still revealed early once c1 and c2 answered (not at the window's
+// end), the board and recap hold only c1 and c2, and c3 sees the result like everyone else.
+const SPECTATE_ID = "speed-trivia-score";
+async function simSpectator(id) {
+  const doc = loadDoc(id);
+  const sp = startPayload(doc) || {};
+  const slug = `${SLUG_PREFIX}${id}-spectate`;
+  const players = Array.from({ length: 3 }, (_, i) => new SimClient(slug, `${slug}-c${i}`, `c${i}`));
+  await Promise.all(players.map((c) => c.ready));
+  await sleep(SETTLE_MS);
+  for (let w = 0; MESH && w < 6000 && !players.every((c) => c.participants === 3); w += 200) await sleep(200);
+  const ANSWER_MS = 10000;
+  const pack = { title: "sim 관전", questions: [{ q: "c0가 좋아하는 과일은?", options: ["사과", "배", "감", "귤"], answer: 3 }], settings: { rounds: 1, answerMs: ANSWER_MS } };
+  players[0].quizPack(pack);
+  await until(() => players.every((c) => c.shared.quizInfo?.custom === true), 8000);
+  players[0].start({ ...sp, revealMs: 1500 });
+  const reachedPlay = await until(() => players.every((c) => c.shared.sessionPhase === "play" && c.shared.roundContent?.q === pack.questions[0].q), 8000);
+  const playAt = Date.now();
+  const late = new SimClient(slug, `${slug}-c3`, "c3"); // opens the link mid-round
+  await late.ready;
+  const all = [...players, late];
+  const flagged = await until(() => late.shared.iAmSpectator === true && all.every((c) => c.shared.spectators === 1), SETTLE_MS + 3000);
+  const playersUnflagged = players.every((c) => c.shared.iAmSpectator !== true);
+  const right = (late.shared.roundContent?.options ?? []).indexOf("귤");
+  late.answer(right, 30); // would top the board if it counted
+  await sleep(400);
+  const claim = { c1: 300, c2: 450 };
+  players[1].answer(right, claim.c1);
+  players[2].answer(right, claim.c2);
+  const revealed = await until(() => (players[0].shared.roundAnswer ?? -1) >= 0, ANSWER_MS);
+  const revealAfter = Date.now() - playAt;
+  const early = revealed && revealAfter < ANSWER_MS - 1500; // early reveal: not held up by the spectator
+  const pts = (ms) => Math.max(100, 1000 - Math.round((ms / ANSWER_MS) * 800));
+  const want = [["c1", pts(claim.c1)], ["c2", pts(claim.c2)]];
+  const view = (c) => ({ ans: c.shared.roundAnswer, board: (c.shared.raceBoard || []).map((e) => [e.nick, e.score]) });
+  const { converged, desyncEvents } = await settle(all, view, (v) => v.ans === right && JSON.stringify(v.board) === JSON.stringify(want));
+  const boardOk = JSON.stringify(view(players[0]).board) === JSON.stringify(want);
+  const progressOk = players[0].shared.quizProgress?.of === 2;
+  const resultSeen = await until(() => all.every((c) => c.phases.includes("play") && c.sawInOrder("play", "result")), 12000);
+  const recapOk = await until(() => all.every((c) => JSON.stringify((c.shared.quizRecap?.rounds?.[0]?.picks || []).map((p) => p.nick).sort()) === JSON.stringify(["c1", "c2"])), SETTLE_MS + 3000);
+  all.forEach((c) => c.close());
+  await sleep(60);
+  const ok = reachedPlay && flagged && playersUnflagged && early && converged && desyncEvents === 0 && boardOk && progressOk && resultSeen && recapOk;
+  return {
+    id: `${id}:spectator`, kind: "session:quiz:spectator", clients: 4, ok, reachedPlay, flagged, playersUnflagged, revealAfterMs: revealAfter, earlyReveal: early,
+    converged, desyncEvents, boardOk, progressOk, reachedResult: resultSeen, recapOk, board: view(players[0]).board,
+    ...(ok ? {} : { want, progress: players[0].shared.quizProgress, recap: players[0].shared.quizRecap?.rounds?.[0]?.picks }),
+  };
+}
+
 async function main() {
   const broker = await prepareMesh();
   const argv = process.argv.slice(2);
@@ -284,6 +336,13 @@ async function main() {
       results.push(merged);
     } catch (e) {
       results.push({ id, ok: false, error: String(e?.message ?? e) });
+    }
+  }
+  if (targets.includes(SPECTATE_ID)) {
+    try {
+      results.push(await simSpectator(SPECTATE_ID));
+    } catch (e) {
+      results.push({ id: `${SPECTATE_ID}:spectator`, ok: false, error: String(e?.message ?? e) });
     }
   }
   // clean up this run's throwaway persisted vote files (best-effort)
