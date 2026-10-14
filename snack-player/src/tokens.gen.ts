@@ -46,6 +46,7 @@ export const TOKENS = {
   "font": {
     "display": "\"Galmuri11\", \"Press Start 2P\", ui-monospace, monospace",
     "displayLatin": "\"Press Start 2P\", \"Galmuri11\", ui-monospace, monospace",
+    "heading": "\"Snack Body\", -apple-system, \"Apple SD Gothic Neo\", system-ui, sans-serif",
     "body": "-apple-system, \"Apple SD Gothic Neo\", \"Pretendard\", system-ui, \"Segoe UI\", Roboto, sans-serif"
   },
   "size": {

@@ -12,14 +12,15 @@
       // Preload only the fonts this screen draws first, in parallel with the app
       // code. Play links (#/p/… or /p/…) draw the app canvas: body 500 + 700 and
       // the pixel face (every official app uses these three; see
-      // packages/bite-pixi/src/fonts.js). Home draws pixel headings.
-      // Subsets: scripts/subset_fonts.py.
+      // packages/bite-pixi/src/fonts.js; the pixel subset is Latin/digits only,
+      // a few KB). Home draws Korean headings in Snack Body 700 and the SNACK
+      // mark in Press Start 2P. Subsets: scripts/subset_fonts.py.
       (function () {
         var play = /^#\/p\//.test(location.hash) || /\/p\//.test(location.pathname);
         var base = location.pathname.replace(/\/p\/.*$/, "/").replace(/[^/]*$/, "") + "fonts/";
         var files = play
           ? ["snackbody-500.woff2", "snackbody-700.woff2", "galmuri11.woff2"]
-          : ["galmuri11-bold.woff2?ui", "pressstart2p.woff2"];
+          : ["snackbody-700.woff2?ui", "pressstart2p.woff2"];
         var preload = function (href, as, type) {
           var l = document.createElement("link");
           l.rel = "preload";
@@ -44,13 +45,19 @@
     </script>
 
     <style>
-      /* Mini-Block Arcade display faces — self-hosted pixel fonts (no CDN).
-         galmuri11*.woff2 are subsets covering the shell's text (checked by
-         scripts/subset_fonts.py --check). Headings are weight 800, so they get
-         the real bold cut (not a browser-smeared regular); the weight split
-         matches the canvas (packages/bite-pixi/src/fonts.js). "?ui" keeps these
-         faces from claiming the canvas's preload of the same file (Chrome then
-         fetches it twice). */
+      /* Mini-Block Arcade faces — self-hosted (no CDN), subsets built by
+         scripts/subset_fonts.py. Korean headings use "Snack Body" 700 (the same
+         Pretendard subset the canvas draws with); the pixel faces are only for
+         Latin/digit-only text (logo, scores — #84), so their subsets carry no
+         Hangul. The weight split matches the canvas
+         (packages/bite-pixi/src/fonts.js). "?ui" keeps these faces from
+         claiming the canvas's preload of the same file (Chrome then fetches it
+         twice). */
+      @font-face {
+        font-family: "Snack Body";
+        src: url("/fonts/snackbody-700.woff2?ui") format("woff2");
+        font-weight: 650 1000; font-style: normal; font-display: swap;
+      }
       @font-face {
         font-family: "Galmuri11";
         src: url("/fonts/galmuri11.woff2?ui") format("woff2");

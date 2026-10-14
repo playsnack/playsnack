@@ -41,7 +41,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -106,7 +106,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -206,7 +206,7 @@
                 "id": "readyTitle",
                 "text": "색의 리듬을\n기억해 보세요",
                 "size": 32,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -886,7 +886,7 @@
                 "id": "resultTitle",
                 "text": "기억 완료!",
                 "size": 30,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },

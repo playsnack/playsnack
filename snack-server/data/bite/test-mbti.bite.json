@@ -29,7 +29,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -206,7 +206,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -309,7 +309,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -412,7 +412,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -515,7 +515,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -618,7 +618,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -721,7 +721,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -824,7 +824,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -927,7 +927,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -1030,7 +1030,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -1133,7 +1133,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -1236,7 +1236,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -1339,7 +1339,7 @@
                 "width": 326,
                 "minHeight": 68,
                 "size": 25,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -1449,7 +1449,7 @@
                 "id": "resultName",
                 "text": "{phase == 'result' ? ((e >= 2 ? (n >= 2 ? (t >= 2 ? (j >= 2 ? \"대담한 지휘관\" : \"뜨거운 토론가\") : (j >= 2 ? \"정의로운 사회운동가\" : \"재기발랄한 활동가\")) : (t >= 2 ? (j >= 2 ? \"엄격한 관리자\" : \"모험을 즐기는 사업가\") : (j >= 2 ? \"사교적인 외교관\" : \"자유로운 연예인\"))) : (n >= 2 ? (t >= 2 ? (j >= 2 ? \"용의주도한 전략가\" : \"호기심 많은 논리술사\") : (j >= 2 ? \"선의의 옹호자\" : \"열정적인 중재자\")) : (t >= 2 ? (j >= 2 ? \"청렴결백한 현실주의자\" : \"만능 재주꾼\") : (j >= 2 ? \"용감한 수호자\" : \"호기심 많은 예술가\"))))) : '빛나는 설계자'}",
                 "size": 22,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },

@@ -44,7 +44,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -107,7 +107,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -320,7 +320,7 @@
                 "text": "{phase == 'lobby' ? (('참가자 ' + (roster.length) + '명')) : '참가자 1명'}",
                 "width": 320,
                 "size": 26,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },
@@ -515,7 +515,7 @@
                 "text": "{phase == 'play' ? (roundContent.a || '') : ''}",
                 "width": 320,
                 "size": 27,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -587,7 +587,7 @@
                 "text": "{phase == 'play' ? (roundContent.b || '') : ''}",
                 "width": 320,
                 "size": 27,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -658,7 +658,7 @@
                 "text": "{phase == 'result' ? (raceBoard.length > 0 ? ((raceBoard.length > 1 && raceBoard[1].score === raceBoard[0].score) ? ('🤝 ' + (raceBoard.filter(e => e.score === raceBoard[0].score).map(e => e.nick).join(' · ')) + ' 공동 눈치왕!') : ('' + (raceBoard[0].nick) + ' 눈치왕! 🧠')) : '결과') : ''}",
                 "width": 330,
                 "size": 24,
-                "font": "display",
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               }

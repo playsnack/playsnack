@@ -55,7 +55,7 @@
             "id": "title",
             "text": "미국 캐릭터 월드컵",
             "size": 26,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -262,7 +262,7 @@
             "id": "winnerName",
             "text": "{phase == 'result' ? (champion ? champion.name : '') : ''}",
             "size": 30,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -359,8 +359,8 @@
           },
           {
             "text": "{props.name}",
-            "font": "display",
             "size": 30,
+            "weight": 700,
             "color": "#FFFFFF",
             "align": "center",
             "lines": 1

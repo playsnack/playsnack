@@ -29,7 +29,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -94,7 +94,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -506,7 +506,7 @@
                 "id": "readyTitle",
                 "text": "오늘의 운을 돌려보세요",
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -982,7 +982,7 @@
                 "id": "resultTitle",
                 "text": "{phase == 'result' ? (finalIndex === 0 ? '커피 쿠폰' : (finalIndex === 1 ? '칭찬 3번' : (finalIndex === 2 ? '간식 타임' : (finalIndex === 3 ? '스트레칭 5분' : (finalIndex === 4 ? '꽝! 다음 기회' : (finalIndex === 5 ? '물 한잔 미션' : (finalIndex === 6 ? '좋아하는 노래' : '귀여운 벌칙'))))))) : '결과'}",
                 "size": 34,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -1016,7 +1016,7 @@
                     "id": "resultText",
                     "text": "{phase == 'result' ? (finalIndex === 0 ? '커피 쿠폰' : (finalIndex === 1 ? '칭찬 3번' : (finalIndex === 2 ? '간식 타임' : (finalIndex === 3 ? '스트레칭 5분' : (finalIndex === 4 ? '꽝! 다음 기회' : (finalIndex === 5 ? '물 한잔 미션' : (finalIndex === 6 ? '좋아하는 노래' : '귀여운 벌칙'))))))) : '커피 쿠폰'}",
                     "size": 30,
-                    "font": "display",
+                    "weight": 700,
                     "color": "#0b0c0e",
                     "align": "center"
                   }

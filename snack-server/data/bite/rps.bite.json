@@ -30,7 +30,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -93,7 +93,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -185,7 +185,7 @@
                 "text": "{result === '' ? '아래에서 골라요!' : result === 'win' ? '이겼다! 🎉' : result === 'draw' ? '비겼어요 🤝' : '아쉽다 😢'}",
                 "width": 300,
                 "size": 24,
-                "font": "display",
+                "weight": 700,
                 "color": "{result === 'win' ? '#d9ff00' : result === 'lose' ? '#FF5A5F' : '#ffffff'}",
                 "align": "center"
               }

@@ -40,7 +40,7 @@ export function reportResultEvent(e: ResultEvent, slug: string, gameKey: string)
 
 const IMAGE_FONTS: BiteDoc = {
   bite: 1, frame: [390, 844], vars: {}, start: "s", phases: { s: {} },
-  view: { box: "column", children: [{ text: "가", weight: 500 }, { text: "가", weight: 800 }, { text: "가", font: "display", weight: 700 }] },
+  view: { box: "column", children: [{ text: "가", weight: 500 }, { text: "가", weight: 800 }, { text: "0", font: "display", weight: 700 }] },
 } as unknown as BiteDoc;
 
 export function useResultExtras({ doc, slug, params, onInvite }: {

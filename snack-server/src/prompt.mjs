@@ -68,7 +68,7 @@ SIZE: "width"/"height": number | "fill" (take remaining space) | "hug" (content 
 STYLE (box): "fill": "#rrggbb[aa]", "gradient": {"colors":[…], "angle": 135}, "radius": n|"full",
   "stroke": {"color","width"}, "shadow": {"x","y","blur","color"}, "clip": true|"circle", "opacity", "rotate", "scale".
 TEXT: "size", "weight" (100–900), "color", "align": left|center|right, "lines" (max lines, ellipsis),
-  "font": "display" for TITLES/SCORES/BADGES only (pixel face; never for Korean under 22px).
+  "font": "display" (pixel face) ONLY for text with no Korean at all — Latin/digit scores, counters, "VS", "TAP" (e.g. "4/6", "GO!"). Any text that has or can show Korean (titles, names, "12점") uses the default body face, "weight": 700 for titles.
 IMAGE: "fit": cover|contain, "focus": center|top, "radius".
 LIST: { "box": "column", "gap": 8, "each": "items", "children": [ { … "{item.name}" … "{index + 1}" … } ] }
   — the children repeat per array element; inside, \`item\` and \`index\` are available.
@@ -143,7 +143,7 @@ Pure games, counters and personality tests do NOT need it.
 ═══ DESIGN TOKENS — use these, keep it disciplined ═══
 bg ${T.bg} · surface(card) ${T.surface} · raised ${T.surfaceTop} · border ${T.border} · accent(lime) ${T.accent} · text-on-accent ${T.onAccent} · text ${T.text} · muted ${T.textMuted} · danger ${T.danger}.
 ONE background, ONE accent (the primary action / current pick / 1st place — never decoration). Text on lime is always ${T.onAccent}.
-Type: title 28–34 display, section 18–20/700, body 15–17/500, caption 12–13 muted. Square block corners, 2px borders,
+Type: title 28–34/700 (body face; display only for Latin/digit scores), section 18–20/700, body 15–17/500, caption 12–13 muted. Square block corners, 2px borders,
 hard offset shadows ({"x":0,"y":6,"blur":0,"color":"#000000"}). Real-world subjects: "image": "/api/img?q=<english keyword>".
 
 ═══ VARIABLE MODELING ═══

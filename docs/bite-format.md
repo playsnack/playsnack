@@ -91,7 +91,7 @@
 ### 2.4 텍스트·이미지 전용
 | 키 | 값 |
 |---|---|
-| `font` | `body`(기본, Pretendard — 읽는 글) \| `display`(Galmuri11 픽셀 — 제목·점수·뱃지) |
+| `font` | `body`(기본, Pretendard — 읽는 글, 한글 제목은 `weight: 700`) \| `display`(Galmuri11 픽셀 — 영문·숫자만 있는 텍스트: 점수·카운터·라틴 뱃지. 한글이 들어가거나 들어올 수 있는 텍스트엔 쓰지 않는다. 공식 템플릿은 `snack-player/test/displayFont.test.ts`가 검사) |
 | `size` | 글자 크기 px. 기본 15 |
 | `weight` | 100–900. 기본 500 (가까운 굵기로: body 400–900, display 400/700) |
 | `color` | 글자 색. 기본 `#ffffff` |

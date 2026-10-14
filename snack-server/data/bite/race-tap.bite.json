@@ -29,7 +29,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -94,7 +94,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -230,7 +230,7 @@
                 "id": "readyTitle",
                 "text": "10초 동안\n최대한 빠르게 탭하세요",
                 "size": 31,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
@@ -448,7 +448,7 @@
                 "id": "finalScore",
                 "text": "{phase == 'result' ? (('' + (score) + '점')) : '0점'}",
                 "size": 48,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },

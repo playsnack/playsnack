@@ -50,7 +50,7 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
       <style>{CSS}</style>
       <div style={{ width: "100%", maxWidth: 380 }}>
         <div style={brand}>SNACK</div>
-        <h1 style={{ fontFamily: TOKENS.font.display, fontSize: 22, fontWeight: 800, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 }}>닉네임을 정해주세요</h1>
+        <h1 style={{ fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 700, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 }}>닉네임을 정해주세요</h1>
         <p style={{ color: C.inkMuted, margin: `0 0 ${S.s5}px`, fontSize: TOKENS.size.bodyMd }}>{SERVERLESS ? "같이 하는 방에서 이 이름으로 보여요." : "같이 하는 방에서 이 이름·사진으로 보여요."}</p>
 
         {/* selfie — block frame (square, 핀 꽂힌 폴라로이드 느낌). Needs the server to store it. */}

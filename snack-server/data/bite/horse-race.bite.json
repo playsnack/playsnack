@@ -31,7 +31,7 @@
             "id": "title",
             "text": "{props.title}",
             "size": 28,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           },
           {
@@ -94,7 +94,7 @@
             "id": "val",
             "text": "{props.value}",
             "size": 40,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff"
           }
         ]
@@ -444,7 +444,7 @@
             "id": "raceTitle",
             "text": "🏁 출발! 두구두구…",
             "size": 22,
-            "font": "display",
+            "weight": 700,
             "color": "#ffffff",
             "align": "center"
           },
@@ -726,7 +726,7 @@
                 "text": "{phase == 'result' ? (('🐎 ' + (winner + 1) + '번 말 우승!')) : ''}",
                 "width": 300,
                 "size": 28,
-                "font": "display",
+                "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
               },
