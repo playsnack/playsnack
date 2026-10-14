@@ -1,0 +1,57 @@
+# Deploys the live site (Cloudflare Pages: playsnack.pages.dev) and the room server
+# (Cloudflare Worker: snack-room.playsnack.workers.dev) on every push to main.
+# Secrets: CLOUDFLARE_API_TOKEN (Pages: Edit + Workers Scripts: Edit), CLOUDFLARE_ACCOUNT_ID.
+# Free: public-repo Actions minutes; Pages direct upload doesn't use Pages build minutes.
+name: Deploy to Cloudflare
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Room server first: the site's new build may rely on room-server changes.
+      - name: Deploy room server (snack-room)
+        working-directory: edge/room
+        run: |
+          pnpm install --ignore-workspace --frozen-lockfile || pnpm install --ignore-workspace
+          npx wrangler deploy
+
+      - name: Build site (rooms = room server)
+        run: node scripts/pages-build.mjs
+
+      - name: Deploy site (Pages production)
+        run: edge/room/node_modules/.bin/wrangler pages deploy snack-player/dist --project-name playsnack --branch main --commit-hash "$GITHUB_SHA" --commit-message "${{ github.event.head_commit.message || 'manual deploy' }}"
+
+      - name: Smoke check
+        run: |
+          for p in / /p/tpl-speed-trivia-score /stats /data/bite/index.json; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://playsnack.pages.dev$p")
+            echo "$p $code"; [ "$code" = 200 ] || exit 1
+          done
+          curl -sf https://playsnack.pages.dev/api/ev | grep -q '"store":"kv"'
+          curl -sf https://snack-room.playsnack.workers.dev/usage > /dev/null

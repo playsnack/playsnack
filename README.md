@@ -67,9 +67,8 @@ strangers from stumbling in. Rooms run on the room server (Cloudflare Durable Ob
 answers never reach phones before the reveal.
 
 Live at **https://playsnack.pages.dev** (Cloudflare Pages + Pages Functions for `/api/*`;
-rooms on `snack-room.playsnack.workers.dev`; stats in Upstash). Deploy: `node
-scripts/pages-build.mjs` then `wrangler pages deploy --project-name playsnack --branch
-main` (see `docs/cloudflare-pages.md`). `playsnack.vercel.app` only redirects there
+rooms on `snack-room.playsnack.workers.dev`; stats in Upstash). Every merge to `main` deploys automatically
+(`.github/workflows/deploy-cloudflare.yml`; see `docs/cloudflare-pages.md`). `playsnack.vercel.app` only redirects there
 (`vercel.json`), keeping the path and query.
 
 **With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
