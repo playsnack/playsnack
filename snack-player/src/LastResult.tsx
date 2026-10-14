@@ -94,11 +94,10 @@ export function LastResult({ saved, slug, myNick, onAgain }: { saved: SavedResul
             ))}
           </section>
         )}
-
-        <p style={keep}>{KEEP_NOTE}</p>
-        {note && <div role="status" style={{ ...keep, color: C.ink }}>{note}</div>}
       </div>
       <div style={actions}>
+        {note && <div role="status" style={{ ...keep, color: C.ink }}>{note}</div>}
+        <p style={keep}>{KEEP_NOTE}</p>
         {view.mode !== "" && <button className="blk" style={secondaryBtn} onClick={() => void share()}>결과 공유</button>}
         <button className="blk" style={primaryBtn} onClick={onAgain}>이 방에서 한 판 더</button>
       </div>
