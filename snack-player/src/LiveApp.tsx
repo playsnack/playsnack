@@ -6,7 +6,9 @@ import type { BiteDoc } from "@snack/bite";
 import "pixi.js/browser";
 import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
-import { getAnonId, getNick, isNickAuto } from "./identity";
+import { getAnonId, getNick, isNickAuto, setNick } from "./identity";
+import { NameCard } from "./NameCard";
+import { showNameCard } from "./nameChoice";
 import { CONNECT_TIMEOUT_MS, type ConnState, type RoomTransport } from "./roomTransport";
 import { createRoom, EDGE_ROOM_SERVER, hrefTo, isFreshRoom, loadRoomDoc, markFreshRoom, navigate, SERVERLESS } from "./backend";
 import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams } from "./links";
@@ -69,6 +71,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const fxRef = useRef<HTMLDivElement | null>(null);
   const retryRef = useRef<() => void>(() => {});
   const [reactOpen, setReactOpen] = useState(false);
+  // "이름 정하기" (#104, nameChoice.ts): this device's identity as the room transport holds it,
+  // and whether the guest name was auto-assigned and not yet kept / changed on this page.
+  const meRef = useRef<{ slug: string; anonId: string; nick: string } | null>(null);
+  const [nickAuto, setNickAuto] = useState(isNickAuto);
+  const [nameChosen, setNameChosen] = useState(false);
   // Spectating a game in progress (spectate.ts): this player's flag and the room's phase.
   const [spectator, setSpectator] = useState<{ me: unknown; phase: string }>({ me: false, phase: "" });
   // ── "나 맞히기" quiz (only the quiz app): the room's phase, quizInfo, roster
@@ -150,7 +157,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       show: setLastResult,
       ...(EDGE_ROOM_SERVER ? { fetchResult: (id: string) => fetchRoomResult(id, undefined, EDGE_ROOM_SERVER) } : {}),
     });
-    const room: RoomTransport = createRoom({ slug: roomIdFor(slug, params), anonId: getAnonId(), nick: getNick() ?? "" }, params);
+    // The transport keeps this object: a rename (#104) updates its nick, so a reconnect's hello
+    // and a mesh heartbeat say the new name too.
+    const me = { slug: roomIdFor(slug, params), anonId: getAnonId(), nick: getNick() ?? "" };
+    meRef.current = me;
+    const room: RoomTransport = createRoom(me, params);
     roomRef.current = room;
     const join = joinTracker({ slug, room: roomIdFor(slug, params) }); // room_join telemetry + ?debug=1 log
     let silence: ReturnType<typeof setTimeout> | undefined;
@@ -331,6 +342,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     return () => removeEventListener(MAKE_EVENT, open);
   }, [isQuiz]);
   const finishMaker = (pack: QuizPack) => {
+    // The maker's "내 이름" (a guest picks a real one there) is this player's name in the room too.
+    renameInRoom(getNick() ?? "");
+    setNickAuto(isNickAuto());
     const store = deviceQuizStore();
     store.rememberRoomPack(roomId, pack, quizRef.current.info?.packId ?? null);
     store.clearDraft();
@@ -340,6 +354,26 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     setPackFail(null);
     setMakerOpen(false);
     quizTick();
+  };
+
+  // This device's nickname changed (the card, the maker): tell the room (`rename`, taken in the
+  // lobby / result — where the card and the maker are) and the transport (its next hello / heartbeat).
+  const renameInRoom = (nick: string) => {
+    const me = meRef.current;
+    if (!me || !nick || nick === me.nick) return;
+    me.nick = nick;
+    roomRef.current?.sendAction("rename", { nick });
+  };
+  const keepName = () => {
+    setNick(getNick() ?? meRef.current?.nick ?? ""); // no longer the auto name (storage permitting)
+    setNameChosen(true);
+    setNickAuto(isNickAuto());
+  };
+  const changeName = (nick: string) => {
+    setNick(nick);
+    setNameChosen(true);
+    renameInRoom(nick);
+    setNickAuto(isNickAuto());
   };
 
   const onReady = (rt: Runtime | undefined) => {
@@ -448,6 +482,12 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const people = isQuiz && roster.length ? roster.length : participants;
   // A quiz that did not reach the room is said in the lobby / result only — never over a question being played.
   const showPackFail = Boolean(packFail) && (phase === "lobby" || phase === "result");
+  // "이름 정하기" (#104): a guest name in a connected room's lobby, until kept or changed. It
+  // steps aside while something else holds the top of the screen.
+  const nameCard = showNameCard({
+    auto: nickAuto, chosen: nameChosen, live: withRoom && conn === "connected", phase: spectator.phase,
+    covered: makerOpen || Boolean(lastResult) || inResult || Boolean(invite) || qrOpen || showPackFail,
+  });
   return (
     <>
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} onArea={(w, h) => setArea([w, h])} />
@@ -492,6 +532,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
             : <button className="blk" style={pill} onClick={openFriendRoom} aria-label="친구끼리 하는 방 만들기">🤝 친구끼리</button>}
         </div>
       )}
+      {nameCard && <NameCard nick={getNick() ?? meRef.current?.nick ?? ""} onKeep={keepName} onChange={changeName} />}
       {makerOpen && (
         <Suspense fallback={<LoadingScreen />}>
           <QuizMaker nick={getNick() ?? ""} nickAuto={isNickAuto()} doneLabel="완료 · 이 방에서 하기" closeLabel="✕ 닫기"
