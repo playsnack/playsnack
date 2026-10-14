@@ -22,6 +22,10 @@ import { createLimiter, DEFAULTS } from './_lib/ratelimit.js';
 
 /** The browser asked not to be tracked (the client already stays silent; this covers any other sender). */
 const privacySignal = (request) => request.headers.get('sec-gpc') === '1' || request.headers.get('dnt') === '1';
+/** Test robots and crawlers (headless browsers, link-preview bots): their events are not counted.
+    The player already stays silent when navigator.webdriver is set; this covers the rest. */
+export const AUTOMATED_UA = /HeadlessChrome|Headless|PhantomJS|Playwright|Puppeteer|Lighthouse|bot\b|crawler|spider|preview/i;
+const automated = (request) => AUTOMATED_UA.test(request.headers.get('user-agent') ?? '');
 
 const GET_CACHE_MS = 30_000;
 // Readable days (≤ 92) + readable ISO weeks (≤ 15) all fit, so the cache never thrashes.
@@ -151,7 +155,7 @@ export function createHandler(opts = {}) {
     const t = now();
     const today = kstDay(t);
     const month = kstMonth(t);
-    if (privacySignal(request)) return new Response(null, { status: 204, headers: { 'cache-control': 'no-store', 'x-ev-store': store.kind } });
+    if (privacySignal(request) || automated(request)) return new Response(null, { status: 204, headers: { 'cache-control': 'no-store', 'x-ev-store': store.kind } });
     if (lim.check(request, t)) return json(429, { ok: false, error: 'rate_limited' }, store.kind, { 'retry-after': '60' });
     const text = await readLimited(request, MAX_BODY_BYTES);
     if (text === null) return json(413, { ok: false, error: 'too_large' }, store.kind);
