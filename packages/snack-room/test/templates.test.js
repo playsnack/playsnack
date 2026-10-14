@@ -103,7 +103,13 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] }
   // A node's text / prop as device i renders it now.
   const nodeById = (nid, n = load(id).view) => (n?.id === nid ? n : (n?.children ?? []).map((c) => nodeById(nid, c)).find(Boolean));
   const prop = (i, nid, key = "text") => app(i).value(key.split(".").reduce((o, k) => o?.[k], nodeById(nid)));
-  return { room, advance, app, prop, gone, reload, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
+  // A new device (a new player) opens the link now.
+  const late = (nick) => {
+    nicks.push(nick);
+    boot(nicks.length - 1, nick);
+    return nicks.length - 1;
+  };
+  return { room, advance, app, prop, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
 }
 
 test("tap-battle: game 2 started by the OTHER device — board == 내 탭 card on the non-starter", async () => {
@@ -377,4 +383,55 @@ test("speed-trivia: 나도 만들기 from a default-quiz result — while the pa
   assert.equal(T.prop(1, "nextBannerTxt"), "B 맞히기 · 준비 중…");
   await T.advance(3500);
   assert.equal(T.phase(1), "result", "the old quiz did not restart");
+});
+
+// Spectators (lane S): someone who opens the link mid-game watches — banner, question and
+// reveal, tiles inert — and does not hold up the early reveal; from the next start they play.
+test("speed-trivia spectate: a late joiner mid-quiz sees '관전 중 · A 맞히기 n/N', the question and the reveal; tiles inert; plays the next game", async () => {
+  const T = table("speed-trivia-score", ["A", "B", "C"]);
+  T.room.action("p0", { name: "quizPack", payload: { title: "A 맞히기", questions: QS2, settings: { answerMs: 8000 } }, clientMsgId: "pack" });
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(1000); // countdown
+  const early = T.late("E"); // joins during the countdown
+  await T.advance(32);
+  assert.equal(T.v(early, "iAmSpectator"), true);
+  assert.equal(T.prop(early, "specBannerCTxt"), "👀 관전 중 · 다음 판부터 같이 해요");
+  await T.advance(2000 + 500);
+  assert.equal(T.phase(1), "play");
+  const d = T.late("D"); // opens the link mid-round
+  await T.advance(32);
+  assert.equal(T.phase(d), "play");
+  assert.equal(T.v(d, "iAmSpectator"), true);
+  assert.equal(T.v(1, "iAmSpectator"), false, "players have no banner");
+  assert.equal(T.prop(d, "specBannerTxt"), "👀 관전 중 · A 맞히기 1/2");
+  assert.equal(T.prop(d, "qText"), T.prop(1, "qText"), "the question is shown");
+  assert.equal(T.prop(d, "statusText"), "친구들이 고르는 중… (0/2)");
+  assert.equal(T.prop(d, "progressText"), "", "the count is in the status line (like the subject's)");
+  T.tap(d, `tile${rightOf(T, d)}`);
+  await T.advance(32);
+  assert.equal(T.v(d, "myAnswerRound"), -2, "tiles are inert for a spectator");
+  assert.equal(T.v(1, "quizProgress.answered"), 0);
+  T.tap(1, `tile${rightOf(T, 1)}`);
+  T.tap(2, `tile${rightOf(T, 2)}`);
+  await T.advance(32);
+  assert.equal(T.prop(d, "statusText"), "다 골랐어요! 곧 공개 (2/2)", "two spectators do not hold up the early reveal");
+  await T.advance(600);
+  assert.ok(T.v(d, "roundAnswer") >= 0);
+  assert.equal(T.prop(d, "statusText"), "정답 공개!");
+  assert.match(T.prop(d, `tile${rightOf(T, d)}Txt`), /^✓ /, "the reveal is shown");
+  assert.deepEqual(T.v(d, "raceBoard").map((x) => x.nick), ["B", "C"]);
+  await T.advance(3000 + 9000 + 3000 + 500);
+  assert.equal(T.phase(d), "result", "the result like everyone else");
+  assert.ok(T.v(d, "quizRecap").rounds.every((r) => r.picks.every((p) => p.nick !== "D" && p.nick !== "E")));
+  // the next game: D plays
+  T.room.action("p0", { name: "start", payload: { game: "trivia", quiz: true }, clientMsgId: "again" });
+  await T.advance(3000 + 300);
+  assert.equal(T.phase(d), "play");
+  assert.equal(T.v(d, "iAmSpectator"), false);
+  T.tap(d, `tile${rightOf(T, d)}`);
+  await T.advance(32);
+  assert.equal(T.v(d, "myAnswerRound"), 0);
+  assert.equal(T.v(1, "quizProgress.answered"), 1);
+  assert.equal(T.v(1, "quizProgress.of"), 4);
 });

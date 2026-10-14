@@ -177,3 +177,10 @@ test("?make=1 is device-only: never in an invite or public link built from the p
   assert.equal(shareableParams(params).has(MAKE_PARAM), false);
   assert.equal(params.get("make"), "1", "the caller's params are not changed");
 });
+
+test("?debug= is device-only too: an invite from an old hash link carrying it never turns a friend's log on", () => {
+  const { route } = parseRoute(loc("/", "", "#/p/tpl-quiz-me?room=ABCDEFGH23&debug=1"));
+  const invite = friendLink("https://x.example", route.slug!, route.params, "ABCDEFGH23");
+  assert.equal(invite, "https://x.example/p/tpl-quiz-me?room=ABCDEFGH23");
+  assert.equal(publicLink(route.slug!, route.params), "/p/tpl-quiz-me");
+});

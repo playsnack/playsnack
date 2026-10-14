@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { SERVERLESS, hrefTo } from "./backend";
+import { SERVERLESS, hrefTo, navigate } from "./backend";
+import { StatsLink } from "./StatsLink";
 import { homeApps, type CatalogEntry } from "./catalog";
 import { MessageScreen } from "./Screens";
 import { playPath } from "./links";
@@ -87,6 +88,9 @@ export function Discover() {
         {!SERVERLESS && (
           <button className="blk" style={makeCta} onClick={() => { location.href = hrefTo("/create"); }}>➕ 나도 하나 만들어 공유</button>
         )}
+
+        {/* For everyone: what happened on PlaySnack, as anonymous counts. */}
+        <StatsLink onOpen={() => navigate("/stats")} />
       </div>
     </div>
   );

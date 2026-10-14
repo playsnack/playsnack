@@ -7,6 +7,7 @@
 
 import { debugEnabled, dlog, noteRoomMessage } from "./debugLog";
 import { engineMetrics } from "./telemetry";
+import { engineResults } from "./roomResult";
 
 export type RoomMessage = { t: string; d: Record<string, unknown> };
 
@@ -277,7 +278,9 @@ export class MeshTransport extends EngineTransport {
       createBus: mqttBus({ room: this.me.slug, url: this.brokerUrl || undefined }),
       me: this.me,
       getPack: this.getPack,
-      engine: engineMetrics(this.me.slug), // games are reported by the host only (docs/telemetry.md §9.5)
+      // games are reported by the host only (docs/telemetry.md §9.5); a friends room's
+      // finished game is saved for its link (docs/room-results.md)
+      engine: { ...engineMetrics(this.me.slug), ...engineResults(this.me.slug) },
       onRole: (isHost) => dlog("host", isHost ? "this device hosts the room" : "another player hosts"),
       // Mesh internals for the test log: line adoption / discovery; stale-host drops only counted.
       debug: debugEnabled()

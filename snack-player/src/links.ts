@@ -8,8 +8,9 @@
 //   #/p/<slug>?…              the old hash form — read like the path form and
 //                             rewritten to it (parseRoute → canonical)
 //   ?bite=<name>              the Bite dev player (unchanged)
+//   /stats                    the anonymous stats page (StatsPage.tsx)
 
-export type Route = { name: "home" | "create" | "live" | "bite"; slug?: string; params: URLSearchParams };
+export type Route = { name: "home" | "create" | "live" | "bite" | "stats"; slug?: string; params: URLSearchParams };
 export type ParsedRoute = {
   route: Route;
   /** For an old hash link: the same route as a path link (the URL to replace it with). */
@@ -35,6 +36,7 @@ function routeOf(path: string, params: URLSearchParams): Route {
   const live = path.match(/^\/p\/([^/?#]+)/);
   if (live) return { name: "live", slug: decode(live[1]), params };
   if (path.startsWith("/create")) return { name: "create", params };
+  if (path === "/stats" || path === "/stats/") return { name: "stats", params };
   return { name: "home", params };
 }
 
@@ -139,8 +141,9 @@ export function appApiPath(slug: string, params: URLSearchParams): string {
 /** `?make=1`: open the quiz maker (quiz.ts). Only for the device that has it —
     never carried into a link handed to someone else. */
 export const MAKE_PARAM = "make";
-/** Params that act on this device only (dropped from every shared/derived link). */
-const DEVICE_ONLY_PARAMS = [MAKE_PARAM];
+/** Params that act on this device only (dropped from every shared/derived link).
+    `debug` turns the on-device test log on (debugLog.ts); a friend never gets it. */
+const DEVICE_ONLY_PARAMS = [MAKE_PARAM, "debug"];
 
 /** A link's params without the device-only ones, safe to hand out. */
 export function shareableParams(params: URLSearchParams): URLSearchParams {

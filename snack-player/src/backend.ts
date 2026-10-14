@@ -154,6 +154,8 @@ export const BROKER_URL = (import.meta.env.VITE_BROKER_URL as string | undefined
 // first join skips the mesh's wait for an existing host. In memory, used once.
 const freshRooms = new Set<string>();
 export const markFreshRoom = (roomId: string) => void freshRooms.add(roomId);
+/** Whether this page made the room a moment ago (read before createRoom, which uses it up). */
+export const isFreshRoom = (roomId: string) => freshRooms.has(roomId);
 export function createRoom(me: Identity, params: URLSearchParams): RoomTransport {
   if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts), freshRooms.delete(me.slug));
   const ws = (SERVER_URL || location.origin).replace(/^http/, "ws");

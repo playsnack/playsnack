@@ -101,6 +101,8 @@ results.push(noPublicBroker());
 const lossyEnv = { SIM_LOSSY: "1", ORACLE_DROP: "", ORACLE_MAX_DELAY: "" };
 results.push(run("serverless-sim", "node", ["snack-server/tools/multiclient-sim.mjs"], { env: { ...lossyEnv, SIM_MESH: "1" }, lossy: true }));
 results.push(run("serverless-oracle", "node", ["snack-server/tools/serverless-oracle.mjs"], { env: lossyEnv, lossy: true }));
+// Saved room results (docs/room-results.md): a 1:1 quiz → both leave → a third browser sees the ranking.
+results.push(run("room-result-e2e", "node", ["snack-server/tools/room-result-e2e.mjs"]));
 
 if (up) {
   console.log(`\nℹ  server mode at ${BASE}: the player is rebuilt below — if the oracle answers "Cannot GET", (re)start snack-server AFTER this build (it only serves a dist that existed when it started).`);

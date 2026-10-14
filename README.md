@@ -127,6 +127,8 @@ modify, redistribute or host. See [`LICENSE`](LICENSE).
 ## Third-party
 
 Code: [jsep](https://github.com/EricSmekens/jsep) (MIT), [yoga-layout](https://github.com/facebook/yoga) (MIT),
-[pixi.js](https://github.com/pixijs/pixijs) (MIT), React (MIT), Express (MIT), ws (MIT), [MQTT.js](https://github.com/mqttjs/MQTT.js) (MIT).
+[pixi.js](https://github.com/pixijs/pixijs) (MIT), React (MIT), Express (MIT), ws (MIT), [MQTT.js](https://github.com/mqttjs/MQTT.js) (MIT),
+[qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) (MIT, Kazuhiko Arase — the invite QR; "QR Code" is a
+registered trademark of DENSO WAVE). Tests only: [jsQR](https://github.com/cozmo/jsQR) (Apache-2.0).
 Fonts (bundled in `snack-player/public/fonts`): [Pretendard](https://github.com/orioncactus/pretendard) and
 [Galmuri](https://github.com/quiple/galmuri), both SIL Open Font License 1.1 — license texts alongside the font files.

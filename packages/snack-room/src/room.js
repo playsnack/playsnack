@@ -143,6 +143,9 @@ const buildMatchups = (cands) => {
  *   first move into "result"; players = took part (S.acted, a quiz subject counts); quiz only: about, answerers (subject excluded)
  * @param {(e: {gid: string, source: "editor" | "remake"}) => void} [o.onGameCreated]
  *   a valid quiz pack was accepted; remake = sent after a finished game by someone who was not its subject
+ * @param {(result: {v: 1, sid: string, endedAt: number, title?: string, about?: string, board: {pid: string, nick: string, score: number, left?: boolean}[], quizRecap?: object}) => void} [o.onResult]
+ *   saved room results (docs/room-results.md): a scored game reached its result (board = raceBoard order,
+ *   nick without the left mark); once per sid on this engine; the shell adds `app` and posts it
  */
 export function createRoom(o) {
   const {
@@ -162,6 +165,7 @@ export function createRoom(o) {
     onSessionStart = () => {},
     onSessionEnd = () => {},
     onGameCreated = () => {},
+    onResult = () => {},
   } = o;
   // A metrics hook must never break the room.
   const report = (hook, e) => {
@@ -284,11 +288,20 @@ export function createRoom(o) {
     }
   };
   const toResult = () => {
+    const first = S.phase !== "result" && S.sid; // a hand-over restored in the result never reports again
     S.lateUntil = now() + LATE_GRACE_MS; // a last tap batch / reaction may still be in flight
     if (S.quiz) setVar("quizRecap", quizRecap());
     setPhase("result");
     setKnown("raceBoard", raceBoard()); // a vote / co-op session has no board to show
     setKnown("leaderboard", board());
+    if (first && r.vars.has("raceBoard")) report(onResult, savedResult());
+  };
+  // The finished game for the room link's result page (docs/room-results.md).
+  const savedResult = () => {
+    const m = S.quizMeta ?? {};
+    const res = { v: 1, sid: S.sid, endedAt: now(), board: raceBoard().map(({ nick, score, pid, left }) => (left ? { pid, nick: nick.slice(0, -LEFT_MARK.length - 1), score, left } : { pid, nick, score })) };
+    if (S.quiz) Object.assign(res, { quizRecap: r.vars.get("quizRecap") }, m.title ? { title: m.title } : {}, m.about ? { about: m.about } : {});
+    return res;
   };
   // session_done (telemetry §9.1): who took part, and for a quiz whether it was about someone + who answered.
   const sessionEnded = () => {
@@ -297,6 +310,28 @@ export function createRoom(o) {
     return e;
   };
   const inWindow = () => S.phase === "play" || (S.phase === "result" && now() <= (S.lateUntil ?? 0));
+
+  // Spectators: someone whose first join in this session comes during its countdown / play
+  // watches it — no answers, taps, votes or scores, not counted for early reveal / progress /
+  // "everyone voted" — and plays from the next start. S.members = who was on the roster when
+  // the countdown began (plus a quiz's subject), so a member's reload or return is never a
+  // spectator. Both are data (arrays in the snapshot): a hand-over keeps them.
+  const isMember = (anonId) => !S.members || S.members.has(anonId) || isSubject(anonId);
+  const isSpectator = (anonId) => Boolean(S.spectators?.has(anonId)) && S.phase !== "lobby";
+  const spectatorsHere = () => [...r.roster.keys()].filter((id) => S.spectators?.has(id)).length;
+  const publishSpectators = () => {
+    const n = spectatorsHere();
+    if (n > 0 || r.vars.has("spectators")) setVar("spectators", n); // MP-13: only once a room has had one
+  };
+  // The per-player flag goes out only to spectators (true) and back to them (false) at the next start.
+  const setSpectatorFlag = (anonId, value, notify = true) => {
+    let own = r.mine.get(anonId);
+    if (!own) r.mine.set(anonId, (own = new Map()));
+    own.set("iAmSpectator", value);
+    if (notify) for (const [id, p] of r.peers) if (p.anonId === anonId) sendOut(id, "setVar", { id: "iAmSpectator", value });
+  };
+  // Players of this session who are here (spectators excluded).
+  const playersHere = () => [...r.roster.keys()].filter((id) => !S.spectators?.has(id));
 
   // Round-based (vote / content) — each round is a fresh vote.
   const startRound = (i) => {
@@ -339,7 +374,7 @@ export function createRoom(o) {
     r.nicks.set(anonId, nick);
   };
   const quizProgress = () => {
-    const here = [...r.roster.keys()].filter((id) => !isSubject(id));
+    const here = playersHere().filter((id) => !isSubject(id));
     const picks = S.picks?.[S.roundIdx] ?? {};
     // round / sessionNo: which round this count is for — a device that has the new round's
     // values but not yet its fresh count must not read the last round's "everyone answered".
@@ -449,7 +484,7 @@ export function createRoom(o) {
     if (nunchiAlive().length <= 1 || S.nunchiNum > 20) endNunchi();
   };
   // Still in the game: here AND not knocked out (an eliminated player who left is neither).
-  const nunchiAlive = () => [...r.roster.entries()].filter(([id]) => !S.eliminated.has(id)).map(([, n]) => n);
+  const nunchiAlive = () => [...r.roster.entries()].filter(([id]) => !S.eliminated.has(id) && !S.spectators?.has(id)).map(([, n]) => n);
   const endNunchi = () => {
     if (S.phase === "result") return;
     clearSessionTimers();
@@ -478,8 +513,9 @@ export function createRoom(o) {
   const maybeAdvanceMatchup = () => {
     const bk = S.bracket;
     if (!bk || S.mode !== "bracket" || S.phase !== "play" || bk.early === bk.matchupIdx) return;
-    const present = [...r.roster.keys()].filter((id) => r.voters.has(id)).length;
-    if (r.roster.size === 0 || present < r.roster.size) return;
+    const here = playersHere();
+    const present = here.filter((id) => r.voters.has(id)).length;
+    if (here.length === 0 || present < here.length) return;
     bk.early = bk.matchupIdx;
     cancel("resolveMatchup");
     later("resolveMatchup", bk.matchupIdx, 600); // the last vote's percentage is seen first
@@ -572,6 +608,10 @@ export function createRoom(o) {
     S.revealed = null;
     S.answerers = new Set(); // quiz: who answered at least once (the subject never does)
     S.acted = new Set(); // who took part in this session (telemetry: "판을 끝낸 인원")
+    // Last game's spectators play this one (their flag goes back to false).
+    for (const id of S.spectators ?? []) setSpectatorFlag(id, false);
+    S.spectators = new Set();
+    S.members = null; // set when the countdown starts (a join during the content fetch is a player)
     clearSessionTimers();
     S.round += 1;
     S.mode = "";
@@ -602,6 +642,8 @@ export function createRoom(o) {
     // A themed pack may come as {title, questions}.
     const packTitle = pack && !Array.isArray(pack) && typeof pack.title === "string" ? pack.title : "";
     if (pack && !Array.isArray(pack)) pack = Array.isArray(pack.questions) ? pack.questions : null;
+    S.members = new Set(r.roster.keys()); // this session's players: everyone here now
+    setKnown("spectators", 0);
     // "Play starts in N ms": a client runs 3·2·1 on its own clock from this (the
     // numbers below still go out — for clients that don't, and to refine the estimate).
     broadcast("countdown", { n: 3, stepMs: COUNTDOWN_STEP_MS, endsIn: 3 * COUNTDOWN_STEP_MS });
@@ -705,6 +747,7 @@ export function createRoom(o) {
   };
 
   // Took part in this session (telemetry §9.5): an action the session accepted in its play window.
+  const SCORED_ACTIONS = new Set(["vote", "tally", "score", "tap", "taps", "reaction", "answer"]);
   const took = (anonId) => {
     if (S.acted && inWindow()) S.acted.add(anonId);
   };
@@ -713,6 +756,8 @@ export function createRoom(o) {
     if (!peer) return;
     const { anonId, nick } = peer;
     const name = d?.name;
+    // A spectator watches this session: nothing they send scores or counts.
+    if (SCORED_ACTIONS.has(name) && isSpectator(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "spectator" });
     if (name === "vote" && d?.payload?.option != null) {
       r.voters.set(anonId, String(d.payload.option)); // one vote per person, re-vote allowed
       took(anonId);
@@ -878,6 +923,14 @@ export function createRoom(o) {
       pidOf(anonId); // keys go out in join order
       r.roster.set(anonId, cleanNick(nick) || "게스트");
       r.nicks.set(anonId, cleanNick(nick) || "게스트");
+      // First join in this session during its countdown / play: a spectator until the next
+      // start (the flag rides in this state; a reload already has it in r.mine).
+      const live = S.phase === "countdown" || S.phase === "play";
+      const newSpectator = live && !isMember(anonId) && !S.spectators?.has(anonId);
+      if (newSpectator) {
+        S.spectators.add(anonId);
+        setSpectatorFlag(anonId, true, false); // goes out in the state below
+      }
       send(peerId, "state", this.stateFor(peerId));
       if (S.quizPack) sendSubjectFlag(peerId, anonId);
       if (S.quizPack && anonId === S.quizPack.subject.anonId && S.subjectAwayAt != null) {
@@ -889,8 +942,9 @@ export function createRoom(o) {
       broadcast("participants", { count: r.peers.size });
       setVar("roster", rosterArr());
       setPhotos();
-      if (S.quiz && (S.phase === "countdown" || S.phase === "play")) {
-        addQuizPlayer(anonId, r.roster.get(anonId)); // a late joiner answers from now on
+      if (live && S.spectators?.has(anonId)) publishSpectators();
+      if (S.quiz && live && !S.spectators?.has(anonId)) {
+        addQuizPlayer(anonId, r.roster.get(anonId)); // a member back (reload / flap) answers again
         if (S.phase === "play") {
           setVar("quizProgress", quizProgress());
           syncReveal({ mayPull: false }); // a newcomer who has not answered reopens the round
@@ -912,6 +966,7 @@ export function createRoom(o) {
       setPhotos();
       if (gone && r.scores.has(peer.anonId)) setKnown("raceBoard", raceBoard()); // now marked as left
       if (gone) maybeAdvanceMatchup(); // everyone still here may already have voted
+      if (gone && S.spectators?.has(peer.anonId)) publishSpectators();
       if (gone && S.quiz && S.phase === "play") {
         setVar("quizProgress", quizProgress());
         syncReveal(); // the last one still to answer left: everyone here has
@@ -963,7 +1018,7 @@ export function createRoom(o) {
      */
     snapshot() {
       const t = now();
-      const { timers, answered, answerers, acted, eliminated, reacted, pending, roundStart, goAt, playAt, lateUntil, subjectAwayAt, ...rest } = S;
+      const { timers, answered, answerers, acted, eliminated, reacted, pending, members, spectators, roundStart, goAt, playAt, lateUntil, subjectAwayAt, ...rest } = S;
       return {
         v: 1,
         voters: [...r.voters],
@@ -980,6 +1035,8 @@ export function createRoom(o) {
           answered: answered ? [...answered] : undefined,
           answerers: answerers ? [...answerers] : undefined,
           acted: acted ? [...acted] : undefined,
+          members: members ? [...members] : undefined,
+          spectators: spectators ? [...spectators] : undefined,
           eliminated: eliminated ? [...eliminated] : undefined,
           reacted: reacted ? [...reacted] : undefined,
           pending: pending?.map(({ anonId, nick, peerId }) => ({ anonId, nick, peerId })),
@@ -1005,11 +1062,13 @@ export function createRoom(o) {
       r.pids = new Map(snap.pids ?? []);
       r.vars = new Map(snap.vars ?? []);
       r.mine = new Map((snap.mine ?? []).map(([anonId, own]) => [anonId, new Map(own)]));
-      const { answered, answerers, acted, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, subjectAwayAgo, ...rest } = snap.session;
+      const { answered, answerers, acted, members, spectators, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, subjectAwayAgo, ...rest } = snap.session;
       Object.assign(S, rest, { timers: [] });
       if (answered) S.answered = new Set(answered);
       if (answerers) S.answerers = new Set(answerers);
       if (acted) S.acted = new Set(acted);
+      S.members = members ? new Set(members) : null;
+      S.spectators = new Set(spectators ?? []);
       if (eliminated) S.eliminated = new Set(eliminated);
       if (reacted) S.reacted = new Set(reacted);
       if (pending) S.pending = pending;

@@ -55,7 +55,7 @@ test("group: equal scores share the rank (공동 1위) and the next rank skips",
   assert.equal(b.rankLabel, "공동 1위");
   assert.ok(a.top && b.top);
   assert.equal(c.rankLabel, "3위");
-  assert.equal(v.mine, `내 순위 공동 1위 · ${fmtScore(b.score)}`);
+  assert.equal(v.mine, `내 순위 공동 1위 · ${fmtScore(b.score)} · 5/6 · 83% · 평균 2.0초`);
 });
 
 test("group: a player who left stays ranked, marked (board mark stripped from the name)", () => {
@@ -87,7 +87,7 @@ test("two friends with the same nickname are two rows: '빠른감자' and '빠�
   assert.equal(v.mine, "", "an ambiguous nickname marks nobody as me");
   assert.ok(!v.ranks.some((r) => r.me));
   const mine = buildResultView({ quizRecap: recap, raceBoard: [], myNick: "빠른감자", myPid: "B" });
-  assert.equal(mine.mine, "내 순위 2위 · 0점", "the pid identifies me");
+  assert.equal(mine.mine, "내 순위 2위 · 0점 · 0/1 · 0%", "the pid identifies me");
 });
 
 test("an answerer whose name equals the subject's is still an answerer", () => {
@@ -177,7 +177,7 @@ test("reveal: the subject's real answer and who picked what", () => {
   assert.deepEqual(q1.chips.map((c) => [c.nick, c.pick, c.state]), [
     ["하늘", "떡볶이", "ok"], ["도윤", "떡볶이", "ok"], [LONG_NICK, "초밥", "bad"], ["서준", "떡볶이", "ok"],
   ]);
-  assert.equal(q1.summary, "4명 중 3명 맞힘");
+  assert.equal(q1.summary, "75% 맞힘 (3/4명)");
   const q3 = v.questions[2];
   assert.equal(q3.chips.find((c) => c.nick === "서준")!.pick, "무응답");
   assert.equal(q3.chips.find((c) => c.nick === "서준")!.state, "none");
@@ -244,4 +244,22 @@ test("을/를 · 은/는 by the final consonant; combined form for Latin/emoji",
   assert.equal(eulReul("민수3"), "민수3을");
   assert.equal(eulReul("민수2"), "민수2를");
   assert.equal(eunNeun("빠른감자 (2)"), "빠른감자 (2)은(는)");
+});
+
+test("percentages: per question '<pct>% 맞힘 (n/m명)', per person 'correct/total · pct%', never 100 unless all", async () => {
+  const { pctOf } = await import("../src/quizResult.ts");
+  assert.equal(pctOf(3, 4), 75);
+  assert.equal(pctOf(2, 3), 66);
+  assert.equal(pctOf(199, 200), 99);
+  assert.equal(pctOf(4, 4), 100);
+  assert.equal(pctOf(0, 0), 0);
+});
+
+test("speed: average time of the right answers per person (rank rows and 1:1), points kept", async () => {
+  const { speedLabel } = await import("../src/quizResult.ts");
+  assert.equal(speedLabel(2349), "평균 2.3초");
+  assert.equal(speedLabel(0), "평균 0.0초");
+  const v = buildResultView(duo);
+  assert.equal(v.mode, "duo");
+  assert.match(v.duo.speed, /점/);
 });

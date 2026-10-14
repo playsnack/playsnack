@@ -1,27 +1,62 @@
 // Aggregate store: Upstash Redis REST (free KV) when configured, else in-memory per
 // function instance. Only counters are stored — never a raw event log.
-//   ev:<day>      hash  field -> count   (e.g. "open|app|quiz-ox", "room_join_ms|ok|le2000", "_total")
-//   ev:<day>:err  hash  sanitized error sample -> count
-// Both keys expire 90 days after the last write of the instance that set them.
-//   ev:all        hash  all-time counters for a fixed field list (no expiry; docs/telemetry.md §9)
-//   ev:once:<id>  string, 6 h — "this game was already counted" (id = hash of kind + game id)
-//   ev:budget:<YYYY-MM KST>  integer, ~40 days — Upstash commands this deployment sent that month
+// Key names are readable English, `:` namespaces, `_` between words (docs/telemetry.md §3):
+//   stats:daily:<YYYY-MM-DD KST>   hash  field -> count (e.g. "games_finished_by_app:quiz-ox",
+//                                        "join_ms_bucket:1-2s", "events_total")
+//   stats:errors:<YYYY-MM-DD KST>  hash  sanitized error message -> count
+// Both expire 90 days after the last write of the instance that set them.
+//   stats:all_time                 hash  all-time counters for a fixed field list (no expiry; §9)
+//   stats:monthly:<YYYY-MM KST>    hash  the month's headline totals (schema.js MONTHLY_FIELDS) and the
+//                                        same per day, "<field>:day_<DD>", + the month's usage histograms
+//                                        ("devices_by_games:10-19" …, device-days) — no expiry (12 keys a
+//                                        year, ≤ 7 × 32 + 22 fields each): the /stats growth chart
+//   stats:devices:all_time · stats:devices:<YYYY-MM> · stats:devices:daily:<YYYY-MM-DD>
+//                                  HyperLogLog sketches of salted device-id hashes (≈1% error):
+//                                  only PFADD / PFCOUNT — the ids cannot be listed or reversed.
+//                                  Daily keys expire after 100 days; the others never.
+//   stats:dedupe:<hash>            string, 6 h — "this game was already counted" (hash of kind + game id)
+//   stats:budget:<YYYY-MM KST>     integer, ~40 days — Upstash commands this deployment sent that month
+// Other features keep their own top-level namespace in the same style — e.g. room results
+// use roomResultKey() = results:room:<hash>. Old `ev:*` keys are no longer read
+// (scripts/cleanup-old-stats-keys.mjs deletes them when run by hand).
+// Saved room results (api/room-result.js, docs/room-results.md), 7 days each:
+//   results:room:<sha256(room id)>      string  the room's last finished game (JSON)
+//   results:once:<sha256(room,sid)>     string  "this game was already saved" (write-once per game)
+//   results:saves:<day> / results:reads:<day>  integer saves / reads that KST day (daily caps), 2 days
 //
 // Free-plan guard: EVERY KV pipeline (apply, claim, release, read, readDays) starts with
-// INCRBY ev:budget:<month> <n>, n = the exact number of commands in that pipeline (the
+// INCRBY stats:budget:<month> <n>, n = the exact number of commands in that pipeline (the
 // INCRBY and the once-per-instance EXPIRE included). The reply is the month's running
 // count; the handler stops talking to KV once it reaches EV_MONTHLY_BUDGET (api/ev.js).
 
 export const TTL_SECONDS = 90 * 24 * 60 * 60;
 export const ONCE_TTL_SECONDS = 6 * 60 * 60;
 export const BUDGET_TTL_SECONDS = 40 * 24 * 60 * 60;
-export const TOTAL_FIELD = '_total';
+/** Events received that day (accepted + rejected) — the daily cap reads it back. */
+export const TOTAL_FIELD = 'events_total';
 
-export const dayKey = (day) => `ev:${day}`;
-export const errKey = (day) => `ev:${day}:err`;
-export const ALL_KEY = 'ev:all';
-export const onceKey = (id) => `ev:once:${id}`;
-export const budgetKey = (month) => `ev:budget:${month}`;
+export const dayKey = (day) => `stats:daily:${day}`;
+export const errKey = (day) => `stats:errors:${day}`;
+export const ALL_KEY = 'stats:all_time';
+export const onceKey = (id) => `stats:dedupe:${id}`;
+export const budgetKey = (month) => `stats:budget:${month}`;
+export const monthlyKey = (month) => `stats:monthly:${month}`;
+export const DEVICES_ALL_KEY = 'stats:devices:all_time';
+export const devicesMonthKey = (month) => `stats:devices:${month}`;
+export const devicesDayKey = (day) => `stats:devices:daily:${day}`;
+export const DEVICES_DAY_TTL_SECONDS = 100 * 24 * 60 * 60;
+/** The per-day field inside a monthly hash: ("games_finished", "2026-10-14") -> "games_finished:day_14". */
+export const monthlyDayField = (field, day) => `${field}:day_${day.slice(8, 10)}`;
+/** Room results (the room-result lane): one key per room, `<hash>` = a hash, never a room code. */
+export const roomResultKey = (hash) => `results:room:${hash}`;
+/** Keys written before the readable scheme (2026-10-13/14 testing); nothing reads them. */
+export const OLD_KEY_PATTERN = 'ev:*';
+export const RR_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const RR_DAY_TTL_SECONDS = 2 * 24 * 60 * 60;
+export const rrKey = (roomHash) => `results:room:${roomHash}`;
+export const rrSidKey = (sidHash) => `results:once:${sidHash}`;
+/** kind: "saves" | "reads" */
+export const rrDayKey = (kind, day) => `results:${kind}:${day}`;
 
 export class StoreError extends Error {}
 
@@ -91,19 +126,33 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       return seen.month === month ? seen.used : null;
     },
     /** Apply increments; returns the day's running event total after this write. */
-    async apply(day, incr, errs, accepted, all = new Map(), month) {
+    async apply(day, incr, errs, accepted, all = new Map(), month, monthly = new Map(), devices = []) {
       const k = dayKey(day);
       const ek = errKey(day);
       const cmds = [['HINCRBY', k, TOTAL_FIELD, accepted]];
       for (const [f, n] of incr) cmds.push(['HINCRBY', k, f, n]);
       for (const [m, n] of errs) cmds.push(['HINCRBY', ek, m, n]);
       for (const [f, n] of all) cmds.push(['HINCRBY', ALL_KEY, f, n]);
+      // The month's headline totals + the same per day (never expire; the growth chart).
+      const mk = monthlyKey(month || day.slice(0, 7));
+      // (Histogram fields — "devices_by_…:<bucket>" — are month totals only, no per-day copy.)
+      for (const [f, n] of monthly) {
+        cmds.push(['HINCRBY', mk, f, n]);
+        if (!f.includes(':')) cmds.push(['HINCRBY', mk, monthlyDayField(f, day), n]);
+      }
+      // Unique devices: one PFADD per sketch, however many (already salted-hashed) ids.
+      const dk = devicesDayKey(day);
+      if (devices.length) {
+        cmds.push(['PFADD', DEVICES_ALL_KEY, ...devices], ['PFADD', devicesMonthKey(month || day.slice(0, 7)), ...devices], ['PFADD', dk, ...devices]);
+        if (!expired.has(dk)) cmds.push(['EXPIRE', dk, DEVICES_DAY_TTL_SECONDS]);
+      }
       const ttl = [];
       if (!expired.has(k)) ttl.push(k);
       if (errs.size && !expired.has(ek)) ttl.push(ek);
       for (const key of ttl) cmds.push(['EXPIRE', key, TTL_SECONDS]);
       const out = await metered(month, cmds);
       for (const key of ttl) expired.add(key);
+      if (devices.length) expired.add(dk);
       return Number(out[0]) || 0;
     },
     /** Claim de-dup ids; returns one boolean per id: true = first time seen (within the TTL). */
@@ -124,10 +173,55 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
       ]);
       return { counts: pairsToObject(counts), errs: pairsToObject(errSamples), all: pairsToObject(all) };
     },
+    /** The all-time counters + each listed month's headline hash, in one request. */
+    async readGrowth(months, month) {
+      const out = await metered(month, [
+        ['HGETALL', ALL_KEY],
+        ...months.map((m) => ['HGETALL', monthlyKey(m)]),
+        ['PFCOUNT', DEVICES_ALL_KEY],
+        ...months.map((m) => ['PFCOUNT', devicesMonthKey(m)]),
+      ]);
+      const n = months.length;
+      return {
+        all: pairsToObject(out[0]),
+        months: out.slice(1, 1 + n).map(pairsToObject),
+        devicesAll: Number(out[1 + n]) || 0,
+        devicesByMonth: out.slice(2 + n).map((v) => Number(v) || 0),
+      };
+    },
     /** Day counters for several days (one request) + the all-time counters. */
     async readDays(days, month) {
       const out = await metered(month, [...days.map((d) => ['HGETALL', dayKey(d)]), ['HGETALL', ALL_KEY]]);
       return { days: out.slice(0, days.length).map(pairsToObject), all: pairsToObject(out[days.length]) };
+    },
+    // ── saved room results (api/room-result.js) ──
+    /** Claim a game's save (SET NX): true = first time this game is saved. */
+    async rrClaim(sidHash, month) {
+      const [r] = await metered(month, [['SET', rrSidKey(sidHash), '1', 'NX', 'EX', RR_TTL_SECONDS]]);
+      return r === 'OK';
+    },
+    async rrRelease(sidHash, month) {
+      await metered(month, [['DEL', rrSidKey(sidHash)]]);
+    },
+    /** Store the room's result (7 days); returns the day's save count after this one. */
+    async rrPut(roomHash, json, day, month) {
+      const dk = rrDayKey('saves', day);
+      const cmds = [['SET', rrKey(roomHash), json, 'EX', RR_TTL_SECONDS], ['INCR', dk]];
+      const ttl = !expired.has(dk);
+      if (ttl) cmds.push(['EXPIRE', dk, RR_DAY_TTL_SECONDS]);
+      const out = await metered(month, cmds);
+      if (ttl) expired.add(dk);
+      return Number(out[1]) || 0;
+    },
+    /** The room's result JSON (null if none) and the day's read count after this one. */
+    async rrGet(roomHash, day, month) {
+      const dk = rrDayKey('reads', day);
+      const cmds = [['GET', rrKey(roomHash)], ['INCR', dk]];
+      const ttl = !expired.has(dk);
+      if (ttl) cmds.push(['EXPIRE', dk, RR_DAY_TTL_SECONDS]);
+      const out = await metered(month, cmds);
+      if (ttl) expired.add(dk);
+      return { json: typeof out[0] === 'string' ? out[0] : null, reads: Number(out[1]) || 0 };
     },
   };
 }
@@ -135,9 +229,29 @@ export function createKvStore({ url, token }, fetchImpl = globalThis.fetch) {
 export function createMemoryStore({ now = Date.now } = {}) {
   const data = new Map(); // key -> Map(field -> count)
   const once = new Map(); // onceKey -> expiry (ms)
+  const sketches = new Map(); // device key -> Set of salted hashes (stands in for HyperLogLog)
+  const pfadd = (key, ids) => {
+    if (!sketches.has(key)) sketches.set(key, new Set());
+    for (const id of ids) sketches.get(key).add(id);
+  };
   const hash = (key) => {
     if (!data.has(key)) data.set(key, new Map());
     return data.get(key);
+  };
+  const rr = new Map(); // saved room results: key -> { value, exp (ms) }
+  const live = (k) => {
+    const e = rr.get(k);
+    if (e && e.exp <= now()) rr.delete(k);
+    return e && e.exp > now() ? e.value : undefined;
+  };
+  const put = (k, value, ttl) => {
+    if (rr.size > 10000) for (const [key, e] of rr) if (e.exp <= now()) rr.delete(key);
+    rr.set(k, { value, exp: now() + ttl * 1000 });
+  };
+  const count = (k) => {
+    const n = (Number(live(k)) || 0) + 1;
+    put(k, n, RR_DAY_TTL_SECONDS);
+    return n;
   };
   const bump = (h, f, n) => {
     const v = (h.get(f) || 0) + n;
@@ -148,9 +262,22 @@ export function createMemoryStore({ now = Date.now } = {}) {
     kind: 'memory',
     data, // exposed for tests (privacy assertions)
     once, // exposed for tests (privacy assertions)
+    sketches, // exposed for tests (privacy assertions)
     budgetUsed: () => null, // no KV commands are spent
-    async apply(day, incr, errs, accepted, all = new Map()) {
+    async apply(day, incr, errs, accepted, all = new Map(), month, monthly = new Map(), devices = []) {
       const h = hash(dayKey(day));
+      if (devices.length) {
+        pfadd(DEVICES_ALL_KEY, devices);
+        pfadd(devicesMonthKey(month || day.slice(0, 7)), devices);
+        pfadd(devicesDayKey(day), devices);
+      }
+      if (monthly.size) {
+        const m = hash(monthlyKey(month || day.slice(0, 7)));
+        for (const [f, n] of monthly) {
+          bump(m, f, n);
+          if (!f.includes(':')) bump(m, monthlyDayField(f, day), n);
+        }
+      }
       const total = bump(h, TOTAL_FIELD, accepted);
       for (const [f, n] of incr) bump(h, f, n);
       if (errs.size) {
@@ -183,11 +310,37 @@ export function createMemoryStore({ now = Date.now } = {}) {
         all: Object.fromEntries(data.get(ALL_KEY) || []),
       };
     },
+    async readGrowth(months) {
+      return {
+        all: Object.fromEntries(data.get(ALL_KEY) || []),
+        months: months.map((m) => Object.fromEntries(data.get(monthlyKey(m)) || [])),
+        devicesAll: (sketches.get(DEVICES_ALL_KEY) || new Set()).size,
+        devicesByMonth: months.map((m) => (sketches.get(devicesMonthKey(m)) || new Set()).size),
+      };
+    },
     async readDays(days) {
       return {
         days: days.map((d) => Object.fromEntries(data.get(dayKey(d)) || [])),
         all: Object.fromEntries(data.get(ALL_KEY) || []),
       };
+    },
+    // ── saved room results: key -> { value, exp } (exposed for tests) ──
+    rr,
+    async rrClaim(sidHash) {
+      const k = rrSidKey(sidHash);
+      if (live(k) !== undefined) return false;
+      put(k, '1', RR_TTL_SECONDS);
+      return true;
+    },
+    async rrRelease(sidHash) {
+      rr.delete(rrSidKey(sidHash));
+    },
+    async rrPut(roomHash, json, day) {
+      put(rrKey(roomHash), json, RR_TTL_SECONDS);
+      return count(rrDayKey('saves', day));
+    },
+    async rrGet(roomHash, day) {
+      return { json: live(rrKey(roomHash)) ?? null, reads: count(rrDayKey('reads', day)) };
     },
   };
 }
