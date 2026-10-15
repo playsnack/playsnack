@@ -59,10 +59,13 @@ export const SUBJECT_GRACE_MS = 30000;
 // 방장 (#135): a friends room's host away this long (the same grace as a quiz subject's) hands
 // the host role to the earliest-joined player still here. Back later, they do not take it back.
 export const HOST_GRACE_MS = SUBJECT_GRACE_MS;
-// 공개 방 자동 시작 (#136): the lobby counts down this long from the first person in, then the
+// 공개 방 자동 시작 (#136): the lobby counts down this long once enough people are in, then the
 // game starts by itself (the template's `room.autoStartMs` within AUTO_START_RANGE overrides it).
 export const AUTO_START_MS = 10000;
 export const AUTO_START_RANGE = [3000, 60000];
+// …and only with at least this many players here (#141: a public room never starts with one
+// person alone; spectators don't count). Fewer during the countdown → it stops and waits again.
+export const AUTO_START_MIN = 2;
 // …and after a game the result stays up this long, then the lobby (and its countdown) again.
 export const RESULT_HOLD_MS = 8000;
 const AUTO_OPTS_MAX = 1024; // bytes of a start payload kept for auto-start (JSON)
@@ -165,6 +168,7 @@ const buildMatchups = (cands) => {
  *   handed on after HOST_GRACE_MS away; "auto" (public room, #136) nobody: once a client sent the app's
  *   start payload (`configureAuto`) the lobby counts down and starts by itself, and returns after the result.
  * @param {number} [o.autoStartMs]   "auto": default lobby countdown (AUTO_START_MS)
+ * @param {number} [o.autoStartMin]  "auto": players needed for the countdown to run (AUTO_START_MIN, at least 1)
  * @param {number} [o.resultHoldMs]  "auto": how long the result stays before the lobby (RESULT_HOLD_MS)
  */
 export function createRoom(o) {
@@ -189,9 +193,11 @@ export function createRoom(o) {
     claimWindowMs = null,
     startRule = "any",
     autoStartMs = AUTO_START_MS,
+    autoStartMin = AUTO_START_MIN,
     resultHoldMs = RESULT_HOLD_MS,
   } = o;
   const rule = startRule === "host" || startRule === "auto" ? startRule : "any";
+  const autoMin = clampInt(autoStartMin, 1, 1000) ?? AUTO_START_MIN;
   // A claim never better than the referee's own elapsed time minus the window (network + render).
   const floorClaim = (ms, elapsed) => (claimWindowMs == null ? ms : Math.max(ms, Math.round(elapsed - claimWindowMs)));
   // A metrics hook must never break the room.
@@ -411,23 +417,34 @@ export function createRoom(o) {
 
   // ── 자동 시작 (auto-start, #136) ──
   // An "auto" room (public room) starts by itself once a client told it the app's start payload
-  // (configureAuto — the template's `room.start`): the lobby counts down S.autoMs from the first
-  // person in (one timer — everyone who joins meanwhile plays), and after a game the result holds
-  // resultHoldMs, then the lobby again — counting down only if someone played (a phone left open
-  // alone does not loop games), else idle until someone joins or taps start. The countdown goes out
-  // as {t: "autoStart", d: {endsIn, ms}} (endsIn −1 = none): a client runs it on its own clock.
-  // The timer is session data (S.timers), so a snapshot / hand-over / hibernation keeps it.
+  // (configureAuto — the template's `room.start`): the lobby counts down S.autoMs once autoMin
+  // players are here (#141 — default 2: one person alone waits for a second; one timer — everyone
+  // who joins meanwhile plays; dropping below autoMin stops it, back to waiting), and after a game
+  // the result holds resultHoldMs, then the lobby again — counting down only if someone played (two
+  // phones left open do not loop games), else idle until someone joins or taps start. The countdown
+  // goes out as {t: "autoStart", d: {endsIn, ms}} (endsIn −1 = none): a client runs it on its own
+  // clock. The timer is session data (S.timers), so a snapshot / hand-over / hibernation keeps it.
   const autoOn = () => rule === "auto" && S.autoOpts != null;
   const autoTimer = () => S.timers.find((x) => x.step === "autoStart");
+  const autoPlayers = () => [...r.roster.keys()].filter((id) => !isSpectator(id)).length;
   const autoMsg = () => {
     const t = autoTimer();
     return { endsIn: t ? Math.max(0, t.at - now()) : -1, ms: S.autoMs };
   };
+  // An auto start fetching its content (startSession awaits getPack, the lobby still up): no
+  // second countdown meanwhile — and the start checks the head count again once it has it.
+  let autoFetching = false;
   const armAuto = () => {
-    if (!autoOn() || S.phase !== "lobby" || !r.roster.size || autoTimer()) return false;
+    if (!autoOn() || S.phase !== "lobby" || autoPlayers() < autoMin || autoTimer() || autoFetching) return false;
     later("autoStart", null, S.autoMs);
     broadcastOut("autoStart", autoMsg());
     return true;
+  };
+  // Too few left for the countdown: it stops (everyone still here is told — back to waiting).
+  const disarmAuto = () => {
+    if (!autoTimer() || autoPlayers() >= autoMin) return;
+    cancel("autoStart");
+    broadcastOut("autoStart", autoMsg());
   };
 
   // Round-based (vote / content) — each round is a fresh vote.
@@ -754,8 +771,10 @@ export function createRoom(o) {
     startGuessRound,
     revealGuessRound,
     autoStart: () => {
-      if (!autoOn() || S.phase !== "lobby" || !r.roster.size) return;
-      startSession(S.autoOpts, null).catch((e) => console.error("[snack-room] auto start failed", e));
+      if (!autoOn() || S.phase !== "lobby") return;
+      // e.g. restored from a snapshot and not everyone came back: wait for enough again
+      if (autoPlayers() < autoMin) return void broadcastOut("autoStart", autoMsg());
+      startSession(S.autoOpts, null, true).catch((e) => console.error("[snack-room] auto start failed", e));
     },
     autoLobby: () => {
       if (S.phase !== "result") return;
@@ -775,7 +794,7 @@ export function createRoom(o) {
     const tail = (++idSeq).toString(36); // distinct even if `random` repeats
     return Array.from({ length: 32 - tail.length }, () => Math.floor(random() * 36).toString(36)).join("") + tail;
   };
-  const startSession = async (opts, clientMsgId) => {
+  const startSession = async (opts, clientMsgId, auto = false) => {
     if (S.phase === "countdown" || S.phase === "play") return; // already running
     if (typeof opts === "number") opts = { duration: opts };
     opts = opts || {};
@@ -815,8 +834,17 @@ export function createRoom(o) {
     // Fetch content first — the lobby stays up meanwhile, so every timer below is
     // scheduled from one sync point and clients stay in step.
     const custom = opts.quiz ? S.quizPack : null; // a player's own quiz: nothing to fetch
-    let pack = custom ? null : await getPack(opts.game, opts);
+    let pack = null;
+    if (auto) autoFetching = true;
+    try {
+      pack = custom ? null : await getPack(opts.game, opts);
+    } finally {
+      if (auto) autoFetching = false;
+    }
     if (r.destroyed || S.gen !== myGen) return; // room gone or superseded during the fetch
+    // An auto start (#141): someone left during the fetch and too few are here now — no game;
+    // the lobby waits again (a countdown runs once enough are back).
+    if (auto && autoOn() && autoPlayers() < autoMin) return void broadcastOut("autoStart", autoMsg());
     report(onSessionStart, { sid: S.sid, players: r.roster.size, again: S.done > 0 });
     // A themed pack may come as {title, questions}.
     const packTitle = pack && !Array.isArray(pack) && typeof pack.title === "string" ? pack.title : "";
@@ -1124,7 +1152,11 @@ export function createRoom(o) {
       // Any start payload: a crafted {} or number must not start another game in this room.
       const p = d?.payload;
       // A public room starts by itself: a tap only wakes an idle lobby's countdown.
-      if (autoOn()) return armAuto() ? ack(peerId, d?.clientMsgId) : ack(peerId, d?.clientMsgId, { accepted: false, reason: "auto_start" });
+      if (autoOn()) {
+        if (armAuto()) return ack(peerId, d?.clientMsgId);
+        const few = S.phase === "lobby" && !autoTimer() && autoPlayers() < autoMin;
+        return ack(peerId, d?.clientMsgId, { accepted: false, reason: few ? "need_players" : "auto_start" });
+      }
       if (notHost(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_host" });
       if (S.quizPack && S.phase !== "countdown" && S.phase !== "play") {
         if (notSubject(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "not_subject" });
@@ -1248,7 +1280,7 @@ export function createRoom(o) {
         S.hostAwayAt = now(); // hands over only after HOST_GRACE_MS
         watchHostAway();
       }
-      if (gone && autoOn() && !r.roster.size && autoTimer()) cancel("autoStart"); // nobody left to start for
+      if (gone && autoOn()) disarmAuto(); // too few left to start for: wait again (#141)
       if (r.peers.size === 0) this.destroy();
       return r.peers.size === 0;
     },

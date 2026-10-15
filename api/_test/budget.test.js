@@ -259,3 +259,46 @@ test('worst-case counts (docs/telemetry.md §5a): 20 different games in one POST
   assert.equal(view, up.calls.slice(2).reduce((n, c) => n + c.length, 0), 'counter = commands sent');
   assert.equal(up.db.get('stats:budget:2026-10'), up.sent());
 });
+
+test('room_join via edge: its counters ride in the same pipeline — +1 command per edge join, none for others, ≤ 7 day fields still', async () => {
+  const t = Date.parse('2026-10-15T03:00:00Z'); // KST 2026-10-15
+  const up = fakeUpstash();
+  const h = createHandler({ env: KV, fetch: up.fetch, now: () => t, limiter: roomy() });
+  await h(post([{ k: 'result' }])); // warm: the instance's EXPIREs are sent
+  /** Commands one POST of these events sends (and that it is one request, metered exactly). */
+  const cost = async (events) => {
+    const calls = up.calls.length;
+    const before = up.sent();
+    assert.equal((await h(post(events))).status, 200);
+    assert.equal(up.calls.length, calls + 1, 'one /pipeline request');
+    const n = up.sent() - before;
+    assert.equal(up.calls.at(-1)[0][2], n, 'INCRBY counts it exactly');
+    return n;
+  };
+  const ok = { k: 'room_join', ok: true, ms: 700, room: 'friend', app: 'tap-battle' };
+  const fail = { k: 'room_join', ok: false, ms: 15000, room: 'friend', reason: 'timeout', app: 'tap-battle' };
+  // Before (no via): INCRBY + events_total + 5 day fields + monthly joins_ok (total + day) = 9; a failure 8.
+  assert.equal(await cost([ok]), 9);
+  assert.equal(await cost([fail]), 8);
+  // mesh / server / off-list: unchanged.
+  for (const via of ['mesh', 'server', 'carrier-pigeon']) {
+    assert.equal(await cost([{ ...ok, via }]), 9, via);
+    assert.equal(await cost([{ ...fail, via }]), 8, via);
+  }
+  // edge: one more HINCRBY in the same pipeline (its time bucket / its failure reason).
+  assert.equal(await cost([{ ...ok, via: 'edge' }]), 10);
+  assert.equal(await cost([{ ...fail, via: 'edge' }]), 9);
+  const last = up.calls.at(-1);
+  assert.ok(last.some(([c, k, f]) => c === 'HINCRBY' && k === 'stats:daily:2026-10-15' && f === 'join_edge_fail_reason:timeout'));
+  // The most a join can make is unchanged: 7 day fields (§5a) — an edge join's tries are not counted.
+  const most = { ...ok, tries: 4, slow: true, ms: 7000 };
+  const mesh = await cost([{ ...most, via: 'mesh' }]);
+  const edge = await cost([{ ...most, via: 'edge' }]);
+  assert.equal(edge, mesh, 'edge swaps the tries field for its own');
+  assert.equal(mesh, 2 + 7 + 2);
+  // Batched: 20 edge joins in one POST add at most 6 distinct fields (the time buckets), not 20.
+  const many = Array.from({ length: 20 }, (_, i) => ({ ...ok, via: 'edge', ms: 300 + i * 600 }));
+  const plain = Array.from({ length: 20 }, (_, i) => ({ ...ok, ms: 300 + i * 600 }));
+  assert.ok((await cost(many)) - (await cost(plain)) <= 6);
+  assert.equal(up.db.get('stats:budget:2026-10'), up.sent());
+});

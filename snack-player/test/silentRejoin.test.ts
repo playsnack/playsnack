@@ -7,7 +7,7 @@
 // node --import tsx --test snack-player/test/   (pnpm player:test)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CONNECT_TIMEOUT_MS, EdgeRoomTransport, RECONNECT_BACKOFF_MS, STALE_AFTER_HIDDEN_MS, type RoomMessage } from "../src/roomTransport.ts";
+import { CONNECT_TIMEOUT_MS, EdgeRoomTransport, MeshTransport, RECONNECT_BACKOFF_MS, ServerTransport, STALE_AFTER_HIDDEN_MS, type RoomMessage } from "../src/roomTransport.ts";
 import { FROZEN_SLACK_MS, onPageBack, visibleTimeout, type PageEnv } from "../src/visibleTimer.ts";
 
 // ── a fake page: clock, timers, visibility, window events ──
@@ -286,6 +286,13 @@ test("a join that never reaches the room fails as 'unreachable' after the visibl
   }
   assert.deepEqual(log.at(-1), ["failed", "unreachable"]);
   t.close();
+});
+
+test("each transport says how it reaches the room (room_join via): edge · server · mesh", () => {
+  const me = { slug: "tpl-x", anonId: "a9", nick: "나" };
+  assert.equal(new EdgeRoomTransport("wss://room.test", me).via, "edge");
+  assert.equal(new ServerTransport("wss://server.test/ws", me).via, "server");
+  assert.equal(new MeshTransport(me, undefined, async () => null).via, "mesh");
 });
 
 test("close() stops everything: no reconnect, no listeners left", () => {

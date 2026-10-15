@@ -583,6 +583,16 @@ test("tap-battle friends room (host): the host has 시작하기; a friend sees '
   assert.equal(T.phase(1), "play");
 });
 
+// #141: device i stays in a lobby with no countdown the whole time (checked every second — a game
+// that started and ended in between would show), not just at the end.
+async function waitsAlone(T, i, ms) {
+  for (let left = ms; left > 0; left -= 1000) {
+    await T.advance(Math.min(1000, left));
+    assert.equal(T.phase(i), "lobby", `still the lobby (${ms - left + Math.min(1000, left)} ms)`);
+    assert.equal(T.v(i, "autoStartIn"), 0, "no countdown");
+  }
+}
+
 test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2명' counts down and the game starts by itself", async () => {
   const doc = load("tap-battle");
   const T = table("tap-battle", ["A", "B"], { startRule: "auto" });
@@ -596,11 +606,62 @@ test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2�
   await T.advance(6000 + 3200);
   assert.equal(T.phase(0), "play");
   assert.equal(T.phase(1), "play");
-  await T.advance(11000);
+  // both play (so the room re-arms after the result — #136 "someone played")
+  for (let k = 0; k < 10; k++) {
+    T.tap(0, "tapArea");
+    T.tap(1, "tapArea");
+    await T.advance(100);
+  }
+  await T.advance(10000);
   assert.equal(T.phase(0), "result");
+  assert.ok(T.room._state.session.acted.size >= 2, "someone played this game");
   assert.equal(T.tap(0, "againBtn"), false);
   assert.equal(T.prop(0, "againWaitMain"), "잠시 뒤 다음 판이 자동으로 시작돼요");
+  // #141: B leaves at the result — A alone: the next game waits for a second person
+  T.gone(1);
+  await T.advance(200);
+  assert.equal(T.prop(0, "againWaitMain"), "한 명 더 오면 다음 판을 시작해요");
+  assert.equal(T.prop(0, "againWaitSub"), "링크를 친구에게 보내도 돼요");
+  await T.advance(8000); // RESULT_HOLD_MS: back to the lobby — which does not count down alone
+  await waitsAlone(T, 0, 30000);
+  assert.equal(T.prop(0, "startWaitMain"), "한 명 더 오면 시작해요");
+  assert.equal(T.shown(0, "startBtn"), false);
+  const c = T.late("C");
+  await T.advance(100);
+  assert.equal(T.prop(c, "startWaitMain"), "10초 뒤 시작 · 2명");
+  assert.equal(T.prop(0, "startWaitMain"), "10초 뒤 시작 · 2명");
 });
+
+// #141: every public-room template — one person alone sees "한 명 더 오면 시작해요" (no start button,
+// nothing starts), the second person's arrival shows "10초 뒤 시작 · 2명", one leaving goes back to waiting.
+for (const id of ["balance-game-vote", "coop-click", "coop-tap-goal", "majority-guess", "most-likely-roster-vote", "nunchi-tap", "reaction-duel-score", "tap-battle", "worldcup-group-vote"]) {
+  test(`${id} public room (auto, #141): alone → '한 명 더 오면 시작해요'; 2nd person → '10초 뒤 시작 · 2명'; one leaves → waiting again`, async () => {
+    const doc = load(id);
+    const T = table(id, ["A"], { startRule: "auto" });
+    T.room.configureAuto(doc.room.start, doc.room.autoStartMs);
+    await T.advance(100);
+    assert.equal(T.prop(0, "startWaitMain"), "한 명 더 오면 시작해요");
+    assert.equal(T.prop(0, "startWaitSub"), "링크를 친구에게 보내도 돼요");
+    assert.equal(T.shown(0, "startWait"), true);
+    assert.equal(T.shown(0, "startBtn"), false);
+    assert.equal(T.tap(0, "startBtn"), false);
+    await waitsAlone(T, 0, 30000); // alone: never starts
+    const b = T.late("B");
+    await T.advance(100);
+    for (const i of [0, b]) {
+      assert.equal(T.prop(i, "startWaitMain"), "10초 뒤 시작 · 2명");
+      assert.equal(T.prop(i, "startWaitSub"), "지금 들어온 사람 모두 같이 시작해요");
+      assert.equal(T.shown(i, "startBtn"), false);
+    }
+    await T.advance(3000);
+    assert.equal(T.v(0, "autoStartIn"), 7, "counting down");
+    T.gone(b);
+    await T.advance(20);
+    assert.equal(T.v(0, "autoStartIn"), 0, "the room stopped the countdown (autoStart endsIn −1)");
+    assert.equal(T.prop(0, "startWaitMain"), "한 명 더 오면 시작해요", "cancelled: waiting again");
+    await waitsAlone(T, 0, 30000);
+  });
+}
 
 test("speed-trivia friends room (host, default quiz): only the host starts; a friend's lobby says the host is to start", async () => {
   const T = table("speed-trivia-score", ["A", "B"], { startRule: "host" });
@@ -626,15 +687,23 @@ test("speed-trivia friends room (host) + 나 맞히기: the subject (not the hos
   assert.equal(T.phase(2), "play");
 });
 
-test("speed-trivia public room (auto): the lobby counts down and the quiz starts by itself", async () => {
+test("speed-trivia public room (auto): alone it waits; with two the lobby counts down and the quiz starts by itself", async () => {
   const doc = load("speed-trivia-score");
   const T = table("speed-trivia-score", ["A"], { startRule: "auto" });
   T.room.configureAuto(doc.room.start, doc.room.autoStartMs);
   await T.advance(100);
-  assert.equal(T.prop(0, "waitBtn", "props.label"), "10초 뒤 시작 · 1명");
+  assert.equal(T.prop(0, "waitBtn", "props.label"), "한 명 더 오면 시작해요", "alone (#141): waits for a second person");
+  assert.equal(T.tap(0, "startBtn"), false);
+  await T.advance(30000);
+  assert.equal(T.phase(0), "lobby");
+  const b = T.late("B");
+  await T.advance(100);
+  assert.equal(T.prop(0, "waitBtn", "props.label"), "10초 뒤 시작 · 2명");
+  assert.equal(T.prop(b, "waitBtn", "props.label"), "10초 뒤 시작 · 2명");
   assert.equal(T.tap(0, "startBtn"), false);
   await T.advance(10000 + 3200);
   assert.equal(T.phase(0), "play");
+  assert.equal(T.phase(b), "play");
 });
 
 // 밸런스게임 (#126): picks stay hidden until everyone here picked (or the timer) — then all at once.

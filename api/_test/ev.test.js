@@ -283,3 +283,49 @@ test('room_join tries (broker connect tries, 4 buckets) and slow (joined after t
   const tryFields = Object.keys(c).filter((f) => f.includes('_by_tries:'));
   assert.ok(tryFields.every((f) => /^joins_(ok|failed)_by_tries:(1|2|3|4\+)$/.test(f)), tryFields.join());
 });
+
+test('room_join via: an enum (edge · mesh · server; anything else ignored, never a reason to drop); edge joins get their own counters', async () => {
+  const h = createHandler({ env: memEnv, limiter: createLimiter({ bucketSize: 100, dailyCap: 1e6 }) });
+  const r = await (await h(
+    post({
+      v: 1,
+      events: [
+        { k: 'room_join', ok: true, ms: 700, room: 'friend', via: 'edge' },
+        { k: 'room_join', ok: true, ms: 1500, room: 'public', via: 'edge' },
+        { k: 'room_join', ok: false, ms: 15000, reason: 'timeout', via: 'edge' },
+        { k: 'room_join', ok: false, via: 'edge' }, // a failure with no reason: still an edge failure
+        { k: 'room_join', ok: true, via: 'edge' }, // no time: still an edge success (untimed)
+        { k: 'room_join', ok: true, ms: 900, via: 'edge', tries: 3 }, // broker tries mean nothing to the room server: not counted
+        { k: 'room_join', ok: true, ms: 3800, via: 'mesh', tries: 2 },
+        { k: 'room_join', ok: false, reason: 'silence', via: 'server' },
+        { k: 'room_join', ok: true, ms: 2600, via: 'carrier-pigeon' }, // off the list: via ignored, join counted
+        { k: 'room_join', ok: true, ms: 2600, via: 5 },
+        { k: 'room_join', ok: true, ms: 800, via: null }, // null = absent
+        { k: 'room_join', ok: 'yes', via: 'edge' }, // still dropped for its other fields
+      ],
+    }),
+  )).json();
+  assert.deepEqual([r.accepted, r.dropped], [11, 1]);
+  const a = await (await h(get())).json();
+  const c = a.counters;
+  // The combined keys still count every join, as before.
+  assert.equal(c.joins_ok, 8);
+  assert.equal(c.joins_failed, 3);
+  assert.equal(c['join_ms_bucket:0-1s'], 3);
+  // Room-server joins only.
+  assert.equal(c['join_edge_ms_bucket:0-1s'], 2);
+  assert.equal(c['join_edge_ms_bucket:1-2s'], 1);
+  assert.equal(c.join_edge_ok_untimed, 1);
+  assert.equal(c['join_edge_fail_reason:timeout'], 1, 'an edge failure is counted by its reason');
+  assert.equal(c.join_edge_fail, 1, 'no reason: the plain edge-failure field');
+  assert.equal(c['join_edge_fail_reason:silence'], undefined, 'a server join is not an edge one');
+  assert.deepEqual([a.summary.joinEdgeOk, a.summary.joinEdgeFail], [4, 2]);
+  assert.deepEqual(a.summary.joinEdgeFailReasons, { timeout: 1 });
+  assert.deepEqual(a.summary.joinEdgeMs, { '0-1s': 2, '1-2s': 1, '2-3s': 0, '3-5s': 0, '5-10s': 0, '10s+': 0 });
+  assert.equal(c['joins_ok_by_tries:3'], undefined, 'edge: tries not counted');
+  assert.equal(c['joins_ok_by_tries:2'], 1, 'mesh: tries counted as before');
+  assert.equal(c['rejected_events:room_join'], 1);
+  // via values never become fields; only the fixed edge names (6 buckets + untimed + fail reasons + fail) exist.
+  assert.ok(!Object.keys(c).some((f) => /mesh|server|pigeon|via/.test(f)), Object.keys(c).join());
+  assert.ok(Object.keys(c).filter((f) => f.includes('edge')).every((f) => /^join_edge_(ms_bucket:(0-1s|1-2s|2-3s|3-5s|5-10s|10s\+)|ok_untimed|fail|fail_reason:[a-z_]+)$/.test(f)));
+});

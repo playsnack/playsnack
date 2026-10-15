@@ -13,7 +13,14 @@ let n = 0;
 const sid = () => `sid${String(++n).padStart(17, "0")}`;
 
 type Ev = Record<string, unknown>;
-function dayEvents(i: number): Ev[] {
+/**
+ * Joins: the last 2 days (i ≤ 1) through the room server (`via: "edge"`, quick); the 5 days
+ * before through the old player-hosted rooms (`via: "mesh"`, slower) — or, with `edge: false`,
+ * every day the old way with no `via` at all (clients from before it was sent).
+ */
+const EDGE_MS = [500, 700, 900, 1200, 1600, 2400, 800];
+const MESH_MS = [2600, 3400, 4200, 3100, 4800, 9000, 2900];
+function dayEvents(i: number, edge = true): Ev[] {
   // i = days before today (0 = today). Varied, so each table row differs.
   const ev: Ev[] = [];
   for (let g = 0; g < 2 + (i % 3); g++) ev.push({ k: "session_done", app: "speed-trivia-score", p: 3 + g, sid: sid(), about: true, ans: 2 });
@@ -21,10 +28,11 @@ function dayEvents(i: number): Ev[] {
   ev.push({ k: "game_created", app: "speed-trivia-score", source: "editor", gid: sid() });
   if (i % 2 === 0) ev.push({ k: "game_created", app: "speed-trivia-score", source: "remake", gid: sid() });
   ev.push({ k: "room_create", app: "speed-trivia-score" });
-  const joins = [600, 900, 1400, 1700, 2600, 4200, 800];
-  for (const ms of joins.slice(0, 4 + (i % 4))) ev.push({ k: "room_join", ok: true, ms, room: "friend", app: "speed-trivia-score" });
-  if (i % 3 === 0) ev.push({ k: "room_join", ok: false, ms: 15000, reason: "silence", room: "friend" });
-  if (i === 1) ev.push({ k: "room_join", ok: false, ms: 300, reason: "bad_link" });
+  const via = !edge ? {} : { via: i <= 1 ? "edge" : "mesh" };
+  const joins = edge && i <= 1 ? EDGE_MS : MESH_MS;
+  for (const ms of joins.slice(0, 4 + (i % 4))) ev.push({ k: "room_join", ok: true, ms, room: "friend", app: "speed-trivia-score", ...via });
+  if (i % 3 === 0) ev.push({ k: "room_join", ok: false, ms: 15000, reason: "silence", room: "friend", ...via });
+  if (i === 1) ev.push({ k: "room_join", ok: false, ms: 300, reason: "bad_link", ...via });
   ev.push({ k: "share", method: "web", what: "invite", app: "speed-trivia-score" });
   if (i % 2) ev.push({ k: "share", method: "copy", what: "result" });
   ev.push({ k: "ask_shown", app: "speed-trivia-score" }, { k: "ask_shown" }, { k: "ask_shown" });
@@ -39,8 +47,9 @@ const did = (n: number) => `fixtureBrowser_${String(n).padStart(7, "0")}`; // 22
 /**
  * `now` = the page's "today" (default NOW). `historyFrom` = also play a few games every
  * 3rd day from that day on (months of growth). `onlyToday` = nothing but today's games.
+ * `edge: false` = no join says how it went (no room-server numbers yet).
  */
-export async function statsFixture(o: { now?: number; historyFrom?: string; onlyToday?: boolean } = {}): Promise<{ weeks: WeekBody[]; day: DayBody; growth: GrowthBody; now: number }> {
+export async function statsFixture(o: { now?: number; historyFrom?: string; onlyToday?: boolean; edge?: boolean } = {}): Promise<{ weeks: WeekBody[]; day: DayBody; growth: GrowthBody; now: number }> {
   const NOW = o.now ?? NOW_DEFAULT;
   let t = NOW;
   const h = createHandler({
@@ -62,7 +71,7 @@ export async function statsFixture(o: { now?: number; historyFrom?: string; only
   }
   for (let i = o.onlyToday ? 0 : 6; i >= 0; i--) {
     t = NOW - i * DAY;
-    const ev = dayEvents(i);
+    const ev = dayEvents(i, o.edge !== false);
     for (let k = 0; k < ev.length; k += 20) await post(ev.slice(k, k + 20));
   }
   t = NOW;

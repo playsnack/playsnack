@@ -9,6 +9,7 @@ popularity grounding comes from GameAnalytics/Sensor Tower + the format evidence
 
 ## Home catalog fields (`snack-server/data/bite/index.json`)
 - `hidden: true` → off the home screen, old links still open it · `mergedInto: "<id>"` → old links redirect there.
+- **대표작 rule:** `"flagship": true` on exactly one app (today `speed-trivia-score` = 나 맞히기 퀴즈) → its own lime "대표작" card at the top of the home, never repeated in 추천 or 검토 전 (no `featured` on it; `snack-player/test/catalog.test.ts` checks this).
 - **추천 rule:** a game goes into the home "추천" section only after the owner reviewed + fixed it on a real phone — then set `"featured": n` (rank, 1 = first) on its entry and add its id to `REVIEWED` in `snack-player/test/catalog.test.ts`; every game without `featured` lists under "검토 전 게임".
 
 ## Key evidence

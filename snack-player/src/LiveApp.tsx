@@ -167,7 +167,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     const auto = autoStartTicker((n) => {
       if (doc.vars && Object.prototype.hasOwnProperty.call(doc.vars, "autoStartIn")) runtimeRef.current?.setVar("autoStartIn", n);
     });
-    const join = joinTracker({ slug, room: roomIdFor(slug, params) }); // room_join telemetry + ?debug=1 log
+    const join = joinTracker({ slug, room: roomIdFor(slug, params), via: room.via }); // room_join telemetry + ?debug=1 log
     // The backstop for a transport that never reports: like the transport's own deadline,
     // it counts only time with the page on screen (visibleTimer.ts, #115).
     let silence: VisibleTimer | undefined;

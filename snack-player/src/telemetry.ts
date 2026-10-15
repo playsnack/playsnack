@@ -18,6 +18,8 @@ export type ShareMethod = 'web' | 'kakao' | 'copy' | 'save' | 'other';
 // Free-beta metrics (docs/telemetry.md §9).
 export type ShareWhat = 'invite' | 'result' | 'app' | 'other';
 export type RoomKind = 'public' | 'friend';
+/** How a join reached its room: 'edge' = the room server, 'mesh' = a player-hosted room (broker or relay), 'server' = snack-server. */
+export type RoomVia = 'edge' | 'mesh' | 'server';
 export type JoinFailReason =
   | 'bad_link' | 'not_found' | 'network' | 'timeout' | 'unreachable' | 'disconnected' | 'refused'
   | 'subscribe' | 'silence' | 'other';
@@ -30,7 +32,7 @@ export type TelemetryEvent =
   | { k: 'first_tap'; ms: number; app?: string }
   | { k: 'result'; app?: string }
   | { k: 'share'; method: ShareMethod; what?: ShareWhat; app?: string }
-  | { k: 'room_join'; ok: boolean; ms?: number; app?: string; room?: RoomKind; reason?: JoinFailReason; tries?: number; slow?: true }
+  | { k: 'room_join'; ok: boolean; ms?: number; app?: string; room?: RoomKind; reason?: JoinFailReason; tries?: number; slow?: true; via?: RoomVia }
   | { k: 'err'; msg: string; where?: string; build?: string }
   /**
    * A game reached its result — sent by the host engine only; `p` = players who took part (acted this game; a quiz subject counts),
@@ -290,7 +292,7 @@ export function trackGameCreated(app: string, source: GameSource, gid: string): 
 }
 
 /** One join attempt: ok, or the reason it failed. */
-export function trackJoin(app: string, ok: boolean, o: { ms?: number; room?: RoomKind; reason?: JoinFailReason; tries?: number; slow?: true } = {}): void {
+export function trackJoin(app: string, ok: boolean, o: { ms?: number; room?: RoomKind; reason?: JoinFailReason; tries?: number; slow?: true; via?: RoomVia } = {}): void {
   const ev: Extract<TelemetryEvent, { k: 'room_join' }> = { k: 'room_join', ok, app: appOf(app) };
   if (o.ms !== undefined) ev.ms = Math.round(o.ms);
   if (o.room) ev.room = o.room;
@@ -298,6 +300,7 @@ export function trackJoin(app: string, ok: boolean, o: { ms?: number; room?: Roo
   // Broker connect tries (1–20, the server keeps 4 buckets); slow = got in after the slow notice.
   if (o.tries !== undefined) ev.tries = Math.min(20, Math.max(1, Math.round(o.tries)));
   if (ok && o.slow) ev.slow = true;
+  if (o.via) ev.via = o.via;
   track(ev);
 }
 

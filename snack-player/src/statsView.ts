@@ -18,6 +18,14 @@ export type Summary = {
   joinFail: number;
   joinFailReasons: Record<string, number>;
   joinMs: Record<string, number>;
+  /**
+   * Room-server joins only (`via: 'edge'`, counted from 2026-10-15) — the only join numbers
+   * the page shows. The four above count every join (kept for history, not shown).
+   */
+  joinEdgeOk: number;
+  joinEdgeFail: number;
+  joinEdgeFailReasons: Record<string, number>;
+  joinEdgeMs: Record<string, number>;
   share: number;
   shareWhat: Record<string, number>;
   askShown: number;
@@ -162,6 +170,7 @@ const sumRec = (a: Record<string, number>, b: Record<string, number>) => {
 const EMPTY: Summary = {
   sessionsDone: 0, sessionsDone3: 0, sessionsDup: 0, sessionsAbout: 0, rematch: 0, roomsCreated: 0,
   gamesCreated: 0, gamesEditor: 0, gamesRemade: 0, joinOk: 0, joinFail: 0, joinFailReasons: {}, joinMs: {},
+  joinEdgeOk: 0, joinEdgeFail: 0, joinEdgeFailReasons: {}, joinEdgeMs: {},
   share: 0, shareWhat: {}, askShown: 0, askYes: 0, askNo: 0, askSkip: 0, askNoReasons: {}, errors: 0,
   devicesSeen: 0, devicesByAge: {}, devicesByUses: {}, devicesByGames: {}, devicesByMade: {}, bad: {},
 };
@@ -185,6 +194,40 @@ export function rankedRows(counts: Record<string, number>, labels: Record<string
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
     .map(([key, n]) => ({ key, label: labels[key] || key, n }));
 }
+
+/**
+ * The 날마다 table: one number per column, each header saying what it counts (two short
+ * lines, so it fits a 360 px phone; the table scrolls sideways past that). `strong` = the
+ * headline (3+ players together — the same number as the 7-day card), in the hero colour.
+ */
+export const DAY_COLUMNS: { key: string; head: [string, string]; value: (s: Summary) => string; strong?: boolean }[] = [
+  { key: "together", head: ["같이 한 판", "3명 이상"], value: (s) => fmtInt(s.sessionsDone3), strong: true },
+  { key: "finished", head: ["끝난 판", "전체"], value: (s) => fmtInt(s.sessionsDone) },
+  { key: "made", head: ["퀴즈", "직접 만듦"], value: (s) => fmtInt(s.gamesEditor) },
+  { key: "remade", head: ["퀴즈", "나도 만들기"], value: (s) => fmtInt(s.gamesRemade) },
+  { key: "rooms", head: ["새 친구 방", "만듦"], value: (s) => fmtInt(s.roomsCreated) },
+  // Room-server joins only, like the 방 입장 card ("—" on a day before they were counted).
+  { key: "join", head: ["입장", "성공률"], value: (s) => fmtPct(s.joinEdgeOk, s.joinEdgeOk + s.joinEdgeFail) },
+];
+
+/** Join times from one bucket map: the 6 bars, estimated p50/p75/p95 and the "2 s" bar. */
+export function joinTimes(counts: Record<string, number>) {
+  const total = TIME_BUCKETS.reduce((n, b) => n + (counts[b.key] || 0), 0);
+  const fast = (counts["0-1s"] || 0) + (counts["1-2s"] || 0);
+  return {
+    total,
+    within2s: fmtPct(fast, total),
+    // The quality bar: p75 <= 2 s ⇔ at least 75% of timed joins took 2 s or less (exact from the buckets).
+    meetsBar: total ? fast / total >= 0.75 : null,
+    p50: fmtPercentile(estimatePercentile(counts, 0.5)),
+    p75: fmtPercentile(estimatePercentile(counts, 0.75)),
+    p95: fmtPercentile(estimatePercentile(counts, 0.95)),
+    buckets: TIME_BUCKETS.map((b) => ({ key: b.key, label: b.label, n: counts[b.key] || 0 })),
+  };
+}
+
+/** "10월 15일" */
+export const monthDayLabel = (day: string) => `${Number(day.slice(5, 7))}월 ${Number(day.slice(8, 10))}일`;
 
 export type DayRow = {
   day: string;
@@ -211,15 +254,20 @@ export type StatsModel = {
   budgetReached: boolean;
   cumulative: Record<string, number>;
   errorsToday: { msg: string; count: number }[];
-  join: {
+  /**
+   * Joins to the room server only (`via: 'edge'`) — the page's only join numbers, so the old
+   * player-hosted joins (3–5 s) do not blur the new ones (owner, 2026-10-15: the old combined
+   * numbers stay stored but are not shown). `has` = any edge join in the 7 days; `since` = the
+   * first of those days ("10월 15일") when it is inside the window — when counting started
+   * (the deploy that sends `via`), not when rooms moved to the room server.
+   */
+  join: ReturnType<typeof joinTimes> & {
+    has: boolean;
+    since: string | null;
+    ok: number;
+    fail: number;
     successRate: string;
-    within2s: string;
-    meetsBar: boolean | null;
-    p50: string;
-    p75: string;
-    p95: string;
-    buckets: { key: string; label: string; n: number }[];
-    total: number;
+    /** Why room-server joins failed. */
     reasons: { key: string; label: string; n: number }[];
   };
   ask: { shown: number; yes: number; no: number; skip: number; noAnswer: number; reasons: { key: string; label: string; n: number }[] };
@@ -241,8 +289,12 @@ export function buildModel(weeks: (WeekBody | null)[], day: DayBody | null, now:
   const latest = okWeeks[okWeeks.length - 1] || null;
   const anyBody = [...weeks, day].filter((b): b is WeekBody | DayBody => !!b);
   const budget = anyBody.map((b) => b.budget).filter((b): b is Budget => !!b).sort((a, b) => (b.used || 0) - (a.used || 0))[0] || null;
-  const joinTotal = TIME_BUCKETS.reduce((n, b) => n + (week.joinMs[b.key] || 0), 0);
-  const fast = (week.joinMs["0-1s"] || 0) + (week.joinMs["1-2s"] || 0);
+  const edgeTries = week.joinEdgeOk + week.joinEdgeFail;
+  // The first day with joins tagged as room-server ones = when counting them started (rooms
+  // were already on the room server a day earlier; untagged joins then are not in here).
+  // Only when that is inside these 7 days (on the oldest day it may just be where the window begins).
+  const firstEdge = [...days].reverse().find((d) => d.s.joinEdgeOk + d.s.joinEdgeFail > 0);
+  const edgeSince = firstEdge && firstEdge !== days[days.length - 1] ? firstEdge.day : null;
   return {
     today,
     empty: days.every((d) => d.empty),
@@ -256,16 +308,13 @@ export function buildModel(weeks: (WeekBody | null)[], day: DayBody | null, now:
     cumulative: (latest && latest.cumulative) || {},
     errorsToday: ((day && day.errors && day.errors.top) || []).slice(0, 5),
     join: {
-      successRate: fmtPct(week.joinOk, week.joinOk + week.joinFail),
-      within2s: fmtPct(fast, joinTotal),
-      // The quality bar: p75 <= 2 s ⇔ at least 75% of timed joins took 2 s or less (exact from the buckets).
-      meetsBar: joinTotal ? fast / joinTotal >= 0.75 : null,
-      p50: fmtPercentile(estimatePercentile(week.joinMs, 0.5)),
-      p75: fmtPercentile(estimatePercentile(week.joinMs, 0.75)),
-      p95: fmtPercentile(estimatePercentile(week.joinMs, 0.95)),
-      buckets: TIME_BUCKETS.map((b) => ({ key: b.key, label: b.label, n: week.joinMs[b.key] || 0 })),
-      total: joinTotal,
-      reasons: rankedRows(week.joinFailReasons, JOIN_FAIL_LABEL),
+      ...joinTimes(week.joinEdgeMs),
+      has: edgeTries > 0,
+      since: edgeSince ? monthDayLabel(edgeSince) : null,
+      ok: week.joinEdgeOk,
+      fail: week.joinEdgeFail,
+      successRate: fmtPct(week.joinEdgeOk, edgeTries),
+      reasons: rankedRows(week.joinEdgeFailReasons, JOIN_FAIL_LABEL),
     },
     ask: {
       shown: week.askShown,

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { TOKENS, C, S } from "./tokens.gen";
 import { BLOCK_CSS, pill } from "./ui";
 import {
-  buildModel, budgetLine, fmtInt, fmtPct, kstDay, last7Days, regulars, weeksFor,
+  DAY_COLUMNS, buildModel, budgetLine, fmtInt, fmtPct, kstDay, last7Days, regulars, weeksFor,
   type DayBody, type GrowthBody, type StatsModel, type WeekBody,
 } from "./statsView";
 import { GrowthSection } from "./GrowthSection.tsx";
@@ -79,6 +79,9 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
   const w = m.week;
   const b = budgetLine(m.budget);
   const reg = regulars(m.days[0] ? m.days[0].s : null);
+  // Join numbers count room-server joins only ("지금 입장 방식" — the page never says 서버); the
+  // old way is not shown at all (owner, 2026-10-15). Said once, under 방 입장: when counting began.
+  const edgeNote = m.join.since ? `지금 입장 방식만 ${m.join.since}부터 센 숫자예요.` : null;
   return (
     <>
       {!m.wired && (
@@ -105,32 +108,35 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
       </section>
 
       <H2>날마다</H2>
-      <p style={help}>끝난 판 = 결과 화면까지 간 판(전체 / 3명 이상). 퀴즈 = 직접 만듦 / 결과를 보고 "나도 만들기". 방 = 새로 만든 친구 방. 입장 = 방에 잘 들어간 비율.</p>
-      <div style={{ overflowX: "auto" }}>
+      <p style={help}>끝난 판 = 결과 화면까지 간 판 · 나도 만들기 = 결과를 보고 만든 퀴즈</p>
+      <div style={tableBox} role="region" aria-label="날마다 숫자 표" tabIndex={0}>
         <table style={table}>
           <thead>
             <tr>
-              <th style={thL}>날짜</th>
-              <th style={th}>끝난 판</th>
-              <th style={th}>퀴즈</th>
-              <th style={th}>방</th>
-              <th style={th}>입장</th>
+              <th style={{ ...thL, ...stick, background: C.surface }} scope="col">날짜</th>
+              {DAY_COLUMNS.map((c) => (
+                <th key={c.key} scope="col" style={c.strong ? { ...th, color: C.accent } : th}>
+                  {c.head[0]}<br /><span style={c.strong ? undefined : { fontWeight: TOKENS.weight.muted }}>{c.head[1]}</span>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {m.days.map((d) => (
-              <tr key={d.day} style={d.isToday ? { background: C.surface2 } : undefined}>
-                <td style={tdL}>{d.label}{d.isToday && <span style={todayTag}>오늘</span>}</td>
-                {d.empty ? (
-                  <td style={{ ...td, color: C.inkMuted, textAlign: "center" }} colSpan={4}>아직 기록이 없어요</td>
-                ) : (<>
-                <td style={td}>{fmtInt(d.s.sessionsDone)} / <b style={{ color: C.accent }}>{fmtInt(d.s.sessionsDone3)}</b></td>
-                <td style={td}>{fmtInt(d.s.gamesEditor)} / {fmtInt(d.s.gamesRemade)}</td>
-                <td style={td}>{fmtInt(d.s.roomsCreated)}</td>
-                <td style={td}>{fmtPct(d.s.joinOk, d.s.joinOk + d.s.joinFail)}</td>
-                </>)}
-              </tr>
-            ))}
+            {m.days.map((d) => {
+              const bg = d.isToday ? C.surface2 : C.surface;
+              return (
+                <tr key={d.day} style={{ background: bg }}>
+                  <th scope="row" style={{ ...tdL, ...stick, background: bg, fontWeight: TOKENS.weight.body }}>
+                    {d.label}{d.isToday && <span style={todayTag}>오늘</span>}
+                  </th>
+                  {d.empty ? (
+                    <td style={{ ...td, color: C.inkMuted, textAlign: "left" }} colSpan={DAY_COLUMNS.length}>아직 기록이 없어요</td>
+                  ) : DAY_COLUMNS.map((c) => (
+                    <td key={c.key} style={c.strong ? { ...td, color: C.accent, fontWeight: 800, fontSize: TOKENS.size.bodyMd } : td}>{c.value(d.s)}</td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -152,8 +158,13 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
       </section>
 
       <H2>방 입장</H2>
+      {edgeNote && <p style={help}>{edgeNote}</p>}
       <section style={card}>
-        <Row label="입장 성공률" value={m.join.successRate} sub={`성공 ${fmtInt(w.joinOk)} · 실패 ${fmtInt(w.joinFail)}`} />
+        {m.join.has ? (
+          <Row label="입장 성공률" value={m.join.successRate} sub={`성공 ${fmtInt(m.join.ok)} · 실패 ${fmtInt(m.join.fail)}`} />
+        ) : (
+          <p style={{ ...muted, margin: 0 }}>지금 입장 방식으로 들어간 기록이 아직 없어요.</p>
+        )}
         {m.join.reasons.length > 0 && (
           <>
             <div style={{ ...muted, marginTop: S.s3 }}>실패 이유</div>
@@ -165,7 +176,7 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
       <p style={help}>링크를 열고 방에 들어가기까지 걸린 시간이에요(잘 들어간 경우만). 목표: 4번 중 3번은 2초 안에.</p>
       <section style={card}>
         {m.join.total === 0 ? (
-          <p style={{ ...muted, margin: 0 }}>아직 잰 입장이 없어요.</p>
+          <p style={{ ...muted, margin: 0 }}>{m.join.has ? "아직 시간을 잰 입장이 없어요." : "지금 입장 방식으로 들어간 기록이 아직 없어요."}</p>
         ) : (
           <>
             {m.join.buckets.map((bk) => (
@@ -306,12 +317,17 @@ const note: React.CSSProperties = {
 };
 const card: React.CSSProperties = { marginTop: S.s3, padding: S.s4, background: C.surface, border: `2px solid ${C.borderBlock}`, boxShadow: "0 5px 0 #000000" };
 const bigNum: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: TOKENS.size.displayLg, color: C.accent, lineHeight: 1.2, margin: `${S.s3}px 0` };
-const table: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: TOKENS.size.bodySm, background: C.surface, border: `2px solid ${C.borderBlock}` };
-const th: React.CSSProperties = { textAlign: "right", padding: `${S.s2}px ${S.s2}px`, color: C.inkMuted, fontWeight: TOKENS.weight.strong, borderBottom: `2px solid ${C.borderBlock}`, whiteSpace: "nowrap" };
+/** The box border sits on the scroll box, not the table, so it stays put while the table scrolls sideways. */
+const tableBox: React.CSSProperties = { overflowX: "auto", background: C.surface, border: `2px solid ${C.borderBlock}` };
+const table: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: TOKENS.size.bodySm, background: C.surface };
+const th: React.CSSProperties = { textAlign: "right", padding: `${S.s2}px 6px`, color: C.inkMuted, fontWeight: TOKENS.weight.strong, borderBottom: `2px solid ${C.borderBlock}`, whiteSpace: "nowrap" };
 const thL: React.CSSProperties = { ...th, textAlign: "left" };
-const td: React.CSSProperties = { textAlign: "right", padding: `${S.s2}px ${S.s2}px`, borderBottom: `1px solid ${C.hairline}`, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
+const td: React.CSSProperties = { textAlign: "right", padding: `${S.s2}px 6px`, borderBottom: `1px solid ${C.hairline}`, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
 const tdL: React.CSSProperties = { ...td, textAlign: "left" };
-const todayTag: React.CSSProperties = { marginLeft: 4, padding: "0 4px", background: C.accent, color: C.accentInk, fontSize: 11, fontWeight: 800 };
+/** The date column stays put while the numbers scroll sideways on a narrow phone. */
+const stick: React.CSSProperties = { position: "sticky", left: 0, zIndex: 1, borderRight: `1px solid ${C.hairline}` };
+/** Under the date (keeps the date column narrow on a phone). */
+const todayTag: React.CSSProperties = { display: "block", width: "fit-content", marginTop: 2, padding: "0 4px", background: C.accent, color: C.accentInk, fontSize: 11, fontWeight: 800 };
 const row: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: S.s3, padding: `${S.s1}px 0` };
 const track: React.CSSProperties = { height: 10, background: C.surface2, border: `1px solid ${C.hairline}`, marginTop: 2 };
 const fill: React.CSSProperties = { height: "100%", background: C.accent };

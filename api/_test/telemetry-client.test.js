@@ -215,6 +215,25 @@ test('free-beta helpers: typed events, room code / sid kept off the wire for ask
   assert.deepEqual(a.summary.joinFailReasons, { refused: 1 });
 });
 
+test('room_join carries via (the transport used) and the server keeps room-server joins apart', async () => {
+  const t = await fresh();
+  t.trackJoin('tap-battle~QWERTYZ23456', true, { ms: 640, room: 'friend', via: 'edge' });
+  t.trackJoin('tap-battle', false, { room: 'public', reason: 'timeout', via: 'edge' });
+  t.trackJoin('tap-battle', true, { ms: 3800, room: 'public', tries: 2, via: 'mesh' });
+  t.trackJoin('tap-battle', true, { ms: 900 }); // no via (a caller that does not know): none sent
+  t.flush();
+  const evs = beacons.flatMap((b) => JSON.parse(b.body).events);
+  assert.deepEqual(evs.map((e) => e.via), ['edge', 'edge', 'mesh', undefined]);
+  assert.deepEqual(evs[0], { k: 'room_join', ok: true, app: 'tap-battle', ms: 640, room: 'friend', via: 'edge' });
+  const h = createHandler({ env: {} });
+  for (const b of beacons) assert.equal((await (await h(toRequest(b.body))).json()).accepted, 4);
+  const a = await (await h(new Request('https://playsnack.test/api/ev'))).json();
+  assert.deepEqual([a.summary.joinOk, a.summary.joinFail], [3, 1], 'the combined numbers still count every join');
+  assert.deepEqual([a.summary.joinEdgeOk, a.summary.joinEdgeFail], [1, 1]);
+  assert.equal(a.summary.joinEdgeMs['0-1s'], 1);
+  assert.equal(a.counters['join_edge_ms_bucket:0-1s'], 1);
+});
+
 test('joinFailReason maps transport reasons onto the reported set', async () => {
   const t = await fresh();
   const cases = { timeout: 'timeout', unreachable: 'unreachable', disconnected: 'disconnected', broker: 'unreachable',
