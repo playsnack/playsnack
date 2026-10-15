@@ -345,9 +345,68 @@ export function createRoom(o) {
     if (i >= S.rounds.length) return toResult();
     r.voters.clear();
     S.roundIdx = i;
+    if (S.hidden) return startHiddenRound(i);
     setPhase("play", { roundIdx: i, roundTotal: S.rounds.length, roundNum: i + 1, roundContent: S.rounds[i], votesByOption: tally() });
     later("startRound", i + 1, S.roundMs);
   };
+
+  // Hidden picks (start {hidden: true} — 밸런스게임, #126): nobody sees anyone else's pick
+  // or a running tally until the round is revealed. Before the reveal only the count goes
+  // out (voteProgress) and each player gets their own pick back (myPick {sessionNo, round,
+  // option}, per player — the quiz's shape); at the reveal the split (votesByOption) and who
+  // picked what (roundPicks) go out at once.
+  // Revealed at the end of roundMs, or EARLY_REVEAL_MS after everyone present picked (the
+  // quiz's rule: spectators and leavers don't count; only a pick or a leave completes a round).
+  const ROUND_PICKS_MAX = 8; // names listed per option at the reveal
+  const voteProgress = () => {
+    const here = playersHere();
+    return { voted: here.filter((id) => r.voters.has(id)).length, of: here.length, round: S.roundIdx, sessionNo: S.round };
+  };
+  const roundPicks = () => {
+    const out = {};
+    for (const k of Object.keys(tally())) out[k] = [];
+    for (const [anonId, opt] of r.voters) {
+      const list = (out[opt] ??= []);
+      if (list.length < ROUND_PICKS_MAX) list.push(r.nicks.get(anonId) || r.roster.get(anonId) || "게스트");
+    }
+    return out;
+  };
+  const startHiddenRound = (i) => {
+    S.accepting = true;
+    S.early = false;
+    S.roundStart = now();
+    // voteProgress first: a device that has the new roundIdx already has this round's count
+    // and sessionNo (a last game's myPick for the same round index is not mine any more).
+    setPhase("play", { voteProgress: voteProgress(), roundIdx: i, roundTotal: S.rounds.length, roundNum: i + 1, roundContent: S.rounds[i], revealRound: -1, votesByOption: tally(), roundPicks: {} });
+    later("revealVoteRound", i, S.roundMs);
+  };
+  const revealVoteRound = (i) => {
+    if (!S.hidden || S.roundIdx !== i) return; // stale timer
+    S.accepting = false;
+    S.early = false;
+    // The split and the names land before revealRound, so a device that sees revealRound === roundIdx has both.
+    setVar("votesByOption", tally());
+    setVar("roundPicks", roundPicks());
+    setVar("revealRound", i);
+    later("startRound", i + 1, S.revealMs);
+  };
+  const syncVoteReveal = ({ mayPull = true } = {}) => {
+    if (!S.hidden || S.phase !== "play" || !S.accepting) return;
+    if (!S.timers.some((x) => x.step === "revealVoteRound")) return;
+    const p = voteProgress();
+    const allIn = p.of > 0 && p.voted >= p.of;
+    const fullIn = S.roundStart + S.roundMs - now();
+    if (allIn && !S.early && mayPull && fullIn > EARLY_REVEAL_MS) {
+      S.early = true;
+      cancel("revealVoteRound");
+      later("revealVoteRound", S.roundIdx, EARLY_REVEAL_MS);
+    } else if (!allIn && S.early) {
+      S.early = false;
+      cancel("revealVoteRound");
+      later("revealVoteRound", S.roundIdx, Math.max(0, fullIn));
+    }
+  };
+  const hiddenOpen = () => Boolean(S.hidden) && S.phase === "play" && Boolean(S.accepting);
 
   // Quiz: answer window (answer hidden) → reveal (answer + scores).
   // 나 맞히기: the player whose pack is playing (the subject) watches; everyone else answers.
@@ -588,6 +647,7 @@ export function createRoom(o) {
     },
     result: () => toResult(),
     startRound,
+    revealVoteRound,
     startQuizRound,
     revealQuizRound,
     resolveNunchi: () => resolveNunchi(),
@@ -611,6 +671,7 @@ export function createRoom(o) {
     if (typeof opts === "number") opts = { duration: opts };
     opts = opts || {};
     S.sid = idOf(clientMsgId);
+    S.hidden = false;
     S.accepting = false; // no answer counts until a round opens (a lobby/countdown answer never scores)
     S.revealed = null;
     S.answerers = new Set(); // quiz: who answered at least once (the subject never does)
@@ -640,6 +701,7 @@ export function createRoom(o) {
     setKnown("leaderboard", []);
     setKnown("coopTotal", 0);
     setKnown("votesByOption", tally());
+    setKnown("revealRound", -1);
     onActivity("start", "게임 시작");
     // Fetch content first — the lobby stays up meanwhile, so every timer below is
     // scheduled from one sync point and clients stay in step.
@@ -722,6 +784,10 @@ export function createRoom(o) {
       S.rounds = shuffled(pack).slice(0, Math.min(pack.length, Math.max(1, Number(opts.rounds) || 5)));
       S.roundMs = Math.min(20000, Math.max(3000, Number(opts.roundMs) || 8000));
       S.quiz = false;
+      if (opts.hidden === true) {
+        S.hidden = true;
+        S.revealMs = Math.min(8000, Math.max(1500, Number(opts.revealMs) || 3000));
+      }
       later("startRound", 0, 3000);
     } else {
       // Single play window (tap race / co-op).
@@ -787,12 +853,21 @@ export function createRoom(o) {
     // A spectator watches this session: nothing they send scores or counts.
     if (SCORED_ACTIONS.has(name) && isSpectator(anonId)) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "spectator" });
     if (name === "vote" && d?.payload?.option != null) {
-      r.voters.set(anonId, String(d.payload.option)); // one vote per person, re-vote allowed
+      // Hidden picks: only while the round is open (a pick after the reveal would change a shown split).
+      if (S.hidden && !hiddenOpen()) return ack(peerId, d.clientMsgId, { accepted: false, reason: "closed" });
+      const option = String(d.payload.option);
+      r.voters.set(anonId, option); // one vote per person, re-vote allowed
       took(anonId);
       onVotersChanged();
       onPoints(anonId, nick, 1);
-      // 눈치 배틀 keeps the tally hidden until the reveal.
-      if (S.mode !== "guess") setVar("votesByOption", tally());
+      if (S.hidden) {
+        // Only the count goes out; the pick goes back to this player only (all their connections).
+        for (const [id, p] of r.peers) if (p.anonId === anonId) send(id, "setVar", { id: "myPick", value: { sessionNo: S.round, round: S.roundIdx, option } });
+        setVar("voteProgress", voteProgress());
+        syncVoteReveal();
+      }
+      // 눈치 배틀 / hidden picks keep the tally hidden until the reveal.
+      else if (S.mode !== "guess") setVar("votesByOption", tally());
       if (S.mode === "bracket") maybeAdvanceMatchup();
       onActivity("vote", "투표함");
       ack(peerId, d.clientMsgId);
@@ -993,6 +1068,10 @@ export function createRoom(o) {
           syncReveal({ mayPull: false }); // a newcomer who has not answered reopens the round
         }
       }
+      if (hiddenOpen() && !S.spectators?.has(anonId)) {
+        setVar("voteProgress", voteProgress()); // a member back (reload / flap) counts again
+        syncVoteReveal({ mayPull: false });
+      }
       if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard()); // back after a flap: unmarked (MP-12)
       onActivity("join", "입장");
     },
@@ -1026,6 +1105,10 @@ export function createRoom(o) {
         setVar("quizProgress", quizProgress());
         syncReveal(); // the last one still to answer left: everyone here has
       }
+      if (gone && hiddenOpen()) {
+        setVar("voteProgress", voteProgress());
+        syncVoteReveal(); // the last one still to pick left: everyone here has
+      }
       if (gone && S.quizPack && peer.anonId === S.quizPack.subject.anonId) {
         S.subjectAwayAt = now(); // counts as left only after SUBJECT_GRACE_MS
         watchSubjectAway();
@@ -1045,7 +1128,8 @@ export function createRoom(o) {
      * its own initial value instead of a "host set undeclared variable" warning.
      */
     sharedState() {
-      const t = tally();
+      // No live tally while picks are hidden (눈치 배틀 / hidden picks): only what was broadcast.
+      const t = S.hidden || S.mode === "guess" ? {} : tally();
       const photos = rosterPhotosArr();
       return {
         ...(Object.keys(t).length ? { votesByOption: t } : {}),

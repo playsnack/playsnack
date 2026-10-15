@@ -109,7 +109,10 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] }
     boot(nicks.length - 1, nick);
     return nicks.length - 1;
   };
-  return { room, advance, app, prop, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
+  // Is node `nid` (and every ancestor) shown on device i now?
+  const pathTo = (nid, n = load(id).view) => (n?.id === nid ? [n] : (n?.children ?? []).map((c) => pathTo(nid, c)).find(Boolean)?.concat(n, []) ?? null);
+  const shown = (i, nid) => pathTo(nid).every((n) => n.show == null || Boolean(app(i).eval(n.show)));
+  return { room, advance, app, prop, shown, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
 }
 
 test("tap-battle: game 2 started by the OTHER device — board == 내 탭 card on the non-starter", async () => {
@@ -541,4 +544,64 @@ test("coop-click: a late joiner mid-game spectates — pad inert, taps not count
   await T.advance(300);
   assert.equal(T.v(0, "coopTotal"), 5);
   assert.deepEqual(rows(T.v(0, "raceBoard")), [{ nick: "C", score: 5 }]);
+});
+
+// 밸런스게임 (#126): picks stay hidden until everyone here picked (or the timer) — then all at once.
+test("balance-game: no peeking — '1/3명 골랐어요' + only my own pick marked; all picked → split + names on every device", async () => {
+  const T = table("balance-game-vote", ["A", "B", "C"]);
+  T.tap(0, "startBtn");
+  await T.advance(3000 + 100);
+  assert.equal(T.phase(1), "play");
+  assert.equal(T.prop(1, "pickProgress"), "0/3명 골랐어요 · 다 고르면 공개");
+  T.tap(0, "cardA"); // A picks
+  await T.advance(200);
+  assert.equal(T.prop(1, "pickProgress"), "1/3명 골랐어요 · 다 고르면 공개", "B sees only the count");
+  assert.equal(T.shown(1, "cardAPct"), false, "no % before the reveal");
+  assert.equal(T.shown(1, "cardANames"), false);
+  assert.equal(T.shown(1, "cardAMine"), false, "A's pick is not marked on B's phone");
+  assert.deepEqual(T.v(1, "votesByOption"), { o0: 0, o1: 0 }, "B's device never got a running tally");
+  assert.equal(T.shown(0, "cardAMine"), true, "A sees ✓ 내 선택 on A");
+  assert.match(T.prop(0, "cardA", "stroke.color"), /#d9ff00/i);
+  assert.match(T.prop(1, "cardA", "stroke.color"), /#16181c/i);
+  T.tap(1, "cardB");
+  T.tap(2, "cardB");
+  await T.advance(100);
+  assert.equal(T.prop(2, "pickProgress"), "다 골랐어요! 곧 공개 (3/3)");
+  await T.advance(300);
+  for (const i of [0, 1, 2]) {
+    assert.equal(T.prop(i, "pickProgress"), "결과 공개 🎉");
+    assert.equal(T.shown(i, "cardAPct"), true);
+    assert.equal(T.prop(i, "cardAPct"), "33%");
+    assert.equal(T.prop(i, "cardBPct"), "67%");
+    assert.equal(T.prop(i, "cardANames"), "A");
+    assert.equal(T.prop(i, "cardBNames"), "B · C");
+  }
+  assert.match(T.prop(0, "cardA", "stroke.color"), /#d9ff00/i, "my pick stays marked after the reveal");
+  T.tap(1, "cardA"); // too late: a revealed round can't be changed
+  await T.advance(50);
+  assert.equal(T.v(1, "myVote"), "o1");
+  assert.equal(T.prop(1, "cardBNames"), "B · C");
+  await T.advance(3500); // revealMs → round 2: back to hidden, nothing marked
+  assert.equal(T.v(1, "roundNum"), 2);
+  assert.equal(T.shown(1, "cardAPct"), false);
+  assert.equal(T.shown(0, "cardAMine"), false);
+  assert.equal(T.prop(0, "pickProgress"), "0/3명 골랐어요 · 다 고르면 공개");
+});
+
+test("balance-game: a reload mid-round shows my pick again; someone who never picks → the timer reveals", async () => {
+  const T = table("balance-game-vote", ["A", "B"]);
+  T.tap(0, "startBtn");
+  await T.advance(3000 + 100);
+  T.tap(1, "cardB");
+  await T.advance(100);
+  T.reload(1);
+  await T.advance(100);
+  assert.equal(T.phase(1), "play");
+  assert.equal(T.shown(1, "cardBMine"), true, "the room gave my pick back");
+  assert.equal(T.prop(1, "pickProgress"), "1/2명 골랐어요 · 다 고르면 공개");
+  assert.equal(T.shown(0, "cardBMine"), false);
+  await T.advance(10000 - 300);
+  assert.equal(T.prop(0, "pickProgress"), "결과 공개 🎉", "A never picked: revealed when the 10 s ran out");
+  assert.equal(T.prop(0, "cardBPct"), "100%");
+  assert.equal(T.prop(0, "cardANames"), "아무도 없어요");
 });
