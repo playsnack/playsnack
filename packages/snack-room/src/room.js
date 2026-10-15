@@ -50,8 +50,8 @@ const QUIZ_ANSWER_MS = [3000, 20000]; // answer window bounds (ms)
 // so an honest claim never exceeds the window by much; beyond this it is not believed.
 const ANSWER_GRACE_MS = 500;
 // Early reveal: once every present answerer has answered, the round is revealed this long
-// later instead of at the end of the window (a beat to see "모두 골랐어요" — not a dead wait).
-export const EARLY_REVEAL_MS = 600;
+// later instead of at the end of the window (a beat to see "모두 골랐어요" — not a dead wait; 600 felt slow, #116).
+export const EARLY_REVEAL_MS = 300;
 const RECAP_PLAYERS_MAX = 20; // answerers listed per round in quizRecap (snapshot size)
 // The subject switching apps (e.g. to share the invite in KakaoTalk) drops out of the
 // roster after ~3.5 s of silence; only this long away counts as "left" for the quiz rules.
