@@ -18,5 +18,5 @@ export const showSpectatorNotice = (doc: Doc, iAmSpectator: unknown, phase: stri
 
 export const SPECTATOR_NOTICE_TEXT = "진행 중인 판이에요 · 다음 판부터 같이 해요";
 // Frame coordinates (390 wide): over the templates' NavBar subtitle line (y 97–117 — a phase
-// label like "연타!"), under the top-row pills and left of 💬 / 🪲 (shellDocks.test.ts).
+// label like "연타!"), under the top-row pills and left of 😀 / 🪲 (shellDocks.test.ts).
 export const SPECTATOR_NOTICE_BOX = { x: 16, y: 94, w: 300, h: 28 };

@@ -43,7 +43,7 @@ export function NameCard({ nick, onKeep, onChange }: { nick: string; onKeep: () 
   );
 }
 
-// Over the templates' title band, under the top-row pills, left of 💬 (nameChoice.ts NAME_CARD_BOX).
+// Over the templates' title band, under the top-row pills, left of 😀 (nameChoice.ts NAME_CARD_BOX).
 const card: React.CSSProperties = {
   position: "fixed", top: `calc(var(--snack-safe-top) + ${NAME_CARD_BOX.y}px)`, left: NAME_CARD_BOX.x,
   width: `min(${NAME_CARD_BOX.maxW}px, calc(100vw - ${NAME_CARD_BOX.x + NAME_CARD_BOX.right}px))`, height: NAME_CARD_BOX.h, boxSizing: "border-box", zIndex: 14,
