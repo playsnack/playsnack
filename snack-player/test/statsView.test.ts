@@ -95,7 +95,7 @@ test("rendered page: plain Korean, honest notes, no fake-live words", async () =
   const m = buildModel(weeks, day, now);
   const html = renderToStaticMarkup(createElement(StatsBody, { m, g: growth, at: null, onReload: () => {} }));
   for (const s of ["날마다", "최근 7일", "자주 쓰는 사람", "오늘 들어온 기기", "5대", "처음 온 기기", "40%", "다시 온 기기", "60%", "10판 이상 한 기기", "퀴즈를 5개 이상 만든 기기", "1대", "10/14 (수)", "오늘", "방 입장", "입장까지 걸린 시간", "4번 중 3번은", "1초 이하", "10초 넘음",
-    "공유", "다음에도 하고 싶나요?", "좋아요", "아니요", "건너뜀", "사람이 적어요", "앱에서 난 문제", "이번 달 무료 한도", "400,000",
+    "공유", "다음에도 하고 싶나요?", "좋아요", "아니요", "건너뜀", "사람이 적어요", "앱에서 난 문제", "이번 달 집계 사용량", "400,000",
     "잠깐만 남는 임시 숫자"]) assert.ok(html.includes(s), s);
   assert.ok(!html.includes("아직 연결 전"), "wired: no 'not connected' note");
   assert.ok(!html.includes("아직 기록이 없어요"), "every fixture day has records");
@@ -107,7 +107,7 @@ test("rendered page: plain Korean, honest notes, no fake-live words", async () =
   assert.ok(offHtml.includes("아직 연결 전"));
   const capped = buildModel([{ ok: false, error: "budget_reached", budget: { month: "2026-10", used: 400100, limit: 400000 } }], null, now);
   const capHtml = renderToStaticMarkup(createElement(StatsBody, { m: capped, at: null, onReload: () => {} }));
-  assert.ok(capHtml.includes("무료로 셀 수 있는 양을 다 써서"));
+  assert.ok(capHtml.includes("집계 한도에 닿아"));
   assert.ok(capHtml.includes("400,100"));
   // Empty days (no reading, or nothing counted) say so instead of rows of zeros.
   assert.equal(capped.empty, true);
