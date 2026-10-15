@@ -41,6 +41,16 @@
       "round": -1,
       "sessionNo": 0
     },
+    "voteClock": {
+      "round": -1,
+      "sessionNo": 0,
+      "ms": 10000,
+      "leftMs": 0
+    },
+    "seenVoteRound": -1,
+    "seenVoteSession": -1,
+    "seenVoteLeft": -1,
+    "voteUntil": 0,
     "roomMode": "",
     "hostNick": "",
     "iAmHost": false,
@@ -235,6 +245,15 @@
       ],
       "tick": [
         {
+          "if": "voteClock.round === roundIdx && voteClock.sessionNo === voteProgress.sessionNo && (seenVoteRound !== voteClock.round || seenVoteSession !== voteClock.sessionNo || seenVoteLeft !== voteClock.leftMs)",
+          "then": [
+            { "set": "seenVoteRound", "to": "voteClock.round" },
+            { "set": "seenVoteSession", "to": "voteClock.sessionNo" },
+            { "set": "seenVoteLeft", "to": "voteClock.leftMs" },
+            { "set": "voteUntil", "to": "now + max(0, voteClock.leftMs)" }
+          ]
+        },
+        {
           "if": "sessionPhase === 'lobby'",
           "then": [
             {
@@ -365,7 +384,7 @@
           },
           {
             "id": "lobbyHint",
-            "text": "둘 중 하나! 다 고르면 한 번에 공개돼요 · 5라운드",
+            "text": "10초 안에 선택! 다 고르면 바로 공개 · 5라운드",
             "width": 340,
             "size": 14,
             "weight": 500,
@@ -531,6 +550,43 @@
             "align": "center"
           },
           {
+            "id": "voteTimerRow",
+            "box": "row",
+            "width": 340,
+            "height": 28,
+            "gap": 12,
+            "align": "center",
+            "children": [
+              {
+                "id": "voteTimerTrack",
+                "box": "free",
+                "width": 256,
+                "height": 8,
+                "fill": "#1e2127",
+                "children": [
+                  {
+                    "id": "voteTimerBar",
+                    "box": "free",
+                    "x": 0,
+                    "y": 0,
+                    "height": 8,
+                    "width": "{revealRound !== roundIdx && seenVoteRound === roundIdx && seenVoteSession === voteProgress.sessionNo && !(voteProgress.round === roundIdx && voteProgress.of > 0 && voteProgress.voted >= voteProgress.of) ? round(256 * min(1, max(0, voteUntil - now) / max(1, voteClock.ms))) : 0}",
+                    "fill": "#d9ff00"
+                  }
+                ]
+              },
+              {
+                "id": "voteTimerSecs",
+                "text": "{revealRound === roundIdx ? '공개' : (voteProgress.round === roundIdx && voteProgress.of > 0 && voteProgress.voted >= voteProgress.of ? '곧 공개' : (seenVoteRound === roundIdx && seenVoteSession === voteProgress.sessionNo ? ('' + ceil(max(0, voteUntil - now) / 1000) + '초') : ''))}",
+                "width": 72,
+                "size": 20,
+                "weight": 700,
+                "color": "#d9ff00",
+                "align": "right"
+              }
+            ]
+          },
+          {
             "id": "cardA",
             "box": "column",
             "width": "fill",
@@ -545,7 +601,7 @@
             },
             "onTap": [
               {
-                "if": "phase == 'play' && revealRound !== roundIdx",
+                "if": "phase == 'play' && revealRound !== roundIdx && (voteClock.round !== roundIdx || now < voteUntil)",
                 "then": [
                   {
                     "set": "myVote",
@@ -628,7 +684,7 @@
             },
             "onTap": [
               {
-                "if": "phase == 'play' && revealRound !== roundIdx",
+                "if": "phase == 'play' && revealRound !== roundIdx && (voteClock.round !== roundIdx || now < voteUntil)",
                 "then": [
                   {
                     "set": "myVote",
@@ -694,7 +750,7 @@
             "weight": 700,
             "align": "center",
             "color": "{phase == 'play' && ((revealRound === roundIdx) || (voteProgress.round === roundIdx && voteProgress.of > 0 && voteProgress.voted >= voteProgress.of)) ? '#d9ff00' : '#9aa3af'}",
-            "text": "{phase == 'play' ? ((revealRound === roundIdx) ? '결과 공개 🎉' : (voteProgress.round === roundIdx ? ((voteProgress.round === roundIdx && voteProgress.of > 0 && voteProgress.voted >= voteProgress.of) ? ('다 골랐어요! 곧 공개 (' + voteProgress.voted + '/' + voteProgress.of + ')') : ('' + voteProgress.voted + '/' + voteProgress.of + '명 골랐어요 · 다 고르면 공개')) : '고르면 다 같이 공개돼요')) : ''}"
+            "text": "{phase == 'play' ? ((revealRound === roundIdx) ? '결과 공개 🎉' : (voteProgress.round === roundIdx ? ((voteProgress.round === roundIdx && voteProgress.of > 0 && voteProgress.voted >= voteProgress.of) ? ('다 골랐어요! 곧 공개 (' + voteProgress.voted + '/' + voteProgress.of + ')') : (seenVoteRound === roundIdx && seenVoteSession === voteProgress.sessionNo && now >= voteUntil ? '시간 끝 · 결과 기다리는 중' : ('' + voteProgress.voted + '/' + voteProgress.of + '명 선택 · 시간 끝나면 공개'))) : '시간 안에 골라주세요')) : ''}"
           }
         ]
       },
