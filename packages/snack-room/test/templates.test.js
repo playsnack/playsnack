@@ -233,7 +233,7 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   await T.advance(50);
   assert.match(T.prop(0, "statusText"), /친구들이 고르는 중… \(1\/2\)/, "B's tap is still on its way");
   await T.advance(250); // B's tap lands (900 ms uplink): everyone has answered
-  // early reveal: the beat — bar and seconds clear at once, the reveal follows in 600 ms
+  // early reveal: the beat — bar and seconds clear at once, the reveal follows in 300 ms
   assert.equal(T.prop(0, "statusText"), "다 골랐어요! 곧 공개 (2/2)");
   assert.equal(T.prop(2, "statusText"), "다 골랐어요! 곧 공개 (2/2)");
   for (const i of [0, 2]) {
@@ -242,7 +242,7 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   }
   assert.equal(T.v(0, "roundAnswer"), -1, "not revealed yet");
   await T.advance(500 + 300); // + B's 300 ms downlink
-  assert.ok(T.v(1, "roundAnswer") >= 0, "revealed ~600 ms after the last answer — not at the end of the 8 s window");
+  assert.ok(T.v(1, "roundAnswer") >= 0, "revealed ~300 ms after the last answer — not at the end of the 8 s window");
   // reveal: B and C both right — B was faster on its own device, so B leads
   const pts = (ms) => Math.max(100, 1000 - Math.round((ms / 8000) * 800));
   const board = T.v(0, "raceBoard");
@@ -252,7 +252,7 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   assert.equal(T.prop(0, "statusText"), "정답 공개!");
   assert.match(T.prop(1, `tile${right(1)}Txt`), /^✓ /);
   // round 2: B misses, C lets the clock run out on its device
-  await T.advance(3000);
+  await T.advance(1500); // reveal 1.8 s (#116)
   assert.equal(T.v(1, "roundNum"), 2);
   T.tap(1, `tile${(right(1) + 1) % 3}`);
   await T.advance(6000); // C never answers: the full window
@@ -334,7 +334,7 @@ test("speed-trivia early reveal: a stale quizProgress (last round / last game) n
   const lastRound = T.v(1, "quizProgress");
   assert.equal(lastRound.round, 0);
   assert.equal(lastRound.sessionNo, T.v(1, "sessionNo"));
-  await T.advance(600 + 3000); // reveal → round 2
+  await T.advance(300 + 1800); // reveal → round 2 (#116 pace)
   assert.equal(T.v(1, "roundNum"), 2);
   assert.ok(T.prop(1, "timerBar", "width") > 280, "round 2 starts with a full bar");
   for (const stale of [lastRound, { ...lastRound, round: 1, sessionNo: lastRound.sessionNo - 1 }]) {

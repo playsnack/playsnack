@@ -9,6 +9,7 @@
 import { buildResultView, EMPTY_VIEW, type ResultView } from "./quizResult.ts";
 import { gameKeyOf, stepReaction, type ReactionInput, type ReactionReport, type ReactionStage } from "./reactionQuestion.ts";
 import type { ShareOutcome } from "./resultImage.ts";
+import { createImageSharer } from "./resultShare.ts";
 
 /** Taps from the result screen that the shell handles (the room never sees them). */
 export const RESULT_EVENTS = new Set(["resultShare", "resultInvite", "makeQuiz", "reactionAnswer", "reactionReason"]);
@@ -39,8 +40,10 @@ export type ResultDeps = {
   store: (gameKey: string) => Store;
   /** Draws the picture (cached per view by the caller or here). */
   makeImage: (view: ResultView) => Promise<Blob>;
-  /** Share sheet with the file, else "preview". */
+  /** Share sheet with the file; must call navigator.share before its first await (resultImage.ts). */
   shareImage: (blob: Blob, view: ResultView) => Promise<ShareOutcome>;
+  /** False when the browser cannot share files at all → the save-image preview. Default: true. */
+  canShareFiles?: () => boolean;
   showPreview: (blob: Blob) => void;
   say: (text: string) => void;
   invite: () => void;
@@ -61,7 +64,15 @@ export function createResultController(d: ResultDeps) {
   let askTimer: unknown = null;
   let predraw: unknown = null;
   const timers = new Set<unknown>();
-  let image: { key: string; blob: Promise<Blob> } | null = null;
+  // "결과 공유": drawn ahead, shared inside the tap, repeat taps ignored (#118, resultShare.ts).
+  const sharer = createImageSharer<ResultView>({
+    makeImage: d.makeImage,
+    shareImage: d.shareImage,
+    canShareFiles: d.canShareFiles ?? (() => true),
+    showPreview: d.showPreview,
+    say: d.say,
+    onShared: () => d.report({ k: "share", method: "web", what: "result" }, gameKey),
+  });
 
   const later = (fn: () => void, ms: number) => {
     const h: unknown = d.setTimer(() => {
@@ -79,17 +90,6 @@ export function createResultController(d: ResultDeps) {
     stage = r.stage;
     d.setVar("reactionStage", stage === "done" ? "" : stage);
     if (stage === "thanks") later(() => react({ t: "thanksDone" }), THANKS_MS);
-  };
-
-  const imageFor = (v: ResultView) => {
-    const key = JSON.stringify(v);
-    if (image?.key !== key) {
-      const entry = { key, blob: d.makeImage(v) };
-      // A failed drawing is not cached: the next tap tries again.
-      entry.blob.catch(() => { if (image === entry) image = null; });
-      image = entry;
-    }
-    return image.blob;
   };
 
   const update = (next: Record<string, unknown>) => {
@@ -135,7 +135,7 @@ export function createResultController(d: ResultDeps) {
     if (predraw !== null) { d.clearTimer(predraw); timers.delete(predraw); }
     predraw = later(() => {
       predraw = null;
-      if (view === v) void imageFor(v).catch(() => {});
+      if (view === v) sharer.prepare(v);
     }, 400);
     if (stage === "" && askTimer === null) {
       const store = d.store(gameKey);
@@ -153,19 +153,8 @@ export function createResultController(d: ResultDeps) {
   };
 
   const share = async () => {
-    const v = view;
-    if (v.mode === "") return;
-    let blob: Blob;
-    try {
-      blob = await imageFor(v);
-    } catch {
-      d.say("결과 이미지를 만들지 못했어요. 화면을 캡처해 주세요.");
-      return;
-    }
-    const outcome = await d.shareImage(blob, v);
-    if (outcome === "shared") d.report({ k: "share", method: "web", what: "result" }, gameKey);
-    else if (outcome === "preview") d.showPreview(blob);
-    // cancelled: the person closed the sheet — nothing happened, nothing to say.
+    if (view.mode === "") return;
+    await sharer.share(view);
   };
 
   /** True when the event was a result-screen tap (handled here, not for the room). */

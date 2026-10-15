@@ -43,10 +43,10 @@ export function NameCard({ nick, onKeep, onChange }: { nick: string; onKeep: () 
   );
 }
 
-// Over the templates' title band, under the top-row pills, left of 😀 (nameChoice.ts NAME_CARD_BOX).
+// Centred under the top-row pills and 😀 (nameChoice.ts NAME_CARD_BOX).
 const card: React.CSSProperties = {
-  position: "fixed", top: `calc(var(--snack-safe-top) + ${NAME_CARD_BOX.y}px)`, left: NAME_CARD_BOX.x,
-  width: `min(${NAME_CARD_BOX.maxW}px, calc(100vw - ${NAME_CARD_BOX.x + NAME_CARD_BOX.right}px))`, height: NAME_CARD_BOX.h, boxSizing: "border-box", zIndex: 14,
+  position: "fixed", top: `calc(var(--snack-safe-top) + ${NAME_CARD_BOX.y}px)`, left: "50%", transform: "translateX(-50%)",
+  width: `min(${NAME_CARD_BOX.maxW}px, calc(100% - ${2 * NAME_CARD_BOX.side}px))`, height: NAME_CARD_BOX.h, boxSizing: "border-box", zIndex: 14,
   display: "flex", flexDirection: "column", justifyContent: "center", gap: S.s2, padding: `0 ${S.s3 - 2}px`,
   background: C.surface, border: `${TOKENS.border.block}px solid ${C.accent}`, borderRadius: R.block, boxShadow: blockShadow,
   font: `${TOKENS.size.bodyMd}px ${TOKENS.font.body}`, color: C.ink,

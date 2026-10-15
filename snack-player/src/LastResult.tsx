@@ -2,12 +2,13 @@
 // last finished game (docs/room-results.md): ranking, per-question reveal for the quiz,
 // 결과 공유 (the same picture as the live result, resultImage.ts) and "이 방에서 한 판 더"
 // (back to the lobby). The view is quizResult.ts's, via roomResult.ts savedResultView.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BiteDoc } from "@snack/bite";
 import { fontFamily, loadFonts } from "@snack/bite-pixi";
 import { agoLabel, KEEP_NOTE, savedResultView, type SavedResult } from "./roomResult";
-import { renderResultImage, shareResultImage } from "./resultImage";
+import { canShareFiles, renderResultImage, shareResultImage } from "./resultImage";
 import { makerLink } from "./resultController";
+import { createImageSharer } from "./resultShare";
 import { trackShare } from "./telemetry";
 import { BLOCK_CSS, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS } from "./tokens.gen";
@@ -25,27 +26,36 @@ export function LastResult({ saved, slug, myNick, onAgain }: { saved: SavedResul
     setNote(t);
     setTimeout(() => setNote((n) => (n === t ? null : n)), 3000);
   };
-  const share = async () => {
-    let blob: Blob;
-    try {
-      blob = await renderResultImage(view, {
+  // One button, one behaviour (#118): the picture is drawn ahead, the tap opens the
+  // share sheet inside itself, repeat taps are ignored; the save-image sheet only
+  // where files cannot be shared (resultShare.ts).
+  const sayRef = useRef(say);
+  sayRef.current = say;
+  const sharerRef = useRef<ReturnType<typeof createImageSharer<typeof view>> | null>(null);
+  if (!sharerRef.current) {
+    sharerRef.current = createImageSharer<typeof view>({
+      makeImage: (v) => renderResultImage(v, {
         families: { body: fontFamily("body"), display: fontFamily("display") },
         appName: "PlaySnack",
         link: `${location.host} · 나도 만들어 보기`,
         ready: () => loadFonts(IMAGE_FONTS, `${import.meta.env.BASE_URL}fonts`),
-      });
-    } catch {
-      return say("결과 이미지를 만들지 못했어요. 화면을 캡처해 주세요.");
-    }
-    const out = await shareResultImage(blob, {
-      fileName: "playsnack-result.png",
-      title: view.title,
-      text: `${view.headline}\n나도 만들어 보기 👉 ${makerLink(location.origin)}`,
-      url: makerLink(location.origin),
+      }),
+      shareImage: (blob, v) => shareResultImage(blob, {
+        fileName: "playsnack-result.png",
+        title: v.title,
+        text: `${v.headline}\n나도 만들어 보기 👉 ${makerLink(location.origin)}`,
+        url: makerLink(location.origin),
+      }),
+      canShareFiles: () => canShareFiles(),
+      showPreview: (blob) => setPreview(URL.createObjectURL(blob)),
+      say: (t) => sayRef.current(t),
+      onShared: () => trackShare("web", "result", slug),
     });
-    if (out === "shared") trackShare("web", "result", slug);
-    else if (out === "preview") setPreview(URL.createObjectURL(blob));
-  };
+  }
+  useEffect(() => {
+    if (view.mode !== "") sharerRef.current?.prepare(view);
+  }, [view]);
+  const share = () => sharerRef.current?.share(view);
 
   return (
     <div style={screen} role="dialog" aria-label="지난 판 결과">

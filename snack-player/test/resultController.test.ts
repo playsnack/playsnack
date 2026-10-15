@@ -135,6 +135,21 @@ test("share: a completed share is reported as share{what:result}; nothing else i
   }
 });
 
+test("share (#118): busy / retry / failed never open the save-image preview", async () => {
+  for (const outcome of ["busy", "retry", "failed"] as const) {
+    const h = harness({ outcome });
+    h.ctrl.update(resultVars(duo));
+    h.advance(400); // the picture is drawn ahead
+    await flush();
+    h.ctrl.event("resultShare");
+    h.ctrl.event("resultShare"); // a repeat tap while the first is in flight
+    await flush();
+    assert.equal(h.shared.length, 1, outcome);
+    assert.equal(h.images, 1, outcome);
+    assert.equal(h.previews.length, 0, outcome);
+  }
+});
+
 test("share: a failed drawing says so honestly and is retried on the next tap", async () => {
   const h = harness({ failImages: 1 });
   h.ctrl.update(resultVars(duo));
