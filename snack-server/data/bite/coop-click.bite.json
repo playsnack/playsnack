@@ -1,17 +1,28 @@
 {
   "bite": 1,
   "meta": {
-    "name": "다같이 목표 클릭 챌린지"
+    "name": "다같이 300번 클릭",
+    "multi": true
   },
   "frame": [
     390,
     844
   ],
   "vars": {
+    "sessionPhase": "lobby",
+    "sessionCountdown": 0,
+    "roster": [],
+    "raceBoard": [],
     "coopTotal": 0,
+    "coopTimeMs": 0,
     "goal": 300,
     "myTaps": 0,
-    "roster": []
+    "sentTaps": 0,
+    "sentAt": 0,
+    "shownTotal": 0,
+    "playStart": 0,
+    "iAmSpectator": false,
+    "spectators": 0
   },
   "components": {
     "NavBar": {
@@ -42,99 +53,214 @@
         ]
       }
     },
-    "Button": {
+    "PrimaryButton": {
       "props": {
         "label": "확인"
       },
       "view": {
         "id": "root",
         "box": "row",
-        "height": 50,
+        "height": 56,
         "align": "center",
         "justify": "center",
         "fill": "#d9ff00",
-        "shadow": {
-          "x": 0,
-          "y": 4,
-          "blur": 16,
-          "color": "#d9ff0040"
-        },
         "children": [
           {
             "id": "lbl",
             "text": "{props.label}",
             "size": 17,
-            "weight": 700,
+            "weight": 800,
             "color": "#0b0c0e"
-          }
-        ]
-      }
-    },
-    "StatCard": {
-      "props": {
-        "label": "",
-        "value": "0"
-      },
-      "view": {
-        "id": "root",
-        "box": "column",
-        "height": "hug",
-        "gap": 6,
-        "pad": 20,
-        "fill": "#16181c",
-        "children": [
-          {
-            "id": "lbl",
-            "text": "{props.label}",
-            "size": 14,
-            "weight": 600,
-            "color": "#9aa3af"
-          },
-          {
-            "id": "val",
-            "text": "{props.value}",
-            "size": 40,
-            "weight": 700,
-            "color": "#ffffff"
-          }
-        ]
-      }
-    },
-    "Chip": {
-      "props": {
-        "label": ""
-      },
-      "view": {
-        "id": "root",
-        "box": "row",
-        "width": "hug",
-        "height": 30,
-        "pad": [
-          0,
-          12
-        ],
-        "align": "center",
-        "justify": "center",
-        "fill": "#1e2127",
-        "stroke": {
-          "color": "#2a2d33",
-          "width": 1
-        },
-        "children": [
-          {
-            "id": "lbl",
-            "text": "{props.label}",
-            "size": 13,
-            "weight": 600,
-            "color": "#9aa3af"
           }
         ]
       }
     }
   },
-  "start": "idle",
+  "start": "lobby",
   "phases": {
-    "idle": {}
+    "lobby": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "countdown": {
+      "tick": [
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "play": {
+      "enter": [
+        {
+          "set": "myTaps",
+          "to": "0"
+        },
+        {
+          "set": "sentTaps",
+          "to": "0"
+        },
+        {
+          "set": "sentAt",
+          "to": "0"
+        },
+        {
+          "set": "shownTotal",
+          "to": "0"
+        },
+        {
+          "set": "playStart",
+          "to": "now"
+        }
+      ],
+      "tick": [
+        {
+          "if": "myTaps > sentTaps && now - sentAt >= 250",
+          "then": [
+            {
+              "emit": "taps",
+              "payload": {
+                "count": "{myTaps}"
+              }
+            },
+            {
+              "set": "sentTaps",
+              "to": "myTaps"
+            },
+            {
+              "set": "sentAt",
+              "to": "now"
+            }
+          ]
+        },
+        {
+          "if": "coopTotal > shownTotal",
+          "then": [
+            {
+              "set": "shownTotal",
+              "to": "coopTotal"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'result'",
+          "then": [
+            {
+              "go": "result"
+            }
+          ]
+        }
+      ]
+    },
+    "result": {
+      "enter": [
+        {
+          "set": "sentTaps",
+          "to": "-1"
+        }
+      ],
+      "tick": [
+        {
+          "if": "myTaps > sentTaps",
+          "then": [
+            {
+              "emit": "taps",
+              "payload": {
+                "count": "{myTaps}"
+              }
+            },
+            {
+              "set": "sentTaps",
+              "to": "myTaps"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'lobby'",
+          "then": [
+            {
+              "go": "lobby"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'countdown'",
+          "then": [
+            {
+              "go": "countdown"
+            }
+          ]
+        },
+        {
+          "if": "sessionPhase === 'play'",
+          "then": [
+            {
+              "go": "play"
+            }
+          ]
+        }
+      ]
+    }
   },
   "view": {
     "box": "free",
@@ -149,7 +275,7 @@
         "fill": "#0b0c0e"
       },
       {
-        "id": "page",
+        "id": "lobbyScreen",
         "box": "column",
         "width": 390,
         "height": 844,
@@ -162,185 +288,553 @@
           34,
           16
         ],
+        "show": "phase == 'lobby'",
         "children": [
           {
-            "id": "nav",
+            "id": "navL",
             "use": "NavBar",
             "props": {
-              "title": "공동 클릭 챌린지",
-              "subtitle": "모두의 탭으로 300을 채워요"
+              "title": "다같이 300번 클릭",
+              "subtitle": "대기실"
             }
           },
           {
-            "id": "heroCard",
+            "id": "lobbyCard",
             "box": "column",
-            "height": 248,
-            "gap": 12,
+            "width": 358,
+            "height": 250,
+            "grow": 1,
+            "gap": 10,
             "pad": 18,
             "align": "center",
             "justify": "center",
             "fill": "#16181c",
-            "shadow": {
-              "x": 0,
-              "y": 10,
-              "blur": 18,
-              "color": "#00000047"
-            },
             "children": [
               {
-                "id": "heroChip",
-                "use": "Chip",
-                "props": {
-                  "label": "다 같이"
-                }
-              },
-              {
-                "id": "totalText",
-                "text": "{coopTotal.toLocaleString()}",
-                "size": 54,
-                "font": "display",
-                "color": "#ffffff",
+                "id": "lobbyEmoji",
+                "text": "👏",
+                "size": 48,
                 "align": "center"
               },
               {
-                "id": "goalText",
-                "text": "/ {goal.toLocaleString()}",
+                "id": "lobbyCount",
+                "text": "{phase == 'lobby' ? ('참가자 ' + (roster.length) + '명') : '참가자 1명'}",
+                "width": 320,
+                "size": 26,
+                "weight": 700,
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "lobbyNames",
+                "text": "{phase == 'lobby' ? (roster.length > 0 ? roster.join(' · ') : '입장 중…') : ''}",
+                "width": 320,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center"
+              }
+            ]
+          },
+          {
+            "id": "lobbyHint",
+            "text": "다 모이면 아무나 시작 · 모두의 탭을 합쳐 60초 안에 300번!",
+            "width": 340,
+            "size": 14,
+            "weight": 500,
+            "color": "#9aa3af",
+            "align": "center"
+          },
+          {
+            "id": "lobbySpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1
+          },
+          {
+            "id": "startBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "시작하기 🚀"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'lobby'",
+                "then": [
+                  {
+                    "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "set": "sentTaps",
+                    "to": "0"
+                  },
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "duration": 60000,
+                      "goal": 300
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "countdownScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'countdown'",
+        "children": [
+          {
+            "id": "navC",
+            "use": "NavBar",
+            "props": {
+              "title": "다같이 300번 클릭",
+              "subtitle": "곧 시작!"
+            }
+          },
+          {
+            "id": "cdCard",
+            "box": "column",
+            "width": "fill",
+            "height": 420,
+            "gap": 8,
+            "pad": 18,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "cdNum",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? ('' + (sessionCountdown)) : 'GO!') : '3'}",
+                "width": 320,
+                "size": 140,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "cdLabel",
+                "text": "{phase == 'countdown' ? (sessionCountdown > 0 ? '준비…' : '300번 가자!') : '준비…'}",
+                "width": 320,
+                "size": 20,
+                "weight": 700,
+                "color": "#ffffff",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "playScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'play'",
+        "children": [
+          {
+            "id": "navP",
+            "use": "NavBar",
+            "props": {
+              "title": "다같이 300번 클릭",
+              "subtitle": "{phase == 'play' ? (iAmSpectator ? '관전 중 · 다음 판부터 같이 해요' : (spectators > 0 ? '다 같이 연타! · 구경 ' + spectators + '명' : '다 같이 연타!')) : '다 같이 연타!'}"
+            }
+          },
+          {
+            "id": "goalCard",
+            "box": "column",
+            "width": 358,
+            "height": 196,
+            "gap": 8,
+            "pad": 16,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "goalNum",
+                "text": "{phase == 'play' ? ('' + min(goal, max(shownTotal, coopTotal))) : '0'}",
+                "width": 320,
+                "size": 56,
+                "font": "display",
+                "color": "#d9ff00",
+                "align": "center"
+              },
+              {
+                "id": "goalOf",
+                "text": "/ {goal}",
+                "width": 320,
                 "size": 17,
                 "weight": 700,
                 "color": "#9aa3af",
                 "align": "center"
               },
               {
-                "id": "barFrame",
-                "box": "row",
-                "width": 322,
+                "id": "barWrap",
+                "box": "free",
+                "width": 320,
                 "height": 18,
-                "align": "center",
-                "fill": "#2a2d33",
                 "children": [
+                  {
+                    "id": "barTrack",
+                    "box": "free",
+                    "width": 320,
+                    "height": 18,
+                    "x": 0,
+                    "y": 0,
+                    "fill": "#2a2d33"
+                  },
                   {
                     "id": "barFill",
                     "box": "free",
-                    "width": "{round(min(1, coopTotal / goal) * 322)}",
+                    "width": "{phase == 'play' ? (max(6, round(min(1, max(shownTotal, coopTotal) / goal) * 320))) : 6}",
                     "height": 18,
+                    "x": 0,
+                    "y": 0,
                     "fill": "#d9ff00"
                   }
                 ]
               },
               {
-                "id": "percentText",
-                "text": "{round(min(1, coopTotal / goal) * 100)}% 완료",
+                "id": "playMeta",
+                "text": "{phase == 'play' ? ('⏱ ' + floor(max(0, now - playStart) / 1000) + '초 · 내 탭 ' + myTaps + '회') : ''}",
+                "width": 320,
                 "size": 15,
                 "weight": 700,
-                "color": "#d9ff00",
+                "color": "#ffffff",
                 "align": "center"
               }
             ]
           },
           {
-            "id": "statsRow",
-            "box": "row",
-            "height": "hug",
-            "gap": 12,
-            "children": [
-              {
-                "id": "sharedStat",
-                "use": "StatCard",
-                "props": {
-                  "label": "전체 탭",
-                  "value": "{coopTotal.toLocaleString()}회"
-                },
-                "width": "fill"
-              },
-              {
-                "id": "myStat",
-                "use": "StatCard",
-                "props": {
-                  "label": "내 탭",
-                  "value": "{myTaps.toLocaleString()}회"
-                },
-                "width": "fill"
-              }
-            ]
-          },
-          {
-            "id": "tapZone",
+            "id": "tapArea",
             "box": "column",
-            "height": 174,
-            "gap": 10,
-            "pad": 18,
+            "width": "fill",
+            "height": 300,
+            "gap": 6,
             "align": "center",
             "justify": "center",
-            "fill": "#1e2127",
-            "stroke": {
-              "color": "#2a2d33",
-              "width": 1
-            },
+            "fill": "{phase == 'play' ? (iAmSpectator ? '#2a2d33' : '#d9ff00') : '#d9ff00'}",
             "onTap": [
               {
-                "set": "myTaps",
-                "to": "myTaps + 1"
-              },
-              {
-                "emit": "tally",
-                "payload": {
-                  "delta": 1
-                }
+                "if": "phase == 'play' && !iAmSpectator",
+                "then": [
+                  {
+                    "set": "myTaps",
+                    "to": "myTaps + 1"
+                  },
+                  {
+                    "set": "shownTotal",
+                    "to": "max(shownTotal, coopTotal) + 1"
+                  }
+                ]
               }
             ],
             "children": [
               {
-                "id": "tapIcon",
-                "text": "⚡️",
-                "size": 38,
-                "font": "display",
+                "id": "tapBig",
+                "text": "{phase == 'play' ? (iAmSpectator ? '👀' : '👏') : '👏'}",
+                "size": 72,
+                "align": "center"
+              },
+              {
+                "id": "tapTxt",
+                "text": "{phase == 'play' ? (iAmSpectator ? '지금은 구경만!' : '다 같이 탭!') : '다 같이 탭!'}",
+                "size": 24,
+                "weight": 700,
+                "color": "{phase == 'play' ? (iAmSpectator ? '#ffffff' : '#0b0c0e') : '#0b0c0e'}",
+                "align": "center"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "resultScreen",
+        "box": "column",
+        "width": 390,
+        "height": 844,
+        "x": 0,
+        "y": 0,
+        "gap": 14,
+        "pad": [
+          59,
+          16,
+          34,
+          16
+        ],
+        "show": "phase == 'result'",
+        "children": [
+          {
+            "id": "navR",
+            "use": "NavBar",
+            "props": {
+              "title": "다같이 300번 클릭",
+              "subtitle": "결과"
+            }
+          },
+          {
+            "id": "resCard",
+            "box": "column",
+            "width": 358,
+            "height": 196,
+            "gap": 6,
+            "pad": 14,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "children": [
+              {
+                "id": "resEmoji",
+                "text": "{phase == 'result' ? (coopTimeMs > 0 ? '🎉' : '😅') : '🎉'}",
+                "size": 48,
+                "align": "center"
+              },
+              {
+                "id": "resTitle",
+                "text": "{phase == 'result' ? (coopTimeMs > 0 ? ((coopTimeMs / 1000).toFixed(1) + '초 만에 300 달성!') : '아쉽다! 60초 안에 못 채웠어요') : ''}",
+                "width": 330,
+                "size": 24,
+                "weight": 700,
                 "color": "#d9ff00",
                 "align": "center"
               },
               {
-                "id": "tapTitle",
-                "text": "탭해서 힘 보태기",
-                "size": 24,
-                "weight": 700,
-                "color": "#ffffff",
+                "id": "resSub",
+                "text": "{phase == 'result' ? ('' + min(coopTotal, goal) + ' / ' + goal + ' · ' + roster.length + '명이 함께') : ''}",
+                "width": 330,
+                "size": 15,
+                "weight": 600,
+                "color": "#d7dce3",
                 "align": "center"
               },
               {
-                "id": "tapHint",
-                "text": "누를 때마다 공동 게이지가 함께 차오릅니다",
+                "id": "resMine",
+                "text": "{phase == 'result' ? ('내가 보탠 탭 ' + myTaps + '회') : ''}",
+                "width": 330,
                 "size": 14,
-                "weight": 500,
+                "weight": 600,
                 "color": "#9aa3af",
                 "align": "center"
               }
             ]
           },
           {
-            "id": "tapBtn",
-            "use": "Button",
-            "props": {
-              "label": "+1 공동 탭"
-            },
-            "onTap": [
+            "id": "topLabel",
+            "text": "가장 많이 누른 사람",
+            "size": 15,
+            "weight": 700,
+            "color": "#9aa3af",
+            "show": "phase == 'result' ? (raceBoard.length > 0) : true"
+          },
+          {
+            "id": "row0",
+            "box": "free",
+            "width": 358,
+            "height": 54,
+            "fill": "#16181c",
+            "show": "phase == 'result' ? (raceBoard.length > 0) : true",
+            "children": [
               {
-                "set": "myTaps",
-                "to": "myTaps + 1"
+                "id": "rbar0",
+                "box": "free",
+                "width": "{phase == 'result' ? (raceBoard.length > 0 ? max(6, round(raceBoard[0].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
+                "height": 54,
+                "x": 0,
+                "y": 0,
+                "fill": "#d9ff00"
               },
               {
-                "emit": "tally",
-                "payload": {
-                  "delta": 1
-                }
+                "id": "rrank0",
+                "text": "1",
+                "x": 16,
+                "y": 17,
+                "size": 18,
+                "weight": 800,
+                "color": "#0b0c0e"
+              },
+              {
+                "id": "rnick0",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? raceBoard[0].nick : '') : ''}",
+                "width": 210,
+                "x": 46,
+                "y": 17,
+                "size": 17,
+                "weight": 700,
+                "color": "#0b0c0e",
+                "lines": 1
+              },
+              {
+                "id": "rscore0",
+                "text": "{phase == 'result' ? (raceBoard.length > 0 ? ('' + (raceBoard[0].score) + '탭') : '') : ''}",
+                "width": 92,
+                "x": 250,
+                "y": 17,
+                "size": 17,
+                "weight": 800,
+                "color": "#0b0c0e",
+                "align": "right"
               }
             ]
           },
           {
-            "id": "bottomHint",
-            "text": "같은 방에 있는 사람들의 탭이 하나로 합쳐져요",
-            "size": 12,
-            "weight": 600,
-            "color": "#9aa3af",
-            "align": "center"
+            "id": "row1",
+            "box": "free",
+            "width": 358,
+            "height": 54,
+            "fill": "#16181c",
+            "show": "phase == 'result' ? (raceBoard.length > 1) : true",
+            "children": [
+              {
+                "id": "rbar1",
+                "box": "free",
+                "width": "{phase == 'result' ? (raceBoard.length > 1 ? max(6, round(raceBoard[1].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
+                "height": 54,
+                "x": 0,
+                "y": 0,
+                "fill": "#2a3a10"
+              },
+              {
+                "id": "rrank1",
+                "text": "2",
+                "x": 16,
+                "y": 17,
+                "size": 18,
+                "weight": 800,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "rnick1",
+                "text": "{phase == 'result' ? (raceBoard.length > 1 ? raceBoard[1].nick : '') : ''}",
+                "width": 210,
+                "x": 46,
+                "y": 17,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff",
+                "lines": 1
+              },
+              {
+                "id": "rscore1",
+                "text": "{phase == 'result' ? (raceBoard.length > 1 ? ('' + (raceBoard[1].score) + '탭') : '') : ''}",
+                "width": 92,
+                "x": 250,
+                "y": 17,
+                "size": 17,
+                "weight": 800,
+                "color": "#ffffff",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "row2",
+            "box": "free",
+            "width": 358,
+            "height": 54,
+            "fill": "#16181c",
+            "show": "phase == 'result' ? (raceBoard.length > 2) : true",
+            "children": [
+              {
+                "id": "rbar2",
+                "box": "free",
+                "width": "{phase == 'result' ? (raceBoard.length > 2 ? max(6, round(raceBoard[2].score / max(1, (raceBoard[0] && raceBoard[0].score) || 1) * 358)) : 6) : 6}",
+                "height": 54,
+                "x": 0,
+                "y": 0,
+                "fill": "#2a3a10"
+              },
+              {
+                "id": "rrank2",
+                "text": "3",
+                "x": 16,
+                "y": 17,
+                "size": 18,
+                "weight": 800,
+                "color": "#9aa3af"
+              },
+              {
+                "id": "rnick2",
+                "text": "{phase == 'result' ? (raceBoard.length > 2 ? raceBoard[2].nick : '') : ''}",
+                "width": 210,
+                "x": 46,
+                "y": 17,
+                "size": 17,
+                "weight": 700,
+                "color": "#ffffff",
+                "lines": 1
+              },
+              {
+                "id": "rscore2",
+                "text": "{phase == 'result' ? (raceBoard.length > 2 ? ('' + (raceBoard[2].score) + '탭') : '') : ''}",
+                "width": 92,
+                "x": 250,
+                "y": 17,
+                "size": 17,
+                "weight": 800,
+                "color": "#ffffff",
+                "align": "right"
+              }
+            ]
+          },
+          {
+            "id": "resSpacer",
+            "box": "free",
+            "width": "fill",
+            "height": 1,
+            "grow": 1
+          },
+          {
+            "id": "againBtn",
+            "use": "PrimaryButton",
+            "props": {
+              "label": "다시 하기 🔁"
+            },
+            "onTap": [
+              {
+                "if": "phase == 'result'",
+                "then": [
+                  {
+                    "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "set": "sentTaps",
+                    "to": "0"
+                  },
+                  {
+                    "emit": "start",
+                    "payload": {
+                      "duration": 60000,
+                      "goal": 300
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

@@ -111,6 +111,7 @@ export const HOST_ACTIONS = Object.freeze({
       answerMs: { type: "number" },
       revealMs: { type: "number" },
       matchupMs: { type: "number" },
+      goal: { type: "number" }, // co-op goal: taps add up to one total; reaching it ends play early
     },
     description: "start a synced session (countdown 3·2·1 → play → result)",
   },
