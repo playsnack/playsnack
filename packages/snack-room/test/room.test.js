@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createRoom, cleanNick, sanitizeQuizPack } from "../src/room.js";
+import { createRoom, cleanNick, sanitizeQuizPack, EARLY_REVEAL_MS } from "../src/room.js";
 // raceBoard rows carry a per-room `pid`; compare names and scores
 const rows = (b) => (b || []).map(({ pid, ...x }) => x);
 
@@ -1296,7 +1296,7 @@ test("R11: quizProgress counts present answerers only — a leaver's answer does
 // ── Early reveal: everyone present has answered → reveal in EARLY_REVEAL_MS ──
 const revealed = (h) => h.v("roundAnswer") >= 0;
 
-test("early reveal: every present answerer answered (the subject never does) → reveal 600 ms later, then revealMs, then the next round", async () => {
+test("early reveal: every present answerer answered (the subject never does) → reveal 300 ms later, then revealMs, then the next round", async () => {
   const h = harness();
   [1, 2, 3].forEach(h.join);
   h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 2) });
@@ -1306,10 +1306,10 @@ test("early reveal: every present answerer answered (the subject never does) →
   h.act(2, "answer", { option: a, ms: 900 });
   await h.advance(500);
   h.act(3, "answer", { option: a, ms: 1400 }); // the last one (the subject p1 only watches)
-  await h.advance(599);
+  await h.advance(EARLY_REVEAL_MS - 1);
   assert.equal(revealed(h), false, "a beat before the reveal");
   await h.advance(1);
-  assert.equal(h.v("roundAnswer"), a, "revealed 600 ms after the last answer — not at 8 s");
+  assert.equal(h.v("roundAnswer"), a, "revealed 300 ms after the last answer — not at 8 s");
   assert.deepEqual(rows(h.v("raceBoard")), [{ nick: "닉2", score: pts(900) }, { nick: "닉3", score: pts(1400) }], "device-measured scoring unchanged");
   await h.advance(1999);
   assert.equal(h.v("roundNum"), 1);
@@ -1337,7 +1337,7 @@ test("early reveal: one answerer missing → the full window", async () => {
   assert.equal(revealed(h), true, "revealed at the end of the 8 s window");
 });
 
-test("early reveal: the last one still to answer leaves mid-round → reveal 600 ms after the leave", async () => {
+test("early reveal: the last one still to answer leaves mid-round → reveal 300 ms after the leave", async () => {
   const h = harness();
   [1, 2, 3, 4].forEach(h.join);
   h.act(1, "quizPack", { title: "나", questions: QS.slice(0, 1) });
@@ -1349,7 +1349,7 @@ test("early reveal: the last one still to answer leaves mid-round → reveal 600
   assert.equal(revealed(h), false);
   h.room.leave("p4");
   assert.deepEqual(prog(h), { answered: 2, of: 2 });
-  await h.advance(599);
+  await h.advance(EARLY_REVEAL_MS - 1);
   assert.equal(revealed(h), false);
   await h.advance(1);
   assert.equal(revealed(h), true);
@@ -1378,12 +1378,12 @@ test("early reveal: a player coming back during the beat reopens the round to th
   await h.advance(3000 + 1000);
   h.room.leave("p3"); // drops out before answering (e.g. app switch)
   h.act(2, "answer", { option: 0, ms: 900 });
-  await h.advance(300);
+  await h.advance(150);
   h.join(4); // a newcomer mid-game is a spectator: the beat stays
   assert.deepEqual(prog(h), { answered: 1, of: 1 });
   h.join(3); // mid-beat: a player of this game is back on the roster
   assert.deepEqual(prog(h), { answered: 1, of: 2 });
-  await h.advance(8000 - 1300 - 1);
+  await h.advance(8000 - 1150 - 1);
   assert.equal(revealed(h), false, "not revealed early — p3 may still answer");
   h.act(3, "answer", { option: 0, ms: 100 }); // 1 ms before the end: nothing to pull in
   await h.advance(1);
@@ -1409,19 +1409,19 @@ test("early reveal: a hand-over during the beat keeps it (timer as remaining ms)
   const a0 = shownAnswer(a);
   a.act(2, "answer", { option: a0, ms: 700 });
   a.act(3, "answer", { option: a0, ms: 800 });
-  await a.advance(300); // 300 ms into the 600 ms beat
+  await a.advance(150); // 150 ms into the 300 ms beat
   const snap = JSON.parse(JSON.stringify(a.room.snapshot()));
-  assert.equal(snap.timers.find((x) => x.step === "revealQuizRound").remaining, 300);
+  assert.equal(snap.timers.find((x) => x.step === "revealQuizRound").remaining, 150);
   a.room.destroy();
 
   const b = harness({ random: () => 0.1 });
   await b.advance(424242);
   assert.equal(b.room.restore(snap, 100), true);
   [3, 1, 2].forEach(b.join); // re-joins in any order
-  await b.advance(199);
+  await b.advance(49);
   assert.equal(revealed(b), false);
   await b.advance(1);
-  assert.equal(b.v("roundAnswer"), a0, "revealed on the beat's own schedule (300 − 100 ms age)");
+  assert.equal(b.v("roundAnswer"), a0, "revealed on the beat's own schedule (150 − 100 ms age)");
   assert.deepEqual(rows(b.v("raceBoard")), [{ nick: "닉2", score: pts(700) }, { nick: "닉3", score: pts(800) }]);
   await b.advance(2000);
   assert.equal(b.v("roundNum"), 2);
