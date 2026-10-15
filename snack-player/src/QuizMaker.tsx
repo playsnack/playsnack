@@ -6,6 +6,10 @@ import {
   type Draft, type DraftQuestion, type QuizPack,
 } from "./quiz";
 import { setNick } from "./identity";
+import {
+  canRedoList, canRedoSlot, canUndoList, canUndoSlot, editSlot, emptyQuizHist, listAction, redoList, redoSlot, sealSlot, undoList, undoSlot,
+  type MakerState,
+} from "./quizHistory";
 import { NICK_MAX } from "./nick";
 import { BLOCK_CSS, pill, primaryBtn, secondaryBtn } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
@@ -36,8 +40,8 @@ type Props = {
 
 /** A text field that never cuts the text while an IME is composing a syllable
     (Chrome Android / Safari drop the composition); `onText(text, composing)`. */
-function Field({ value, onText, multiline, ...rest }: {
-  value: string; onText: (text: string, composing: boolean) => void; multiline?: boolean;
+function Field({ value, onText, onEditEnd, multiline, ...rest }: {
+  value: string; onText: (text: string, composing: boolean) => void; onEditEnd?: () => void; multiline?: boolean;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement> & React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange">) {
   const composing = useRef(false);
   const handlers = {
@@ -45,7 +49,7 @@ function Field({ value, onText, multiline, ...rest }: {
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onText(e.target.value, composing.current),
     onCompositionStart: () => { composing.current = true; },
     onCompositionEnd: (e: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => { composing.current = false; onText(e.currentTarget.value, false); },
-    onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => { composing.current = false; onText(e.currentTarget.value, false); },
+    onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => { composing.current = false; onText(e.currentTarget.value, false); onEditEnd?.(); },
   };
   return multiline
     ? <textarea {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)} {...handlers}
@@ -55,12 +59,17 @@ function Field({ value, onText, multiline, ...rest }: {
 
 export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone, onClose }: Props) {
   const store = deviceQuizStore();
-  const [draft, setDraft] = useState<Draft>(() => {
+  // The draft plus its in-memory undo/redo history (quizHistory.ts; not stored).
+  const [state, setState] = useState<MakerState>(() => {
     const saved = store.loadDraft();
-    if (!saved) return newDraft(nick, { nickAuto });
+    if (!saved) return { draft: newDraft(nick, { nickAuto }), hist: emptyQuizHist() };
     // A draft kept from before: still ask for a real name while the nickname is a guest one.
-    return nickAuto && !saved.nameNeeded ? { ...saved, name: saved.name ?? nick, nameNeeded: true, nameChosen: false } : saved;
+    const draft = nickAuto && !saved.nameNeeded ? { ...saved, name: saved.name ?? nick, nameNeeded: true, nameChosen: false } : saved;
+    return { draft, hist: emptyQuizHist() };
   });
+  const draft = state.draft;
+  /** Changes outside the undo history (name, title). */
+  const setDraft = (f: (d: Draft) => Draft) => setState((s) => ({ ...s, draft: f(s.draft) }));
   const [editing, setEditing] = useState<Set<string>>(() => new Set(draft.questions.filter((q) => q.custom && !q.q).map((q) => q.id)));
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [kept, setKept] = useState(true);
@@ -81,15 +90,16 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
   const askName = Boolean(draft.nameNeeded);
   const namePending = nameProblem(draft);
 
-  const update = (id: string, f: (q: DraftQuestion) => DraftQuestion) =>
-    setDraft((d) => ({ ...d, questions: d.questions.map((q) => (q.id === id ? f(q) : q)) }));
-  const drop = (id: string) => setDraft((d) => ({ ...d, questions: d.questions.filter((q) => q.id !== id) }));
+  /** Change one question; `group` coalesces typing in one field into one undo step. */
+  const update = (id: string, f: (q: DraftQuestion) => DraftQuestion, group?: string) =>
+    setState((s) => editSlot(s, id, f, { group, now: Date.now() }));
+  const list = (f: (d: Draft) => Draft) => setState((s) => listAction(s, f, Date.now()));
+  const drop = (id: string) => list((d) => ({ ...d, questions: d.questions.filter((q) => q.id !== id) }));
   const swap = (q: DraftQuestion) => {
     if (swapNeedsConfirm(q) && !confirm("직접 고친 질문이에요. 다른 질문으로 바꿀까요?")) return;
-    setDraft((d) => {
-      const t = swapCandidate(d);
-      return t ? { ...d, questions: d.questions.map((x) => (x.id === q.id ? fromTemplate(t) : x)) } : d;
-    });
+    // Same slot id, so ↶ on this card brings the previous question back.
+    const t = swapCandidate(draft);
+    if (t) update(q.id, () => ({ ...fromTemplate(t), id: q.id }));
     setEditing((s) => {
       const next = new Set(s);
       next.delete(q.id);
@@ -106,22 +116,22 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
   const scrollToEnd = () => setTimeout(() => listEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 0);
   const addCustom = () => {
     const q = blankQuestion();
-    setDraft((d) => ({ ...d, questions: [...d.questions, q] }));
+    list((d) => ({ ...d, questions: [...d.questions, q] }));
     setEditing((s) => new Set(s).add(q.id));
     scrollToEnd();
   };
   const addOneSuggested = () => {
-    setDraft((d) => addSuggested(d));
+    list((d) => addSuggested(d));
     scrollToEnd();
   };
   const restart = () => {
     if (!confirm("지금 만든 내용을 지우고 질문을 새로 뽑을까요?")) return;
-    setDraft((d) => ({ ...newDraft(nick, { nickAuto }), ...(d.nameNeeded ? { name: d.name, nameNeeded: true, nameChosen: d.nameChosen } : {}) }));
+    list((d) => ({ ...newDraft(nick, { nickAuto }), ...(d.nameNeeded ? { name: d.name, nameNeeded: true, nameChosen: d.nameChosen } : {}) }));
     setEditing(new Set());
   };
   const loadRecent = (p: QuizPack) => {
     if (answered && !confirm("지금 만든 내용 대신 예전에 만든 퀴즈를 불러올까요?")) return;
-    setDraft(draftFromPack(p, nick));
+    list(() => draftFromPack(p, nick));
     setEditing(new Set());
   };
   const finish = async () => {
@@ -210,7 +220,10 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
           {draft.questions.map((q, i) => (
             <QuestionCard key={q.id} q={q} index={i} editing={editing.has(q.id)} canSwap={canSwap}
               onTap={(k) => update(q.id, (x) => tapAnswer(x, k))}
-              onChange={(f) => update(q.id, f)}
+              onChange={(f, group) => update(q.id, f, group)}
+              onEditEnd={() => setState((s) => sealSlot(s, q.id))}
+              undo={{ canUndo: canUndoSlot(state, q.id), canRedo: canRedoSlot(state, q.id),
+                onUndo: () => setState((s) => undoSlot(s, q.id)), onRedo: () => setState((s) => redoSlot(s, q.id)) }}
               onDrop={() => drop(q.id)} onSwap={() => swap(q)} onToggleEdit={() => toggleEdit(q.id)} />
           ))}
         </div>
@@ -229,7 +242,18 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
 
       <div style={footer}>
         <div style={{ ...column, padding: 0 }}>
-          {error ? <p style={warn} role="alert">{error}</p> : !ready && <p style={warn} role="status">{problems[0]}</p>}
+          {(error || !ready || canUndoList(state) || canRedoList(state)) && (
+            <div style={{ display: "flex", alignItems: "center", gap: S.s2 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {error ? <p style={warn} role="alert">{error}</p> : !ready && <p style={warn} role="status">{problems[0]}</p>}
+              </div>
+              {/* Undo the last question added / removed / 새로 뽑기 (each card has its own ↶ for its own changes). */}
+              {(canUndoList(state) || canRedoList(state)) && (
+                <UndoRedo what="질문 목록" canUndo={canUndoList(state)} canRedo={canRedoList(state)}
+                  onUndo={() => setState(undoList)} onRedo={() => setState(redoList)} />
+              )}
+            </div>
+          )}
           <div style={{ display: "flex", gap: S.s3 }}>
             <button className="blk" style={{ ...secondaryBtn, width: "auto", flex: "none", padding: `0 ${S.s4}px` }} disabled={!n} onClick={() => setView("preview")}>미리보기</button>
             <button className="blk" style={{ ...primaryBtn, ...(ready ? null : disabledBtn) }} disabled={!ready || busy} onClick={() => void finish()} aria-disabled={!ready}>{doneLabel}</button>
@@ -240,9 +264,33 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
   );
 }
 
-function QuestionCard({ q, index, editing, canSwap, onTap, onChange, onDrop, onSwap, onToggleEdit }: {
-  q: DraftQuestion; index: number; editing: boolean; canSwap: boolean;
-  onTap: (i: number) => void; onChange: (f: (q: DraftQuestion) => DraftQuestion) => void;
+type UndoProps = { canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void };
+
+/** ↶ 되돌리기 / ↷ 다시 하기 icon buttons (44 px touch targets; disabled when there is nothing to undo/redo). */
+export function UndoRedo({ canUndo, canRedo, onUndo, onRedo, what }: UndoProps & { what?: string }) {
+  const tip = (label: string) => (what ? `${what} ${label}` : label);
+  return (
+    <div style={{ display: "flex", gap: 4, flex: "none" }} role="group" aria-label={what ? `${what} 되돌리기·다시 하기` : "되돌리기·다시 하기"}>
+      <button type="button" style={{ ...iconBtn, ...(canUndo ? null : iconOff) }} disabled={!canUndo} onClick={onUndo} aria-label="되돌리기" title={tip("되돌리기")}><UndoIcon /></button>
+      <button type="button" style={{ ...iconBtn, ...(canRedo ? null : iconOff) }} disabled={!canRedo} onClick={onRedo} aria-label="다시 하기" title={tip("다시 하기")}><UndoIcon redo /></button>
+    </div>
+  );
+}
+
+/** Chunky curved arrow (square caps, block style); mirrored for redo. Text arrows (↶↷) fall back to odd glyphs on phones. */
+function UndoIcon({ redo }: { redo?: boolean }) {
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.75} strokeLinecap="square" strokeLinejoin="miter"
+      aria-hidden="true" data-icon={redo ? "redo" : "undo"} style={redo ? { transform: "scaleX(-1)" } : undefined}>
+      <path d="M8 13L3.5 8.5 8 4" />
+      <path d="M4 8.5h10a5.5 5.5 0 0 1 0 11h-4" />
+    </svg>
+  );
+}
+
+function QuestionCard({ q, index, editing, canSwap, undo, onTap, onChange, onEditEnd, onDrop, onSwap, onToggleEdit }: {
+  q: DraftQuestion; index: number; editing: boolean; canSwap: boolean; undo: UndoProps;
+  onTap: (i: number) => void; onChange: (f: (q: DraftQuestion) => DraftQuestion, group?: string) => void; onEditEnd: () => void;
   onDrop: () => void; onSwap: () => void; onToggleEdit: () => void;
 }) {
   const problems = questionProblems(q);
@@ -250,9 +298,13 @@ function QuestionCard({ q, index, editing, canSwap, onTap, onChange, onDrop, onS
   const needsAnswer = problems.some((p) => p.field === "answer");
   return (
     <section style={{ ...card, borderColor: needsAnswer ? C.borderBlock : C.accent, borderStyle: needsAnswer ? "dashed" : "solid" }} aria-label={`질문 ${index + 1}`}>
-      <div style={cardTop}>
-        <span style={qNum}>Q{index + 1}</span>
-        <div style={{ display: "flex", gap: 6 }}>
+      {/* Narrow phones: the swap/edit/remove buttons wrap under Q1 ↶ ↷ instead of spilling out of the card. */}
+      <div style={{ ...cardTop, flexWrap: "wrap", rowGap: S.s2 }}>
+        <div style={{ display: "flex", gap: S.s2, alignItems: "center" }}>
+          <span style={qNum}>Q{index + 1}</span>
+          <UndoRedo {...undo} />
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" }}>
           {q.tpl !== undefined && canSwap && <button style={miniBtn} onClick={onSwap}>다른 질문</button>}
           <button style={miniBtn} onClick={onToggleEdit} aria-pressed={editing}>{editing ? "다 고쳤어요" : "✏️ 고치기"}</button>
           <button style={{ ...miniBtn, width: 36, padding: 0 }} onClick={onDrop} aria-label={`질문 ${index + 1} 빼기`}>✕</button>
@@ -263,7 +315,7 @@ function QuestionCard({ q, index, editing, canSwap, onTap, onChange, onDrop, onS
         <>
           <Field multiline className="qin" style={{ ...input, minHeight: 64, resize: "none" }} value={q.q} placeholder="예: 내가 제일 좋아하는 간식은?"
             aria-label="질문" maxLength={Q_MAX * 11}
-            onText={(s, composing) => onChange((x) => (composing ? { ...x, q: oneLine(s), custom: true } : editQuestion(x, s)))} />
+            onText={(s, composing) => onChange((x) => (composing ? { ...x, q: oneLine(s), custom: true } : editQuestion(x, s)), "q")} onEditEnd={onEditEnd} />
           <div style={counter}>{graphemeLength(q.q)}/{Q_MAX}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: S.s2 }}>
             {q.options.map((o, k) => (
@@ -272,7 +324,8 @@ function QuestionCard({ q, index, editing, canSwap, onTap, onChange, onDrop, onS
                   aria-label={`보기 ${k + 1}을 내 답으로`} aria-pressed={q.answer === k}>{q.answer === k ? "✓" : ""}</button>
                 <Field className="qin" style={{ ...input, flex: 1, minWidth: 0 }} value={o} placeholder={`보기 ${k + 1}`} aria-label={`보기 ${k + 1}`}
                   maxLength={OPTION_MAX * 11}
-                  onText={(s, composing) => onChange((x) => (composing ? { ...x, options: x.options.map((v, j) => (j === k ? oneLine(s) : v)), custom: true } : editOption(x, k, s)))} />
+                  onText={(s, composing) => onChange((x) => (composing ? { ...x, options: x.options.map((v, j) => (j === k ? oneLine(s) : v)), custom: true } : editOption(x, k, s)), `o${k}`)}
+                  onEditEnd={onEditEnd} />
                 {q.options.length > OPTIONS_MIN && (
                   <button style={{ ...miniBtn, width: 36, padding: 0 }} onClick={() => onChange((x) => removeOption(x, k))} aria-label={`보기 ${k + 1} 지우기`}>−</button>
                 )}
@@ -366,6 +419,13 @@ const miniBtn: React.CSSProperties = {
   minHeight: 36, padding: "0 10px", background: C.surface2, color: C.ink, cursor: "pointer",
   border: `${TOKENS.border.hairline}px solid ${C.borderBlock}`, borderRadius: R.block, font: `700 13px ${TOKENS.font.body}`, whiteSpace: "nowrap",
 };
+// Undo/redo icons: 44 px touch targets, ink on surface (lime stays the answer colour).
+const iconBtn: React.CSSProperties = {
+  width: 44, height: 44, padding: 0, background: C.surface2, color: C.ink, cursor: "pointer",
+  border: `${TOKENS.border.hairline}px solid ${C.borderBlock}`, borderRadius: R.block, font: `800 20px ${TOKENS.font.body}`, lineHeight: 1,
+  display: "inline-flex", alignItems: "center", justifyContent: "center",
+};
+const iconOff: React.CSSProperties = { opacity: 0.35, cursor: "not-allowed" };
 const answerDot: React.CSSProperties = {
   flex: "none", width: 36, height: 36, padding: 0, background: C.surface2, color: C.accentInk, cursor: "pointer",
   border: `${TOKENS.border.block}px solid ${C.borderBlock}`, borderRadius: R.block, font: `800 16px ${TOKENS.font.body}`,
