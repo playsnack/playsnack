@@ -72,7 +72,7 @@
 | `align` | `start` `center` `end` `stretch` | 교차축 정렬. 기본 `stretch` |
 | `justify` | `start` `center` `end` `between` | 주축 정렬. 기본 `start` |
 | `columns` | 숫자 | grid 전용 |
-| `scroll` | boolean | 넘치면 주축 방향 스크롤 (손가락 드래그 + 놓으면 관성으로 이어짐) |
+| `scroll` | boolean | 넘치면 주축 방향 스크롤 (손가락 드래그 + 놓으면 관성으로 이어짐; PC는 마우스 휠·트랙패드·클릭 드래그 — 끝에 닿은 휠은 바깥 스크롤/페이지로 넘어감) |
 
 ### 2.3 모양·스타일
 | 키 | 대상 | 값 |

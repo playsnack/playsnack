@@ -4,7 +4,7 @@
 import { Application, BlurFilter, CanvasTextMetrics, Container, FillGradient, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { computeScene, hitTest, initLayout, scrollTargetAt } from "@snack/bite-layout";
 import { ensureGlyphs, fontFamily, loadFonts } from "./fonts.js";
-import { clampScroll, clientToFrame, fitFrame, flings, releaseVelocity, stepFling } from "./gesture.js";
+import { clampScroll, clientToFrame, fitFrame, flings, pickWheelTarget, releaseVelocity, scrollChainAt, stepFling, wheelPixels } from "./gesture.js";
 
 const TAP_SLOP = 10; // px of finger travel before a press becomes a drag
 const PRESS_SCALE = 0.96;
@@ -411,6 +411,20 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
   const onTouchMove = (ev) => {
     if (ev.cancelable) ev.preventDefault();
   };
+  // Mouse wheel / trackpad (#117): no pointer events come with it, so the box
+  // under the cursor scrolls by the wheel's distance (screen px → frame units).
+  // Only a wheel a box takes is cancelled; at an end the page scrolls as usual.
+  const onWheel = (ev) => {
+    if (ev.ctrlKey) return; // trackpad pinch-zoom: the browser's
+    const p = toFrame(ev);
+    const { dx, dy } = wheelPixels(ev, canvas.clientHeight || fh * scale);
+    const target = pickWheelTarget(scrollChainAt(scene.root, p.x, p.y, scroll), dx / scale, dy / scale, scroll);
+    if (!target) return;
+    ev.preventDefault();
+    if (fling?.key === target.key) fling = null; // the wheel takes over a coasting list
+    scroll.set(target.key, target.offset);
+    draw();
+  };
   const stepScroll = (dt) => {
     if (!fling) return;
     if (!entries.has(fling.key)) {
@@ -426,6 +440,7 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
   if (interactive) {
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    canvas.addEventListener("wheel", onWheel, { passive: false });
     globalThis.addEventListener("pointermove", onMove, true);
     globalThis.addEventListener("pointerup", onUp, true);
     globalThis.addEventListener("pointercancel", onUp, true);
@@ -466,6 +481,7 @@ export async function mountBite({ el, doc, app, fontBase = "/fonts", background 
       destroyed = true;
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("wheel", onWheel);
       globalThis.removeEventListener("pointermove", onMove, true);
       globalThis.removeEventListener("pointerup", onUp, true);
       globalThis.removeEventListener("pointercancel", onUp, true);
