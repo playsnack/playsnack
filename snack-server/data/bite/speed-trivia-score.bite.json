@@ -494,7 +494,7 @@
             },
             "onTap": [
               {
-                "if": "phase == 'lobby' && packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && (roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0))",
+                "if": "phase == 'lobby' && packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && (roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2))",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -513,15 +513,15 @@
                 ]
               }
             ],
-            "show": "phase == 'lobby' ? packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && (roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0)) : true"
+            "show": "phase == 'lobby' ? packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && (roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2)) : true"
           },
           {
             "id": "waitBtn",
             "use": "GhostButton",
             "props": {
-              "label": "{packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0)) ? (roomMode == 'auto' ? (autoStartIn + '초 뒤 시작 · ' + roster.length + '명') : '방장이 시작하길 기다리는 중') : (packPending != '' ? '준비 중…' : (quizInfo.custom && !iAmSubject ? (quizInfo.about + ' 님이 시작하면 바로 시작돼요') : '친구를 기다리는 중…'))}"
+              "label": "{packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2)) ? (roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 시작해요' : (autoStartIn + '초 뒤 시작 · ' + roster.length + '명')) : '방장이 시작하길 기다리는 중') : (packPending != '' ? '준비 중…' : (quizInfo.custom && !iAmSubject ? (quizInfo.about + ' 님이 시작하면 바로 시작돼요') : '친구를 기다리는 중…'))}"
             },
-            "show": "phase == 'lobby' ? (packPending != '' || !(!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) || !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0))) : false"
+            "show": "phase == 'lobby' ? (packPending != '' || !(!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) || !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2))) : false"
           },
           {
             "id": "inviteBand",
@@ -1720,7 +1720,7 @@
             "children": [
               {
                 "id": "againWaitMain",
-                "text": "{roomMode == 'auto' ? '잠시 뒤 다음 판이 자동으로 시작돼요' : '방장이 다시 시작하길 기다리는 중'}",
+                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 다음 판을 시작해요' : '잠시 뒤 다음 판이 자동으로 시작돼요') : '방장이 다시 시작하길 기다리는 중'}",
                 "size": 16,
                 "weight": 700,
                 "color": "#d9ff00",
@@ -1729,7 +1729,7 @@
               },
               {
                 "id": "againWaitSub",
-                "text": "{roomMode == 'auto' ? '그대로 있으면 같이 해요' : ('방장 · ' + hostNick)}",
+                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '링크를 친구에게 보내도 돼요' : '그대로 있으면 같이 해요') : ('방장 · ' + hostNick)}",
                 "size": 13,
                 "weight": 600,
                 "color": "#9aa3af",

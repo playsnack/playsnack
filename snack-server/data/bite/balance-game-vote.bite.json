@@ -386,7 +386,7 @@
             },
             "onTap": [
               {
-                "if": "phase == 'lobby' && (roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0))",
+                "if": "phase == 'lobby' && (roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2))",
                 "then": [
                   {
                     "emit": "start",
@@ -401,7 +401,7 @@
                 ]
               }
             ],
-            "show": "(roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0))"
+            "show": "(roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2))"
           },
           {
             "id": "startWait",
@@ -416,11 +416,11 @@
               "color": "#2a2d33",
               "width": 1
             },
-            "show": "!(roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0))",
+            "show": "!(roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2))",
             "children": [
               {
                 "id": "startWaitMain",
-                "text": "{roomMode == 'auto' ? (autoStartIn + '초 뒤 시작 · ' + roster.length + '명') : '방장이 시작하길 기다리는 중'}",
+                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 시작해요' : (autoStartIn + '초 뒤 시작 · ' + roster.length + '명')) : '방장이 시작하길 기다리는 중'}",
                 "size": 16,
                 "weight": 700,
                 "color": "#d9ff00",
@@ -429,7 +429,7 @@
               },
               {
                 "id": "startWaitSub",
-                "text": "{roomMode == 'auto' ? '지금 들어온 사람 모두 같이 시작해요' : ('방장 · ' + hostNick)}",
+                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '링크를 친구에게 보내도 돼요' : '지금 들어온 사람 모두 같이 시작해요') : ('방장 · ' + hostNick)}",
                 "size": 13,
                 "weight": 600,
                 "color": "#9aa3af",
@@ -808,7 +808,7 @@
             "children": [
               {
                 "id": "againWaitMain",
-                "text": "{roomMode == 'auto' ? '잠시 뒤 다음 판이 자동으로 시작돼요' : '방장이 다시 시작하길 기다리는 중'}",
+                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 다음 판을 시작해요' : '잠시 뒤 다음 판이 자동으로 시작돼요') : '방장이 다시 시작하길 기다리는 중'}",
                 "size": 16,
                 "weight": 700,
                 "color": "#d9ff00",
@@ -817,7 +817,7 @@
               },
               {
                 "id": "againWaitSub",
-                "text": "{roomMode == 'auto' ? '그대로 있으면 같이 해요' : ('방장 · ' + hostNick)}",
+                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '링크를 친구에게 보내도 돼요' : '그대로 있으면 같이 해요') : ('방장 · ' + hostNick)}",
                 "size": 13,
                 "weight": 600,
                 "color": "#9aa3af",

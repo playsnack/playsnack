@@ -1,7 +1,8 @@
 // Who starts a game in an edge room (#135 / #136, edge/room/src/game.js): a friends room's
 // organizer is its host (방장) and only the host starts — enforced by the room, not just the UI;
-// a public room starts by itself from the app's start payload, and someone arriving mid-game is
-// moved to the next generation room (`slug.g2`), which counts down and starts on its own. A new
+// a public room starts by itself from the app's start payload once two are in (#141: one alone
+// waits), and someone arriving mid-game is moved to the next generation room (`slug.g2`), which
+// waits there for a second mover, then counts down and starts on its own. A new
 // room goes through the free-tier guard: refused, the client comes back with `stay` and watches.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -99,22 +100,31 @@ test("friends room (#135): the organizer hosts; a friend's start / lobby are ref
   f.close();
 });
 
-test("public room (#136): counts down from the first arrival, starts by itself; a late arrival is moved to the next room, which starts on its own", async () => {
+test("public room (#136, #141): one person alone waits; the 2nd arrival starts the countdown and it starts by itself; a late arrival is moved to the next room, which waits for a 2nd mover", async () => {
   const room = `tpl-tap-battle-${RUN}`;
+  const counting = (p) => p.frames.filter((m) => m.t === "autoStart" && m.d.endsIn >= 0);
   const a = player(hub.url, room, "pa");
   await a.hello({ autoStart: { start: { duration: 20000 }, ms: 3000 } });
-  assert.ok(await a.until(() => a.frame((m) => m.t === "autoStart")));
-  assert.equal(a.vars.roomMode, "auto");
-  const first = a.frame((m) => m.t === "autoStart").d;
-  assert.ok(first.endsIn > 2500 && first.endsIn <= 3000, `endsIn ${first.endsIn}`);
-  await sleep(1000);
+  assert.ok(await a.until(() => a.vars.roomMode === "auto"));
+  await sleep(3500); // longer than the countdown: alone, nothing starts
+  assert.equal(counting(a).length, 0, "alone: no countdown");
+  assert.notEqual(a.vars.sessionPhase, "countdown");
+  await a.act("start", {});
+  assert.ok(await a.until(() => reason(a, "need_players")), "a tap alone does not start it");
   const b = player(hub.url, room, "pb");
   await b.hello({ autoStart: AUTO });
-  assert.ok(await b.until(() => b.frame((m) => m.t === "autoStart")));
-  const left = b.frame((m) => m.t === "autoStart").d.endsIn;
+  assert.ok(await a.until(() => counting(a).length === 1), "the 2nd person: counting");
+  const first = counting(a)[0].d;
+  assert.ok(first.endsIn > 2500 && first.endsIn <= 3000, `endsIn ${first.endsIn}`);
+  assert.ok(await b.until(() => counting(b).length >= 1));
+  await sleep(1000);
+  const e = player(hub.url, room, "pe");
+  await e.hello({ autoStart: AUTO });
+  assert.ok(await e.until(() => e.frame((m) => m.t === "autoStart")));
+  const left = e.frame((m) => m.t === "autoStart").d.endsIn;
   assert.ok(left < 2200 && left > 1000, `joined mid-countdown, told ${left} ms left`);
-  await b.act("start", {});
-  assert.ok(await b.until(() => reason(b, "auto_start")), "nobody presses start");
+  await e.act("start", {});
+  assert.ok(await e.until(() => reason(e, "auto_start")), "nobody presses start");
   assert.ok(await a.until(() => a.vars.sessionPhase === "countdown", 4000), "started by itself");
   assert.equal(b.vars.sessionPhase, "countdown");
   // a late arrival: told to move, closed 4010, never on this room's roster
@@ -125,19 +135,23 @@ test("public room (#136): counts down from the first arrival, starts by itself; 
   assert.deepEqual(c.frame((m) => m.t === "moveTo")?.d, { room: `${room}.g2` });
   assert.equal(c.frame((m) => m.t === "state"), undefined);
   await sleep(200);
-  assert.deepEqual(a.vars.roster, ["pa", "pb"]);
-  // a second late arrival lands in the same next room
+  assert.deepEqual(a.vars.roster, ["pa", "pb", "pe"]);
+  // alone in the next room: waits there
+  const c2 = player(hub.url, `${room}.g2`, "pc");
+  await c2.hello({ autoStart: AUTO });
+  assert.ok(await c2.until(() => c2.vars.roomMode === "auto"));
+  await sleep(3500);
+  assert.equal(counting(c2).length, 0, "moved alone: waits for a 2nd person");
+  assert.notEqual(c2.vars.sessionPhase, "countdown");
+  // a second late arrival lands in the same next room — now they are two: it counts down and plays
   const d = player(hub.url, room, "pd");
   await d.hello({ autoStart: AUTO });
   assert.ok(await d.until(() => d.closed === 4010));
   assert.equal(d.frame((m) => m.t === "moveTo").d.room, `${room}.g2`);
-  // they play there: its own countdown, then a game
-  const c2 = player(hub.url, `${room}.g2`, "pc");
-  await c2.hello({ autoStart: AUTO });
   const d2 = player(hub.url, `${room}.g2`, "pd");
   await d2.hello({ autoStart: AUTO });
-  assert.ok(await c2.until(() => c2.frame((m) => m.t === "autoStart")));
   assert.ok(await d2.until(() => d2.vars.roster?.length === 2));
+  assert.ok(await c2.until(() => counting(c2).length === 1), "the 2nd mover arms it");
   assert.ok(await c2.until(() => c2.vars.sessionPhase === "countdown", 4000));
   assert.ok(await c2.until(() => c2.vars.sessionPhase === "play", 4000));
   assert.notEqual(c2.vars.iAmSpectator, true);
@@ -153,20 +167,38 @@ test("public room (#136): counts down from the first arrival, starts by itself; 
   await old.hello();
   assert.ok(await old.until(() => old.frame((m) => m.t === "state")));
   assert.equal(old.vars.iAmSpectator, true);
-  [a, b2, c2, d2, old].forEach((x) => x.close());
+  [a, b2, e, c2, d2, old].forEach((x) => x.close());
+});
+
+test("public room (#141): the countdown stops when one of the two leaves; the one left waits", async () => {
+  const room = `tpl-leave-${RUN}`;
+  const a = player(hub.url, room, "la");
+  await a.hello({ autoStart: AUTO });
+  const b = player(hub.url, room, "lb");
+  await b.hello({ autoStart: AUTO });
+  assert.ok(await a.until(() => a.frames.some((m) => m.t === "autoStart" && m.d.endsIn > 0)));
+  await sleep(1000);
+  b.close();
+  assert.ok(await a.until(() => a.frames.some((m) => m.t === "autoStart" && m.d.endsIn === -1)), "told: no countdown");
+  await sleep(3000);
+  assert.notEqual(a.vars.sessionPhase, "countdown", "never started alone");
+  a.close();
 });
 
 test("public room after a game: the result holds, then the lobby — and the countdown again", { timeout: 30000 }, async () => {
   const room = `tpl-coop-${RUN}`;
   const a = player(hub.url, room, "qa");
   await a.hello({ autoStart: { start: { duration: 3000 }, ms: 3000 } });
+  const b = player(hub.url, room, "qb");
+  await b.hello({ autoStart: { start: { duration: 3000 }, ms: 3000 } });
   assert.ok(await a.until(() => a.vars.sessionPhase === "play", 8000));
   await a.act("taps", { count: 4 });
   assert.ok(await a.until(() => a.vars.sessionPhase === "result", 5000));
   const n = a.frames.filter((m) => m.t === "autoStart").length;
   assert.ok(await a.until(() => a.vars.sessionPhase === "lobby", 10000), "back to the lobby after RESULT_HOLD_MS");
   assert.ok(await a.until(() => a.frames.filter((m) => m.t === "autoStart").length === n + 1));
-  a.close();
+  assert.ok(a.frames.filter((m) => m.t === "autoStart").at(-1).d.endsIn > 0, "counting again: two here and someone played");
+  [a, b].forEach((x) => x.close());
 });
 
 test("free-tier guard: the next room cannot open today → refused (room_full_today); back in the first room with `stay`, the person watches", async () => {
@@ -176,6 +208,8 @@ test("free-tier guard: the next room cannot open today → refused (room_full_to
   guarded.meter.free.workerRequests = 100000;
   const a = player(guarded.url, room, "ga");
   await a.hello({ autoStart: AUTO });
+  const b = player(guarded.url, room, "gb"); // two: the countdown runs (#141)
+  await b.hello({ autoStart: AUTO });
   assert.ok(await a.until(() => a.vars.sessionPhase === "countdown", 5000));
   guarded.meter.free.workerRequests = 1000; // now at 75 %
   const c = player(guarded.url, room, "gc");
@@ -191,5 +225,5 @@ test("free-tier guard: the next room cannot open today → refused (room_full_to
   assert.ok(await c3.until(() => c3.frame((m) => m.t === "state")));
   assert.equal(c3.frame((m) => m.t === "moveTo"), undefined);
   assert.equal(c3.vars.iAmSpectator, true);
-  [a, c3].forEach((x) => x.close());
+  [a, b, c3].forEach((x) => x.close());
 });

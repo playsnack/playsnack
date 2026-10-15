@@ -22,10 +22,11 @@
 //   organizer — whoever made the room — is the host (방장) and only the host starts / returns to
 //   the lobby; away > 30 s, the earliest-joined player still here takes over (engine room.js).
 //   public room (`slug`, `slug.gN`) → "auto": a client's hello carries its app's start payload
-//   (`autoStart: {start, ms}`, the template's `room`); the lobby counts down and starts by
-//   itself. Someone new arriving while a game runs (who would only watch) gets `moveTo` the next
-//   generation room (`slug.g2`, `slug.g3`, … — the same for every late arrival, so they play
-//   together there) and is closed 4010. A new room goes through the same usage guard (RoomGate);
+//   (`autoStart: {start, ms}`, the template's `room`); with 2+ players there (#141, engine
+//   AUTO_START_MIN — one alone waits) the lobby counts down and starts by itself. Someone new
+//   arriving while a game runs (who would only watch) gets `moveTo` the next generation room
+//   (`slug.g2`, `slug.g3`, … — the same for every late arrival, so they play together there:
+//   the first one waits there for the next) and is closed 4010. A new room goes through the same usage guard (RoomGate);
 //   refused, the client comes back here with `stay: true` and watches instead.
 //
 // Hibernation: engine state lives in memory; a pending engine timer (setTimeout) keeps the
