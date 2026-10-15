@@ -107,6 +107,11 @@ test('each new kind is accepted and aggregated (day counters, summary, all-time)
     gamesCreated: 2, gamesEditor: 1, gamesRemade: 1, joinOk: 1, joinFail: 2,
     joinFailReasons: { bad_link: 1, timeout: 1 },
     joinMs: { '0-1s': 1, '1-2s': 0, '2-3s': 0, '3-5s': 0, '5-10s': 0, '10s+': 0 },
+    // No join here said it went through the room server (via 'edge'): its own numbers stay 0.
+    joinEdgeOk: 0,
+    joinEdgeFail: 0,
+    joinEdgeFailReasons: {},
+    joinEdgeMs: { '0-1s': 0, '1-2s': 0, '2-3s': 0, '3-5s': 0, '5-10s': 0, '10s+': 0 },
     share: 2, shareWhat: { invite: 1 },
     askShown: 1, askYes: 1, askNo: 1, askSkip: 1, askNoReasons: { laggy: 1 }, errors: 0,
     devicesSeen: 0, devicesByAge: {}, devicesByUses: {}, devicesByGames: {}, devicesByMade: {},
