@@ -17,8 +17,10 @@ const load = (id) => JSON.parse(readFileSync(new URL(`${id}.bite.json`, DIR), "u
 
 // Optional per device: `clock` offset (its own wall clock), `down` / `up` network delay
 // (host → device setVars, device → host actions) in ms — delivered in order.
-function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] } = {}) {
+function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], startRule } = {}) {
   let t = 0;
+  // The shell's "10초 뒤 시작" (snack-player autoStart.ts): device → when the room said the game starts.
+  const autoAt = new Map();
   let seq = 0;
   const timers = new Map();
   const devices = new Map(); // peerId → app
@@ -48,13 +50,16 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] }
         return null;
       }
     },
+    startRule,
     broadcast: (type, d) => {
+      if (type === "autoStart") for (const peerId of devices.keys()) autoAt.set(peerId, d.endsIn >= 0 ? t + d.endsIn : null);
       if (type !== "setVar") return;
       for (const [peerId, app] of devices) toDevice(peerId, () => app.setVar(d.id, d.value));
     },
     send: (peerId, type, d) => {
       const app = devices.get(peerId);
       if (!app) return;
+      if (type === "autoStart") autoAt.set(peerId, d.endsIn >= 0 ? t + d.endsIn : null);
       if (type === "setVar") toDevice(peerId, () => app.setVar(d.id, d.value));
       if (type === "state") toDevice(peerId, () => Object.entries(d.sharedState).forEach(([k, v]) => app.setVar(k, v)));
     },
@@ -95,7 +100,14 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [] }
         next.fn();
         await flush();
       } else t = Math.min(end, t + frame);
-      for (const app of devices.values()) app.tick();
+      for (const [peerId, app] of devices) {
+        if (Object.hasOwn(app.vars, "autoStartIn") && autoAt.has(peerId)) {
+          const at = autoAt.get(peerId);
+          const left = at == null || app.vars.sessionPhase !== "lobby" ? 0 : Math.max(0, Math.ceil((at - t) / 1000));
+          if (app.vars.autoStartIn !== left) app.setVar("autoStartIn", left);
+        }
+        app.tick();
+      }
       await flush();
     }
   };
@@ -544,6 +556,85 @@ test("coop-click: a late joiner mid-game spectates — pad inert, taps not count
   await T.advance(300);
   assert.equal(T.v(0, "coopTotal"), 5);
   assert.deepEqual(rows(T.v(0, "raceBoard")), [{ nick: "C", score: 5 }]);
+});
+
+// ── 방장 · 자동 시작 (#135 / #136): what each device shows and may tap ──
+
+test("tap-battle friends room (host): the host has 시작하기; a friend sees '방장이 시작하길 기다리는 중' and cannot start; 다시 하기 likewise", async () => {
+  const T = table("tap-battle", ["A", "B"], { startRule: "host" });
+  await T.advance(100);
+  assert.equal(T.v(0, "iAmHost"), true);
+  assert.equal(T.v(1, "iAmHost"), false);
+  assert.equal(T.prop(1, "startWaitMain"), "방장이 시작하길 기다리는 중");
+  assert.equal(T.prop(1, "startWaitSub"), "방장 · A");
+  assert.equal(T.prop(1, "lobbyHint"), "다 모이면 방장이 시작해요 · 3·2·1 후 10초 연타!");
+  assert.equal(T.tap(1, "startBtn"), false, "no start button for a friend");
+  await T.advance(500);
+  assert.equal(T.phase(1), "lobby");
+  assert.equal(T.tap(0, "startBtn"), true);
+  await T.advance(3200);
+  assert.equal(T.phase(1), "play");
+  await T.advance(11000);
+  assert.equal(T.phase(1), "result");
+  assert.equal(T.tap(1, "againBtn"), false);
+  assert.equal(T.prop(1, "againWaitMain"), "방장이 다시 시작하길 기다리는 중");
+  assert.equal(T.tap(0, "againBtn"), true);
+  await T.advance(3200);
+  assert.equal(T.phase(1), "play");
+});
+
+test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2명' counts down and the game starts by itself", async () => {
+  const doc = load("tap-battle");
+  const T = table("tap-battle", ["A", "B"], { startRule: "auto" });
+  T.room.configureAuto(doc.room.start, doc.room.autoStartMs); // as the edge room does from the first hello
+  await T.advance(100);
+  assert.equal(T.v(0, "roomMode"), "auto");
+  assert.equal(T.prop(0, "startWaitMain"), "10초 뒤 시작 · 2명");
+  assert.equal(T.tap(0, "startBtn"), false);
+  await T.advance(4000);
+  assert.equal(T.prop(1, "startWaitMain"), "6초 뒤 시작 · 2명");
+  await T.advance(6000 + 3200);
+  assert.equal(T.phase(0), "play");
+  assert.equal(T.phase(1), "play");
+  await T.advance(11000);
+  assert.equal(T.phase(0), "result");
+  assert.equal(T.tap(0, "againBtn"), false);
+  assert.equal(T.prop(0, "againWaitMain"), "잠시 뒤 다음 판이 자동으로 시작돼요");
+});
+
+test("speed-trivia friends room (host, default quiz): only the host starts; a friend's lobby says the host is to start", async () => {
+  const T = table("speed-trivia-score", ["A", "B"], { startRule: "host" });
+  await T.advance(100);
+  assert.equal(T.prop(1, "waitBtn", "props.label"), "방장이 시작하길 기다리는 중");
+  assert.equal(T.tap(1, "startBtn"), false);
+  await T.advance(500);
+  assert.equal(T.phase(1), "lobby");
+  assert.equal(T.tap(0, "startBtn"), true);
+  await T.advance(3200);
+  assert.equal(T.phase(1), "play");
+});
+
+test("speed-trivia friends room (host) + 나 맞히기: the subject (not the host) starts their quiz — the existing rule", async () => {
+  const T = table("speed-trivia-score", ["A", "B", "C"], { startRule: "host" });
+  await T.advance(100);
+  T.room.action("p1", { name: "quizPack", payload: { title: "B 퀴즈", about: "B", questions: [{ q: "q1", options: ["x", "y"], answer: 0 }] }, clientMsgId: "pack-b-1" });
+  await T.advance(200);
+  assert.equal(T.v(1, "iAmSubject"), true);
+  assert.equal(T.tap(0, "startBtn"), false, "the host is not this quiz's subject");
+  assert.equal(T.tap(1, "startBtn"), true, "the subject starts it");
+  await T.advance(3200);
+  assert.equal(T.phase(2), "play");
+});
+
+test("speed-trivia public room (auto): the lobby counts down and the quiz starts by itself", async () => {
+  const doc = load("speed-trivia-score");
+  const T = table("speed-trivia-score", ["A"], { startRule: "auto" });
+  T.room.configureAuto(doc.room.start, doc.room.autoStartMs);
+  await T.advance(100);
+  assert.equal(T.prop(0, "waitBtn", "props.label"), "10초 뒤 시작 · 1명");
+  assert.equal(T.tap(0, "startBtn"), false);
+  await T.advance(10000 + 3200);
+  assert.equal(T.phase(0), "play");
 });
 
 // 밸런스게임 (#126): picks stay hidden until everyone here picked (or the timer) — then all at once.

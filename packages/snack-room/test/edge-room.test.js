@@ -73,7 +73,7 @@ test("nothing before hello: another first frame closes the socket", async () => 
   assert.equal(p.frames.length, 0);
 });
 
-test("organizer: only the room's creator starts / resets / sets the quiz; its token restores the role", async () => {
+test("organizer = host (#135): only the room's creator starts / resets; its token restores the role", async () => {
   const room = rid("org");
   const org = player(room, "org1");
   await org.hello({ organize: true });
@@ -83,8 +83,8 @@ test("organizer: only the room's creator starts / resets / sets the quiz; its to
   await a.hello({ organize: true }); // too late: the room exists
   assert.ok(await a.until(() => a.vars.participants === 2));
   assert.equal(a.frame((m) => m.t === "organizer"), undefined);
-  for (const name of ["start", "lobby", "quizPack"]) await a.act(name, name === "start" ? { duration: 3000 } : {});
-  assert.ok(await a.until(() => a.frames.filter((m) => m.d?.reason === "organizer_only").length === 3));
+  for (const name of ["start", "lobby"]) await a.act(name, name === "start" ? { duration: 3000 } : {});
+  assert.ok(await a.until(() => a.frames.filter((m) => m.d?.reason === "not_host").length === 2));
   assert.notEqual(a.vars.sessionPhase, "countdown");
   org.close();
   await sleep(100);
@@ -93,7 +93,7 @@ test("organizer: only the room's creator starts / resets / sets the quiz; its to
   assert.ok(await back.until(() => back.frame((m) => m.t === "organizer")));
   await back.act("start", { duration: 3000 });
   assert.ok(await a.until(() => a.vars.sessionPhase === "countdown" || a.vars.sessionPhase === "play"));
-  assert.equal(ack(back, "organizer_only"), undefined);
+  assert.equal(ack(back, "not_host"), undefined);
   a.close();
   back.close();
 });

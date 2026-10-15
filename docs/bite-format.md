@@ -30,6 +30,7 @@
 | `frame` | ✓ | 논리 해상도 `[너비, 높이]` px. 기본 `[390, 844]`. 기기 화면에 맞춰 균등 스케일 |
 | `vars` | ✓ | 변수 → 초기값. 타입은 초기값으로 정해짐(number/string/boolean/array/object) |
 | `data` | | 동적 콘텐츠. 호스트가 마운트 시 `url`을 fetch → 응답 JSON의 키 중 `vars`에 있는 것만 덮어씀 |
+| `room` | | 같이 하는 앱: `{ start, autoStartMs? }` — 공개 방이 스스로 시작할 때 쓰는 `start` 페이로드와 대기 시간(§6.2) |
 | `components` | | 재사용 노드 묶음(§5). 서버가 기본 라이브러리를 주입할 수 있음 |
 | `start` | ✓ | 시작 페이즈 이름 |
 | `phases` | ✓ | 페이즈(화면 흐름의 단계) 정의(§3) |
@@ -237,6 +238,8 @@ jsep 기반의 JS 식 부분집합.
 | `reaction` | 객체 | `ms` number **필수** — 이 기기가 잰 "초록 표시 → 탭" 시간(`tick`에서 `reactionGo`가 켜진 `now`를 기록 → 탭 때 `now - goSeenAt`). 초록 전 탭이면 `-1`. 방장은 범위만 본다: 80ms 미만·초록 전 = 부정출발(0점), 창(4초) 밖 = 순위 제외, 그 외 `2000 − ms`(방장이 직접 잰 시간보다 빠른 주장은 그 값으로 잘림). 점수는 **기기 측정값**이지 방장 수신 시각이 아니다(MP-08) |
 | `lobby` | 없음 | 세션 종료 → 대기실 |
 
+`start`·`lobby`를 누가 보낼 수 있는지(친구 방 = 방장만, 공개 방 = 자동 시작)는 §6.2.
+
 - **퀴즈(`start {quiz: true}`)**: 저장된 `quizPack`이 있으면 그 팩을 **만든 사람의 문항 순서대로**(최대 `settings.rounds`, 없으면 전부) 내고, 없으면 `getPack(game, opts)`의 기본 팩(배열 또는 `{title, questions}`)을 섞어 `rounds`개 낸다. 어느 쪽이든 **보기 순서는 라운드마다 섞고** 정답 번호를 다시 매긴다. 팩이 있는 방에서는 어떤 `start`(퀴즈가 아닌 페이로드도)와 `lobby`든 **그 주인공만** 보낼 수 있고(주인공이 30초 넘게 방에 없으면 누구나 — 앱 전환으로 잠깐 빠진 건 떠난 게 아니다; 아니면 `reason: "not_subject"`), 주인공 말고 1명 이상이 필요하다(없으면 `actionAck {accepted: false, reason: "need_answerer"}`, 1:1 = 주인공 + 친구 1명). 팩 없는 기본 퀴즈는 누구나 시작·재시작한다.
 - **조기 공개(early reveal)**: 라운드는 `answerMs` 창이 끝나면 공개(`roundAnswer` = 정답, `raceBoard` 갱신)되고 `revealMs` 뒤 다음 라운드다. 단 **지금 방에 있는 답할 사람 전원**(`quizProgress`와 같은 규칙 — 주인공·나간 사람·관전자 제외, 엔진 roster에 있는 사람만)이 답하면 **300ms 뒤**(`EARLY_REVEAL_MS`) 공개하고, 그다음은 똑같이 `revealMs` → 다음 라운드. 전원을 채우는 건 답 또는 **아직 안 낸 마지막 사람의 퇴장**뿐이고, 입장은 채우지 못한다(호스트 교대 뒤 재입장, 같은 사람 새로고침 포함). 그 300ms 사이에 이 판의 참가자 중 답 안 한 사람이 돌아오면 공개는 **원래 창 끝으로 되돌아간다**(새로 온 사람은 관전자라 되돌리지 않는다). 공개 타이머는 세션 데이터라 스냅샷에 남은 ms(`timers[].remaining`)로 실려 호스트가 바뀌어도 같은 때 공개된다. 템플릿은 `quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of`로 이 순간을 알 수 있다(라운드·판 확인을 빼면 지난 라운드의 "전원 답함"이 새 라운드 시작 때 잠깐 보인다)(speed-trivia-score: 타이머 바·초를 바로 비우고 "다 골랐어요! 곧 공개 (n/n)"). 채점(기기 측정 `ms`)과 `stale_round` 판정은 그대로다.
 - **숨긴 선택(`start {hidden: true}`, 라운드 투표 전용 — 밸런스게임, #126)**: 콘텐츠 라운드 투표(`mode`·`bracket`·`quiz` 없는 `start`)에서 켜면 라운드가 **공개될 때까지 누구의 선택도, 중간 집계도 방 밖으로 나가지 않는다**(방송 `setVar`·입장/재동기화 `state` 모두 — `votesByOption`은 라운드 시작 때의 0만). 공개 전에 보내는 것: `voteProgress` `{voted, of, round, sessionNo}`(지금 방에 있는 이 판 참가자 중 이번 라운드에 고른 수 / 인원 — 관전자·나간 사람 제외, `quizProgress`와 같은 규칙; `round` = `roundIdx`) · `myPick` `{sessionNo, round, option}`(**플레이어별**, 퀴즈의 `myPick`과 같은 모양 — 고른 사람의 연결에만, 새로고침해도 입장 `state`에 실림; `round === roundIdx && sessionNo === voteProgress.sessionNo`일 때만 이번 라운드 것 — 라운드 시작 때 `voteProgress`가 `roundIdx`보다 먼저 간다). 공개: `roundMs`가 끝나거나, 지금 방의 참가자 **전원이 고르면 `EARLY_REVEAL_MS`(300ms) 뒤**(조기 공개 규칙은 퀴즈와 같다 — 고르기 또는 아직 안 고른 마지막 사람의 퇴장만 채우고, 그 사이 안 고른 참가자가 돌아오면 원래 창 끝으로) `votesByOption`(최종 집계) → `roundPicks` `{o0: [닉…], o1: [닉…]}`(선택지마다 최대 8명, 나간 사람의 선택도 포함) → `revealRound` = 그 `roundIdx` 순서로 보내고, `revealMs`(기본 3000, 1500–8000) 뒤 다음 라운드(`revealRound: -1`). 템플릿은 `revealRound === roundIdx`로 공개를 안다. 다시 고르기는 공개 전까지 되고, 공개 뒤의 `vote`는 `actionAck {accepted: false, reason: "closed"}`. 공개 타이머·선택은 세션 데이터라 스냅샷(서버 저장)·방 서버 재기동 뒤에도 같은 때 공개된다. 이 옵션을 쓰지 않는 템플릿(우리 중 누가?·월드컵)은 그대로 매 투표마다 `votesByOption`을 보낸다(새 변수도 안 감, MP-13). **한계(정직 고지)**: 숨김은 서버가 방을 돌리는 방(edge/room)에서만 완전하다 — 기기가 방장인 옛 방식(mesh/host)에서는 방장 기기와 MQTT로 가는 스냅샷에 선택이 들어 있다.
@@ -252,6 +255,24 @@ jsep 기반의 JS 식 부분집합.
 
 - **페이로드 문자열은 템플릿이다.** `"score"`는 글자 그대로 `score`라는 텍스트를 보내고, `"{score}"`가 변수 값을 보낸다. 변수 이름과 똑같은 리터럴은 거의 항상 버그라 검증기가 오류로 잡는다(자유 텍스트 필드 `game`·`theme`에서만 경고).
 - 필드의 타입은 보낼 값의 JSON 타입이다: 리터럴 → string(숫자 필드엔 `"3"` 같은 숫자 텍스트만 허용), `{변수}` → 그 변수 초기값의 타입, 식 → 정적으로 판정 안 함.
+
+### 6.2 누가 시작하나 — 방장 · 자동 시작 (#135 · #136)
+방 엔진의 `startRule`(엣지 방 `edge/room/src/game.js`가 방 id로 정함)에 따라 `start`·`lobby`를 받는 사람이 다르다. 판정은 **방(서버)이 한다** — 화면에서 버튼을 숨기는 건 보조일 뿐이다.
+
+| 방 | 링크 | `startRule` | 누가 시작 |
+|---|---|---|---|
+| 친구 방 | `/p/<slug>?room=<code>` (방 id `slug~CODE`) · 주최 방(`organize`) | `"host"` | **방장만**. 방장 = 방을 만든 사람(엣지: 주최자 토큰의 주인 = 첫 입장자). 나머지의 `start`·`lobby`는 `actionAck {accepted: false, reason: "not_host"}` |
+| 공개 방 | `/p/<slug>` (방 id `slug`, 다음 판 방 `slug.g2`, `slug.g3`, …) | `"auto"` | **아무도 안 누른다** — 대기실이 첫 사람부터 `autoStartMs`(기본 10초) 세고 스스로 시작 |
+| 그 외 | 메시 공개 방 · snack-server `/ws`(개발) | `"any"` | 누구나(예전 그대로) |
+
+- **방장 교대**: 방장이 방에 없는 지 **30초**(`HOST_GRACE_MS` = 퀴즈 주인공 유예와 같음)가 지나면, 지금 방에 있는 사람 중 **가장 먼저 들어온 사람**(입장 순서 = `pid`)이 방장이 된다. 30초 안에 돌아오면(공유 시트·새로고침) 그대로 방장. 교대 뒤에 원래 방장이 돌아와도 **되찾지 않는다**(단순하게). 방이 완전히 비면 방이 사라지고, 다음에 처음 들어오는 사람이 방장.
+- **나 맞히기 퀴즈**(`quizPack`이 저장된 방): 그 판은 **주인공이 방장**이다 — `start`·`lobby`는 §6.1의 주인공 규칙만 본다(방장 규칙은 건너뜀). 저장된 팩이 없는 기본 퀴즈는 방장 규칙.
+- **자동 시작**: 클라이언트가 입장 때 앱의 `room.start`(아래 문서 키)를 방에 보낸다(엣지 hello `autoStart: {start, ms}`, 처음 받은 값이 방이 빌 때까지 유지). 그때부터 대기실은 사람이 1명 이상이면 카운트다운 1개를 돌리고(그 사이 들어온 사람은 모두 같이 플레이), 끝나면 그 페이로드로 `start`한다. 결과는 `RESULT_HOLD_MS`(8초) 보이고 대기실로 돌아와 **그 판에 누가 실제로 했으면** 다시 센다 — 아무도 안 했으면 대기실에서 멈춘다(혼자 켜 둔 폰이 판을 무한히 돌리지 않게; 누가 들어오거나 시작을 누르면 다시 셈). 자동 방에서 `start`는 멈춘 대기실을 깨우기만 하고(그 외 `reason: "auto_start"`), `lobby`는 `auto_start`, `quizPack`은 `auto_room`으로 거절(공개 방은 앱 기본 퀴즈).
+- **늦게 온 사람 → 다음 방**: 공개 방에서 판이 카운트다운(3·2·1)·플레이 중일 때 처음 온 사람(이 판의 참가자가 아닌 사람 — 참가자의 새로고침은 그대로)에게 방은 `{t: "moveTo", d: {room: "<slug>.g<N+1>"}}`를 보내고 4010으로 닫는다. 클라이언트(`EdgeRoomTransport`)는 화면을 그대로 둔 채 그 방으로 다시 접속한다. 다음 방 id는 결정적이라 같은 판에 늦은 사람들은 모두 **같은 방**에 모여 거기서 10초 카운트다운 후 같이 한다(그 방도 진행 중이면 한 번 더 다음 방으로). 새 방은 무료 한도 가드(70 % 넘으면 새 방 거절)를 그대로 거친다 — 거절되면(`room_full_today`) 클라이언트는 원래 방에 `stay: true`로 돌아가 관전한다. `autoStart`를 보내지 않는 옛 클라이언트는 옮기지 않는다(예전처럼 관전).
+- **변수**(선언한 템플릿에만 — 셸이 거른다, `snack-player/src/spectate.ts SHELL_ROOM_VARS`): `roomMode` string `"host"`\|`"auto"`(선언 안 하면 안 옴; 예전 방 = `""`) · `hostNick` string(방장 닉) · `iAmHost` boolean(**플레이어별**) · `autoStartIn` number — **셸 변수**: 방의 `autoStart {endsIn, ms}` 메시지를 셸(`snack-player/src/autoStart.ts`)이 이 기기 시계로 돌려 남은 **초**(올림)를 넣는다. 0 = 카운트다운 없음.
+- **템플릿 패턴**(세션 템플릿 10종): 시작 버튼 `show` = `roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0)`(`onTap`의 `if`에도 같은 조건), 그 자리에 같은 높이(56)의 안내 박스 `startWait`(반대 조건): 방장 방 "방장이 시작하길 기다리는 중" + "방장 · <닉>", 자동 방 "10초 뒤 시작 · n명". 결과 화면의 다시 하기도 같은 방식(`againWait`: "방장이 다시 시작하길 기다리는 중" / "잠시 뒤 다음 판이 자동으로 시작돼요").
+
+문서 키 `room`(§1, 선택): `{ "start": <lobby 시작 버튼과 같은 start 페이로드 — 리터럴만>, "autoStartMs": 3000–60000 }`. `validate`가 `start`를 §6.1 계약으로 검사한다.
 
 ## 7. 런타임 API (`@snack/bite`)
 ```ts

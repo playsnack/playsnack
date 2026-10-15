@@ -4,20 +4,29 @@
 // answers, the clock or the scores. Platform-free, so the Node hub runs it too.
 //
 // Wire protocol = snack-server's /ws (the player's ServerTransport speaks it):
-//   client → {t:"hello", d:{slug, anonId, nick, pin?, token?, organize?, organizerToken?}}  first
+//   client → {t:"hello", d:{slug, anonId, nick, pin?, token?, organize?, organizerToken?, autoStart?, stay?}}  first
 //   client → {t:"action", d:{name, payload, clientMsgId}} | {t:"react", d:{emoji}}
 //   room   → {t:"state"|"setVar"|"participants"|"reaction"|"actionAck", d}   (engine messages)
 //   room   → {t:"token", d:{token}}        seat token (reconnect without the PIN, seat takeover)
 //   room   → {t:"organizer", d:{token}}    to the room's creator, when it asked to organize
 //   room   → {t:"denied", d:{reason, retryIn?}}   then usually a close
+//   room   → {t:"moveTo", d:{room}}       public room mid-game: play in that room instead (then 4010)
 // Per-player variables (iAmSubject, myPid, myPick, iAmSpectator, iAmOut) go to that socket
 // only (engine `send`); answers never leave before the reveal (engine: roundContent has no
 // answer, picks stay inside, raceBoard shows pre-round scores while a round is open).
 //
 // One seat per device (anonId) per room: a second socket with the same anonId is refused
 // unless it shows that seat's token (a reconnect) — then it takes the seat over.
-// Organized rooms (created with organize: true): only the organizer may start a game,
-// return to the lobby or set the quiz; everyone else just plays.
+// Who starts a game (#135 / #136, engine `startRule`):
+//   friends room (`slug~CODE`) or an organized room (created with organize: true) → "host": the
+//   organizer — whoever made the room — is the host (방장) and only the host starts / returns to
+//   the lobby; away > 30 s, the earliest-joined player still here takes over (engine room.js).
+//   public room (`slug`, `slug.gN`) → "auto": a client's hello carries its app's start payload
+//   (`autoStart: {start, ms}`, the template's `room`); the lobby counts down and starts by
+//   itself. Someone new arriving while a game runs (who would only watch) gets `moveTo` the next
+//   generation room (`slug.g2`, `slug.g3`, … — the same for every late arrival, so they play
+//   together there) and is closed 4010. A new room goes through the same usage guard (RoomGate);
+//   refused, the client comes back here with `stay: true` and watches instead.
 //
 // Hibernation: engine state lives in memory; a pending engine timer (setTimeout) keeps the
 // DO awake through a game. Idle (lobby / result), the DO may hibernate and lose memory, so
@@ -44,7 +53,14 @@ export const GAME_LIMITS = {
   coalesceMs: 150, // roster / participants / quizProgress: at most one fan-out per this
   sendChunk: 100, // frames sent per task (the rest follow in the next task, in order)
 };
-const ORGANIZER_ONLY = new Set(["start", "lobby", "quizPack"]);
+// The next generation of a public room: `slug` → `slug.g2` → `slug.g3` … (deterministic, so every
+// late arrival of one game lands in the same room). Never a friends room (no `~`).
+export const nextRoomId = (roomId) => {
+  const m = /^(.*)\.g(\d{1,6})$/.exec(roomId);
+  return m ? `${m[1]}.g${Number(m[2]) + 1}` : `${roomId}.g2`;
+};
+/** A friends room (`slug~CODE`) or an organized one hosts; a public room starts by itself. */
+export const startRuleFor = (roomId, meta) => (meta?.org || String(roomId).includes("~") ? "host" : "auto");
 const COALESCED = new Set(["roster", "rosterPhotos", "quizProgress", "voteProgress"]);
 const ANON_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const rid = () => Math.random().toString(36).slice(2, 10);
@@ -192,6 +208,7 @@ export class GameRoom {
       getPack: this.getPack,
       now: this.now,
       claimWindowMs: this.L.claimWindowMs,
+      startRule: startRuleFor(this.roomId, this.meta),
       ...this.timers,
       broadcast: (t, d) => {
         // Roster-ish updates (a join storm, an answer storm: one per incoming message) are
@@ -283,7 +300,8 @@ export class GameRoom {
     if (!joined.length) return;
     const snap = await this.store.get("snap");
     this.ensureEngine(snap ? { snap, sockets: joined } : null);
-    if (!snap) for (const s of joined) this.engine.join(s.state.peer, s.state); // nothing saved: a fresh room for them
+    // nothing saved: a fresh room for them — the organizer first (it hosts a "host" room)
+    if (!snap) for (const s of [...joined].sort((a, b) => Number(Boolean(b.state.org)) - Number(Boolean(a.state.org)))) this.engine.join(s.state.peer, s.state);
     this.stats.rehydrated = (this.stats.rehydrated ?? 0) + 1;
   }
 
@@ -336,7 +354,6 @@ export class GameRoom {
       if (!r || r.sec !== sec) this.rate.set(st, (r = { sec, n: 0 }));
       const id = m.d?.clientMsgId;
       if (++r.n > this.L.actionsPerSec) return this.reply(sock, "actionAck", { clientMsgId: id, accepted: false, reason: "rate_limited" });
-      if (this.meta?.org && !st.org && ORGANIZER_ONLY.has(m.d?.name)) return this.reply(sock, "actionAck", { clientMsgId: id, accepted: false, reason: "organizer_only" });
       this.engine.action(st.peer, m.d);
       // A rename the room took (#104) rides in the socket's attachment too, so a wake from
       // hibernation (rejoin from the attachment) keeps the new name, not the hello's.
@@ -386,6 +403,14 @@ export class GameRoom {
     await this.rehydrate();
     // One seat per device: a second socket for this anonId only with the seat's token.
     const holder = this.sockets().find((s) => s !== sock && s.state?.joined && s.state.anonId === anonId);
+    // A public room mid-game (#136): someone new would only watch — the next room plays soon.
+    // Only clients that sent their app's start payload (they know moveTo); `stay` = refused there.
+    const auto = d.autoStart && typeof d.autoStart === "object" ? d.autoStart : null;
+    if (auto && !d.stay && !holder && this.engine?.startRule === "auto" && this.engine.wouldSpectate(anonId)) {
+      this.stats.moved = (this.stats.moved ?? 0) + 1;
+      this.reply(sock, "moveTo", { room: nextRoomId(this.roomId) });
+      return this.closeQ(sock, 4010, "moved");
+    }
     if (holder) {
       const reconnect = g.claims?.a === anonId || (g.claims?.o === 1 && holder.state.org);
       if (!reconnect) {
@@ -405,6 +430,7 @@ export class GameRoom {
     if (g.organizer && !g.claims?.o) this.reply(sock, "organizer", { token: await this.gate.tokenFor(this.meta, { o: 1 }, this.L.organizerTtlMs) });
     else if (g.organizer) this.reply(sock, "organizer", { token: d.organizerToken });
     this.ensureEngine().join(st.peer, st);
+    if (auto) this.engine.configureAuto(auto.start, auto.ms); // the first one kept arms the lobby countdown
     // The new socket joins BEFORE the old one leaves (#115: a phone back from the share sheet
     // replaces a socket the room still holds): the person never leaves the roster, and a room
     // with only them in it keeps its game instead of being torn down and made anew.

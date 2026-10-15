@@ -6,7 +6,7 @@
 //    the server serves this build itself (what the oracle gate plays).
 import type { BiteDoc } from "@snack/bite";
 import { contentFor, parseContentUrl, type ContentData } from "@snack/content";
-import { EdgeRoomTransport, MeshTransport, RelayTransport, ServerTransport, type Identity, type RoomTransport } from "./roomTransport";
+import { EdgeRoomTransport, MeshTransport, RelayTransport, ServerTransport, type EdgeRoomOptions, type Identity, type RoomTransport } from "./roomTransport";
 import { appApiPath, parseRoute, playPath, type Route } from "./links";
 
 const SERVER_ENV = (import.meta.env.VITE_SERVER_URL as string | undefined) || "";
@@ -164,8 +164,8 @@ const freshRooms = new Set<string>();
 export const markFreshRoom = (roomId: string) => void freshRooms.add(roomId);
 /** Whether this page made the room a moment ago (read before createRoom, which uses it up). */
 export const isFreshRoom = (roomId: string) => freshRooms.has(roomId);
-export function createRoom(me: Identity, params: URLSearchParams): RoomTransport {
-  if (EDGE_ROOM_SERVER) return new EdgeRoomTransport(EDGE_ROOM_SERVER, me);
+export function createRoom(me: Identity, params: URLSearchParams, edge: EdgeRoomOptions = {}): RoomTransport {
+  if (EDGE_ROOM_SERVER) return new EdgeRoomTransport(EDGE_ROOM_SERVER, me, { ...edge, organize: freshRooms.delete(me.slug) || undefined });
   if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts), freshRooms.delete(me.slug), ROOM_MODE === "relay" ? ROOM_URL : undefined);
   const ws = (SERVER_URL || location.origin).replace(/^http/, "ws");
   return params.has("host") ? new RelayTransport(`${ws}/relay`, me, `${SERVER_URL}/api/pack`, `${SERVER_URL}/api/events`) : new ServerTransport(`${ws}/ws`, me);

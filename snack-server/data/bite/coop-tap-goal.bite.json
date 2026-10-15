@@ -13,7 +13,17 @@
     "sessionCountdown": 0,
     "roster": [],
     "coopTotal": 0,
-    "myTaps": 0
+    "myTaps": 0,
+    "roomMode": "",
+    "hostNick": "",
+    "iAmHost": false,
+    "autoStartIn": 0
+  },
+  "room": {
+    "start": {
+      "duration": 15000
+    },
+    "autoStartMs": 10000
   },
   "components": {
     "NavBar": {
@@ -341,7 +351,7 @@
             },
             "onTap": [
               {
-                "if": "phase == 'lobby'",
+                "if": "phase == 'lobby' && (roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0))",
                 "then": [
                   {
                     "set": "myTaps",
@@ -354,6 +364,42 @@
                     }
                   }
                 ]
+              }
+            ],
+            "show": "(roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0))"
+          },
+          {
+            "id": "startWait",
+            "box": "column",
+            "width": "fill",
+            "height": 56,
+            "gap": 2,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "stroke": {
+              "color": "#2a2d33",
+              "width": 1
+            },
+            "show": "!(roomMode == '' || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0))",
+            "children": [
+              {
+                "id": "startWaitMain",
+                "text": "{roomMode == 'auto' ? (autoStartIn + '초 뒤 시작 · ' + roster.length + '명') : '방장이 시작하길 기다리는 중'}",
+                "size": 16,
+                "weight": 700,
+                "color": "#d9ff00",
+                "align": "center",
+                "lines": 1
+              },
+              {
+                "id": "startWaitSub",
+                "text": "{roomMode == 'auto' ? '지금 들어온 사람 모두 같이 시작해요' : ('방장 · ' + hostNick)}",
+                "size": 13,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center",
+                "lines": 1
               }
             ]
           }
@@ -618,7 +664,7 @@
             },
             "onTap": [
               {
-                "if": "phase == 'result'",
+                "if": "phase == 'result' && (roomMode == '' || (roomMode == 'host' && iAmHost))",
                 "then": [
                   {
                     "set": "myTaps",
@@ -631,6 +677,42 @@
                     }
                   }
                 ]
+              }
+            ],
+            "show": "(roomMode == '' || (roomMode == 'host' && iAmHost))"
+          },
+          {
+            "id": "againWait",
+            "box": "column",
+            "width": "fill",
+            "height": 56,
+            "gap": 2,
+            "align": "center",
+            "justify": "center",
+            "fill": "#16181c",
+            "stroke": {
+              "color": "#2a2d33",
+              "width": 1
+            },
+            "show": "!(roomMode == '' || (roomMode == 'host' && iAmHost))",
+            "children": [
+              {
+                "id": "againWaitMain",
+                "text": "{roomMode == 'auto' ? '잠시 뒤 다음 판이 자동으로 시작돼요' : '방장이 다시 시작하길 기다리는 중'}",
+                "size": 16,
+                "weight": 700,
+                "color": "#d9ff00",
+                "align": "center",
+                "lines": 1
+              },
+              {
+                "id": "againWaitSub",
+                "text": "{roomMode == 'auto' ? '그대로 있으면 같이 해요' : ('방장 · ' + hostNick)}",
+                "size": 13,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center",
+                "lines": 1
               }
             ]
           }
