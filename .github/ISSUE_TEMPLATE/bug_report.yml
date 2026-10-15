@@ -1,0 +1,73 @@
+name: Bug
+description: Something is broken, regressed, confusing, or unreliable.
+title: "[Bug] "
+labels: ["type: bug", "status: ready"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is broken? Include the user-visible impact.
+      placeholder: "When..., the app..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Steps, URL, room/template, device, or command.
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - snack-player
+        - snack-server
+        - Bite engine
+        - Bite layout
+        - Bite renderer
+        - snack-room
+        - content/templates
+        - docs/process
+        - infra/deploy
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - severity: critical
+        - severity: major
+        - severity: minor
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, screenshots, failing tests, or links.
+  - type: textarea
+    id: verification
+    attributes:
+      label: Fix Verification
+      description: What should be run or checked before closing?
+      placeholder: "Regression test, gate command, device/browser..."

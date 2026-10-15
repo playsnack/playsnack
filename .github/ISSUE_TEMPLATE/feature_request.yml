@@ -1,0 +1,73 @@
+name: Story
+description: User-facing capability or meaningful workflow improvement.
+title: "[Story] "
+labels: ["type: story", "status: ready"]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What should be true when this is done?
+      placeholder: "Players can..."
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why now, and what user or project need does this serve?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Keep this as a small checklist that can become PR tasks.
+      value: |
+        - [ ] 
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Observable checks, ideally phrased as done/not done.
+      value: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - snack-player
+        - snack-server
+        - Bite engine
+        - Bite layout
+        - Bite renderer
+        - snack-room
+        - content/templates
+        - docs/process
+        - infra/deploy
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - priority: high
+        - priority: medium
+        - priority: low
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification Plan
+      description: Which gates or manual checks should prove this works?
+      placeholder: "pnpm bite:test, pnpm player:build, phone check..."
