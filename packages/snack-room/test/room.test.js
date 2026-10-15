@@ -1900,6 +1900,34 @@ test("hidden picks: a hand-over / room-server wake-up mid-round keeps the picks 
   assert.deepEqual(c.v("roundPicks"), { o0: [], o1: ["닉1"] });
 });
 
+test("hidden picks: the clock samples server time on resync and wake-up without per-second broadcasts", async () => {
+  const a = harness({ pack: BAL, defaults: { ...ZERO } });
+  [1, 2].forEach(a.join);
+  a.act(1, "start", HIDDEN_START);
+  await a.advance(3000);
+  assert.deepEqual(a.v("voteClock"), { round: 0, sessionNo: 1, ms: 10000, leftMs: 10000 });
+  await a.advance(4500);
+  assert.equal(a.room.stateFor("p1").sharedState.voteClock.leftMs, 5500);
+  a.join(3);
+  assert.equal(a.out.filter((m) => m.type === "state" && m.to === "p3").at(-1).d.sharedState.voteClock.leftMs, 5500);
+  assert.equal(a.out.filter((m) => m.type === "setVar" && m.d.id === "voteClock").length, 1);
+  const snap = JSON.parse(JSON.stringify(a.room.snapshot()));
+  a.room.destroy();
+  const b = harness({ pack: BAL, defaults: { ...ZERO } });
+  b.room.restore(snap, 500);
+  [1, 2].forEach(b.join);
+  assert.equal(b.room.stateFor("p1").sharedState.voteClock.leftMs, 5000);
+  await b.advance(4999);
+  assert.equal(b.room.stateFor("p1").sharedState.voteClock.leftMs, 1);
+  assert.equal(b.room.stateFor("p1").sharedState.revealRound, -1);
+  await b.advance(1);
+  assert.equal(b.v("voteClock").leftMs, 0);
+  assert.equal(b.v("revealRound"), 0);
+  await b.advance(3000);
+  assert.deepEqual(b.v("voteClock"), { round: 1, sessionNo: 1, ms: 10000, leftMs: 10000 });
+  b.room.destroy();
+});
+
 test("hidden picks are opt-in: a plain round vote (우리 중 누가?) still shows the live tally", async () => {
   const h = harness({ pack: BAL, defaults: { ...ZERO } });
   [1, 2].forEach(h.join);
@@ -1910,4 +1938,5 @@ test("hidden picks are opt-in: a plain round vote (우리 중 누가?) still sho
   assert.equal(h.v("voteProgress"), undefined);
   assert.equal(h.v("revealRound"), undefined, "MP-13: no new variables for templates that never asked");
   assert.equal(h.v("myPick"), undefined);
+  assert.equal(h.v("voteClock"), undefined);
 });
