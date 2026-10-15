@@ -3,10 +3,13 @@
 // Durable Object runs) and a tiny static server.
 //   1. 친구 방: A opens a public link and presses 🤝 친구끼리 → A is the host (방장). B opens the
 //      invite link → no 시작하기, "방장이 시작하길 기다리는 중 · 방장 · A". A starts → both play.
-//   2. 공개 방: C opens /p/<slug> → "10초 뒤 시작 · 1명"; D comes 2 s later → same room
-//      ("· 2명"); nobody presses anything → the game starts by itself for both.
-//   3. 늦게 온 사람: E opens the same link mid-game → moved to `<slug>.g2` (not a spectator),
-//      its own countdown there → E plays.
+//   2. 공개 방 (#141: 2명부터): C opens /p/<slug> alone → "한 명 더 오면 시작해요" · "링크를 친구에게
+//      보내도 돼요", nothing counts down; D comes → same room, both "<n>초 뒤 시작 · 2명"; nobody
+//      presses anything → the game starts by itself for both.
+//   3. 늦게 온 사람: E opens the same link mid-game → moved to `<slug>.g2` (not a spectator), alone
+//      there it waits; F comes mid-game too → moved to the same `.g2` → its countdown → E and F play.
+//   4. 혼자 옮겨진 사람: G is moved to `.g2` and stays alone; the link's room's game ends; H opens the
+//      link → the link's room (not moved); G's client goes back there (LONE_RETURN_MS) → G and H play.
 // Usage: node snack-server/tools/room-rules-e2e.mjs [--skip-build] [--shots <dir>]
 // Ports: RULES_E2E_PORT (page, default 4713) · RULES_E2E_HUB_PORT (edge hub, default 4712).
 import { spawnSync } from "node:child_process";
@@ -124,7 +127,7 @@ const step = (id, ok, extra = {}) => {
 };
 const browsers = [];
 try {
-  const [b1, b2, b3] = [await launch(), await launch(), await launch()];
+  const [b1, b2, b3] = [await launch(), await launch(), await launch()]; // (b1 also hosts C, then F)
   browsers.push(b1, b2, b3);
 
   // ── 1. friends room: the creator hosts ──
@@ -151,34 +154,65 @@ try {
   await A.context().close();
   await B.context().close();
 
-  // ── 2. public room: auto-start ──
+  // ── 2. public room: auto-start, only with 2+ (#141) ──
   const C = await open(b1, "캐럴", `${BASE}/p/${PUBLIC_SLUG}`, logs);
-  await waitFor(async () => (await vars(C)).autoStartIn > 0, 15000, "C sees the countdown");
+  await waitFor(async () => (await vars(C)).roomMode === "auto" && (await C.evaluate(texts)).startWaitMain === "한 명 더 오면 시작해요", 15000, "C alone sees the waiting note");
+  await sleep(3000); // alone a while: nothing counts down
   const vc = await vars(C);
   const tc = await C.evaluate(texts);
-  step("public room: '<n>초 뒤 시작 · 1명' and no 시작하기", vc.roomMode === "auto" && /^\d+초 뒤 시작 · 1명$/.test(tc.startWaitMain ?? "") && !(await hasTarget(C, "startBtn")), { text: tc.startWaitMain, autoStartIn: vc.autoStartIn });
-  await shot(C, "public-countdown");
-  await sleep(2000);
+  step("public room alone: '한 명 더 오면 시작해요' · '링크를 친구에게 보내도 돼요', no countdown, no 시작하기", vc.autoStartIn === 0 && vc.sessionPhase !== "countdown" && tc.startWaitMain === "한 명 더 오면 시작해요" && tc.startWaitSub === "링크를 친구에게 보내도 돼요" && !(await hasTarget(C, "startBtn")), { main: tc.startWaitMain, sub: tc.startWaitSub, autoStartIn: vc.autoStartIn, phase: vc.sessionPhase });
+  await shot(C, "public-alone-waiting");
   const D = await open(b2, "데이브", `${BASE}/p/${PUBLIC_SLUG}`, logs);
-  await waitFor(async () => ((await D.evaluate(texts)).startWaitMain ?? "").endsWith("· 2명"), 10000, "D in the same lobby, '· 2명'");
-  const left = (await vars(D)).autoStartIn;
-  step("public room: D joined during the countdown, sees the same countdown", left > 0 && left <= 8, { autoStartIn: left });
+  await waitFor(async () => (await Promise.all([C, D].map((p) => p.evaluate(texts)))).every((t) => /^\d+초 뒤 시작 · 2명$/.test(t.startWaitMain ?? "")), 10000, "C and D see '<n>초 뒤 시작 · 2명'");
+  const [lc, ld] = (await Promise.all([C, D].map(vars))).map((v) => v.autoStartIn);
+  step("public room: the 2nd person (D) starts the countdown for both — '<n>초 뒤 시작 · 2명', no 시작하기", lc > 0 && ld > 0 && Math.abs(lc - ld) <= 1 && !(await hasTarget(C, "startBtn")) && !(await hasTarget(D, "startBtn")), { autoStartIn: [lc, ld], text: (await D.evaluate(texts)).startWaitMain });
   await shot(D, "public-countdown-2");
+  await shot(C, "public-countdown");
   await waitFor(async () => (await Promise.all([C, D].map(vars))).every((v) => v.sessionPhase === "play"), 20000, "the game started by itself");
   const spectating = (await Promise.all([C, D].map(vars))).some((v) => v.iAmSpectator === true);
   step("public room: started by itself — both play, nobody pressed start", !spectating);
 
-  // ── 3. a late arrival: moved to the next room, which starts on its own ──
+  // ── 3. late arrivals: moved to the next room; the first waits there, the second starts it ──
   const E = await open(b3, "에린", `${BASE}/p/${PUBLIC_SLUG}`, logs);
-  await waitFor(async () => (await vars(E)).autoStartIn > 0, 15000, "E sees a countdown (in the next room)");
+  const g2id = `${PUBLIC_SLUG}.g2`;
+  await waitFor(async () => (await vars(E)).roomMode === "auto" && (await vars(E)).roster?.join() === "에린", 15000, "E in the next room's lobby");
+  await sleep(2000);
   const ve = await vars(E);
-  const g2 = hub.room(`${PUBLIC_SLUG}.g2`);
-  step("late arrival: moved to the next room (its own lobby + countdown), not a spectator", ve.iAmSpectator !== true && (ve.roster || []).join() === "에린" && Boolean(g2?.sockets.size) && (hub.history().get(`room:${PUBLIC_SLUG}`)?.moved ?? 0) >= 1, { roster: ve.roster, autoStartIn: ve.autoStartIn, g2Sockets: g2?.sockets.size });
-  await shot(E, "late-moved-countdown");
-  step("public room: C / D unaffected (still 2, still playing)", (await vars(C)).roster?.length === 2);
-  await waitFor(async () => (await vars(E)).sessionPhase === "play", 20000, "E plays in the next room");
-  step("late arrival: the next room started by itself → E plays", (await vars(E)).iAmSpectator !== true);
+  const te = await E.evaluate(texts);
+  step("late arrival: moved to the next room, alone there it waits ('한 명 더 오면 시작해요'), not a spectator", ve.iAmSpectator !== true && ve.autoStartIn === 0 && ve.sessionPhase !== "countdown" && te.startWaitMain === "한 명 더 오면 시작해요" && Boolean(hub.room(g2id)?.sockets.size) && (hub.history().get(`room:${PUBLIC_SLUG}`)?.moved ?? 0) >= 1, { roster: ve.roster, autoStartIn: ve.autoStartIn, text: te.startWaitMain, g2Sockets: hub.room(g2id)?.sockets.size });
+  await shot(E, "late-moved-waiting");
+  step("public room: C / D unaffected (still 2, still playing)", (await vars(C)).roster?.length === 2 && (await vars(C)).sessionPhase === "play");
+  const F = await open(b1, "프랭크", `${BASE}/p/${PUBLIC_SLUG}`, logs);
+  await waitFor(async () => (await Promise.all([E, F].map(vars))).every((v) => (v.roster || []).length === 2 && v.autoStartIn > 0), 15000, "F moved to the same next room → countdown for both");
+  const tf = await F.evaluate(texts);
+  step("late arrival 2: moved to the same next room — the 2nd mover starts its countdown ('· 2명')", (hub.history().get(`room:${PUBLIC_SLUG}`)?.moved ?? 0) >= 2 && /^\d+초 뒤 시작 · 2명$/.test(tf.startWaitMain ?? ""), { text: tf.startWaitMain, moved: hub.history().get(`room:${PUBLIC_SLUG}`)?.moved });
+  await shot(F, "late-moved-countdown");
+  await waitFor(async () => (await Promise.all([E, F].map(vars))).every((v) => v.sessionPhase === "play"), 20000, "E and F play in the next room");
+  step("late arrivals: the next room started by itself → E and F play", (await Promise.all([E, F].map(vars))).every((v) => v.iAmSpectator !== true));
   await shot(E, "late-moved-play");
+
+  // ── 4. moved alone, the link's room frees up (#141 review): a friend opening the link lands in
+  //       the link's room — the one alone in `.g2` goes back there (LONE_RETURN_MS) and they play ──
+  const S = FRIENDS_SLUG; // its public room (the friends room above had its own ?room= id)
+  const P = await open(b1, "폴", `${BASE}/p/${S}`, logs);
+  const Q = await open(b2, "퀸", `${BASE}/p/${S}`, logs);
+  await waitFor(async () => (await Promise.all([P, Q].map(vars))).every((v) => v.sessionPhase === "play"), 25000, "P and Q play in the link's room");
+  const G = await open(b3, "그레이스", `${BASE}/p/${S}`, logs);
+  await waitFor(async () => (await vars(G)).roster?.join() === "그레이스" && Boolean(hub.room(`${S}.g2`)?.sockets.size), 15000, "G moved to .g2, alone");
+  const movedBefore = hub.history().get(`room:${S}`)?.moved ?? 0;
+  await waitFor(async () => ["result", "lobby"].includes((await vars(P)).sessionPhase), 25000, "the link's room's game ended");
+  await P.context().close();
+  await Q.context().close();
+  const H = await open(b2, "해리", `${BASE}/p/${S}`, logs);
+  await waitFor(async () => (await vars(H)).roster?.includes("해리"), 15000, "H in a lobby");
+  const vh = await vars(H);
+  step("moved alone: a friend opening the link lands in the link's room (not moved to .g2)", (hub.history().get(`room:${S}`)?.moved ?? 0) === movedBefore && vh.sessionPhase !== "countdown" && vh.sessionPhase !== "play", { moved: [movedBefore, hub.history().get(`room:${S}`)?.moved], roster: vh.roster });
+  await waitFor(async () => (await Promise.all([G, H].map(vars))).every((v) => [...(v.roster || [])].sort().join() === "그레이스,해리"), 45000, "G back in the link's room with H");
+  const tg = await G.evaluate(texts);
+  step("moved alone: back in the link's room after a while — G and H together, no one left in .g2", !hub.room(`${S}.g2`)?.sockets.size, { g2Sockets: hub.room(`${S}.g2`)?.sockets.size, text: tg.startWaitMain });
+  await waitFor(async () => (await Promise.all([G, H].map(vars))).every((v) => v.sessionPhase === "play"), 25000, "G and H play");
+  step("moved alone: the two started by themselves → G and H play", (await Promise.all([G, H].map(vars))).every((v) => v.iAmSpectator !== true));
+  await shot(G, "moved-back-play");
 } catch (e) {
   step("run", false, { error: String(e?.message ?? e), logs: logs.slice(-40) });
 } finally {
