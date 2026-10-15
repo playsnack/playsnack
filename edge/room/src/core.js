@@ -34,7 +34,9 @@ export const LIMITS = {
   maxFrame: 256 * 1024,
   msgsPerSec: 60, // per socket; above → closed (a client publishes ~1–15/s)
   authTimeoutMs: 10000, // an unauthed socket older than this is closed on the next connect
-  reportMs: 30000, // a room reports its usage to the meter at most this often (and when it empties)
+  reportMs: 30000, // a room reports its usage to the meter at most this often (and when it empties)…
+  reportEvery: 1000, // …or as soon as this many requests (sockets + messages) are unreported (#151:
+  // at 1:1 a busy room's 30 s is ~24k requests the guard would not see; 1 meter call per 1,000 = 0.1 %)
 };
 
 // Room ids are `slug` or `slug~CODE` (snack-player links.ts roomIdFor): URL-unreserved chars.
@@ -110,11 +112,13 @@ export function memoryStore() {
 
 /**
  * Daily usage meter + staged guard (docs/edge-rooms.md §무료 한도). One meter DO per account;
- * rooms report batched deltas (≤ once per 30 s while active, and when they empty).
+ * rooms report batched deltas (≤ once per 30 s or per 1,000 requests while active, and when
+ * they empty).
  * Estimates per UTC day (the free limits reset 00:00 UTC = 09:00 KST):
  *   Worker requests     = sockets opened + /usage cache misses
  *   DO requests         = sockets opened (WS upgrades and HTTP requests to a room)
- *                         + incoming WS messages 1:1 + alarms + meter calls
+ *                         + incoming WS messages 1:1 + alarms set + meter calls
+ *     (alarms are counted when SET — an upper bound on alarms fired: re-arming replaces one.)
  *     (1:1 on purpose, #151: Cloudflare's 20:1 WebSocket ratio is documented for billing
  *     only, not for the free plan's 100,000/day limit — so every incoming message counts.)
  *   DO GB-s             = room-awake seconds × 0.128 GB
@@ -195,24 +199,34 @@ export class UsageMeter {
 }
 
 /**
- * A room's side of the meter: counts locally, reports at most every `everyMs` (on traffic)
- * and when the room empties; remembers the stage the meter last answered.
+ * A room's side of the meter: counts locally (memory only — never a write per message),
+ * reports on traffic when `everyMs` passed or `everyN` requests are unreported, and when the
+ * room empties; remembers the stage the meter last answered — for that UTC day only (the
+ * limits reset 00:00 UTC, so a stage heard yesterday no longer refuses anyone).
  */
+const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 export class UsageReporter {
-  constructor({ usage, now = Date.now, everyMs = 30000 }) {
-    Object.assign(this, { usage, now, everyMs });
+  constructor({ usage, now = Date.now, everyMs = 30000, everyN = 1000 }) {
+    Object.assign(this, { usage, now, everyMs, everyN });
     this.d = { conns: 0, msgs: 0, alarms: 0, rows: 0, refusedJoins: 0 };
     this.awakeSince = null;
     this.last = now();
     this.stage = 0;
   }
+  get stage() {
+    return this.stageDay === utcDay(this.now()) ? this._stage : 0;
+  }
+  set stage(v) {
+    this._stage = v;
+    this.stageDay = utcDay(this.now());
+  }
   count(k, n = 1) {
     this.d[k] += n;
     this.awakeSince ??= this.now();
   }
-  /** Call on traffic: reports when due. */
+  /** Call on traffic: reports when due (time, or enough unreported requests). */
   tick() {
-    if (this.now() - this.last >= this.everyMs) this.flush(false);
+    if (this.now() - this.last >= this.everyMs || this.d.conns + this.d.msgs >= this.everyN) this.flush(false);
   }
   flush(empty) {
     const t = this.now();
@@ -247,7 +261,7 @@ export class RoomRelay {
     this.L = { ...LIMITS, ...limits };
     this.authChain = Promise.resolve(); // auths run one at a time (create / lock state)
     this.rate = new WeakMap(); // socket state → {sec, n} (memory only)
-    this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs });
+    this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs, everyN: this.L.reportEvery });
     // Accounting for the sims (memory only, never stored).
     this.stats = { conns: 0, in: 0, out: 0, bytesIn: 0, byType: {}, authFail: 0 };
   }
@@ -332,7 +346,7 @@ export class RoomRelay {
     sock.save(st);
     if (!others.length) {
       this.meter.count("rows"); // the alarm (a write)…
-      this.meter.count("alarms"); // …and, when it fires, a DO request
+      this.meter.count("alarms"); // …and, when it fires, a DO request (upper bound: re-arming replaces it)
       this.meter.flush(true);
       await this.setAlarm(this.now() + this.L.roomTtlMs);
     }

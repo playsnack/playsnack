@@ -95,7 +95,7 @@ export class GameRoom {
     this.resultChain = Promise.resolve();
     this.L = { ...GAME_LIMITS, ...limits };
     this.timers = { setTimer: setTimer ?? ((fn, ms) => setTimeout(fn, ms)), clearTimer: clearTimer ?? ((h) => clearTimeout(h)) };
-    this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs });
+    this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs, everyN: this.L.reportEvery });
     this.gate = new RoomGate({ roomId, store, secret, usage, now, limits: this.L, meter: this.meter });
     this.engine = null;
     this.meta = null;
@@ -275,7 +275,7 @@ export class GameRoom {
       }
       await this.store.put("result", { sid: r.sid, exp: this.now() + RESULT_TTL_MS, rec });
       this.meter.count("rows", 3); // the write, the alarm moved to its expiry, and its delete then
-      this.meter.count("alarms"); // that alarm firing at the expiry (a DO request)
+      this.meter.count("alarms"); // that alarm firing at the expiry (a DO request; upper bound — a later game re-arms it)
       this.stats.resultWrites = (this.stats.resultWrites ?? 0) + 1;
     });
     this.resultChain = run.catch((e) => console.error("[edge-room] result", e));
@@ -469,7 +469,7 @@ export class GameRoom {
         this.lastSnap = null;
       }
       this.meter.count("rows", 1 + 3); // the alarm, and its deleteAll later (meta, lock?, snap?)
-      this.meter.count("alarms"); // the alarm firing (a DO request)
+      this.meter.count("alarms"); // the alarm firing (a DO request; upper bound — emptying again replaces it)
       await this.setAlarm(this.now() + this.L.roomTtlMs);
       this.meter.flush(true);
       this.statsSender?.flush(); // the room is idle: send its games now (not awaited)

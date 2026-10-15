@@ -4,7 +4,7 @@
 // judged on that. In memory (no network, no ports).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { UsageMeter, FREE, STAGES, memoryStore } from "../../../edge/room/src/core.js";
+import { UsageMeter, UsageReporter, FREE, STAGES, LIMITS, memoryStore } from "../../../edge/room/src/core.js";
 import { RoomRelay } from "../../../edge/room/src/core.js";
 import { GameRoom } from "../../../edge/room/src/game.js";
 
@@ -178,4 +178,56 @@ test("under 1:1 the stages reach rooms: 70 % no new rooms, 90 % no new joins —
   assert.ok(r.refusedJoins >= 1);
   live.room.forget();
   fresh.room.forget();
+});
+
+test("a busy room reports every 1,000 requests, not only every 30 s — the guard sees it early", async () => {
+  assert.equal(LIMITS.reportEvery, 1000, "1 meter call per 1,000 requests (0.1 %)");
+  const meterStore = countingStore();
+  const meter = new UsageMeter({ store: meterStore });
+  const g = gameRoom(meter, "busy", { reportMs: 60000, reportEvery: 50, actionsPerSec: 1000 });
+  const a = await g.join("ba");
+  for (let i = 0; i < 120; i++) await g.vote(a, i); // 1 socket + hello + 120 votes, all within 60 s
+  await sleep(5);
+  assert.equal(g.calls.add, 2, "two reports by count (at 50 and 100 unreported), none by time");
+  assert.equal(g.store.puts, 1, "still no room write per message (only its meta)");
+  const r = await meter.report();
+  assert.equal(r.doRequestsBy.msgs + r.doRequestsBy.conns, 100, "the meter already knows 100 of them, mid-window");
+  await g.leave(a);
+  assert.equal((await meter.report()).doRequestsBy.msgs, 121);
+  g.room.forget();
+});
+
+test("a stage heard yesterday does not refuse today: the stage is scoped to its UTC day", async () => {
+  let t = Date.UTC(2026, 9, 15, 23, 59, 0); // 08:59 KST
+  const now = () => t;
+  const r = new UsageReporter({ usage: null, now });
+  r.stage = 2;
+  assert.equal(r.stage, 2);
+  t = Date.UTC(2026, 9, 16, 0, 0, 1); // 09:00:01 KST — the free limits reset
+  assert.equal(r.stage, 0, "a new UTC day: no stage until the meter answers again");
+  r.stage = 1;
+  assert.equal(r.stage, 1);
+
+  // In a room: stage 2 at 23:59 UTC refuses a new joiner; the first joiner after the reset gets in.
+  t = Date.UTC(2026, 9, 15, 23, 59, 0);
+  const meter = new UsageMeter({ store: memoryStore(), now });
+  const socks = [];
+  const usage = { admit: () => meter.admit(), add: (d) => meter.add(d) };
+  const room = new GameRoom({ roomId: "midnight", store: memoryStore(), secret: "s", usage, now, limits: { reportMs: 60 * 60 * 1000 }, sockets: () => socks });
+  const join = async (anonId) => {
+    const s = sock();
+    socks.push(s);
+    room.onOpen(s);
+    await room.onMessage(s, JSON.stringify({ t: "hello", d: { slug: "midnight", anonId, nick: anonId } }));
+    await sleep(5);
+    return s;
+  };
+  await join("m1");
+  room.meter.stage = 2; // what the meter answered at 23:59 UTC
+  assert.equal((await join("m2")).frame("denied")?.d.reason, "room_full_today", "stage 2 before the reset");
+  t = Date.UTC(2026, 9, 16, 0, 0, 5);
+  const m3 = await join("m3");
+  assert.equal(m3.frame("denied"), undefined, "after 00:00 UTC the old stage no longer refuses");
+  assert.ok(m3.frame("token"));
+  room.forget();
 });
