@@ -431,8 +431,11 @@ export function createRoom(o) {
     const t = autoTimer();
     return { endsIn: t ? Math.max(0, t.at - now()) : -1, ms: S.autoMs };
   };
+  // An auto start fetching its content (startSession awaits getPack, the lobby still up): no
+  // second countdown meanwhile — and the start checks the head count again once it has it.
+  let autoFetching = false;
   const armAuto = () => {
-    if (!autoOn() || S.phase !== "lobby" || autoPlayers() < autoMin || autoTimer()) return false;
+    if (!autoOn() || S.phase !== "lobby" || autoPlayers() < autoMin || autoTimer() || autoFetching) return false;
     later("autoStart", null, S.autoMs);
     broadcastOut("autoStart", autoMsg());
     return true;
@@ -764,7 +767,7 @@ export function createRoom(o) {
       if (!autoOn() || S.phase !== "lobby") return;
       // e.g. restored from a snapshot and not everyone came back: wait for enough again
       if (autoPlayers() < autoMin) return void broadcastOut("autoStart", autoMsg());
-      startSession(S.autoOpts, null).catch((e) => console.error("[snack-room] auto start failed", e));
+      startSession(S.autoOpts, null, true).catch((e) => console.error("[snack-room] auto start failed", e));
     },
     autoLobby: () => {
       if (S.phase !== "result") return;
@@ -784,7 +787,7 @@ export function createRoom(o) {
     const tail = (++idSeq).toString(36); // distinct even if `random` repeats
     return Array.from({ length: 32 - tail.length }, () => Math.floor(random() * 36).toString(36)).join("") + tail;
   };
-  const startSession = async (opts, clientMsgId) => {
+  const startSession = async (opts, clientMsgId, auto = false) => {
     if (S.phase === "countdown" || S.phase === "play") return; // already running
     if (typeof opts === "number") opts = { duration: opts };
     opts = opts || {};
@@ -824,8 +827,17 @@ export function createRoom(o) {
     // Fetch content first — the lobby stays up meanwhile, so every timer below is
     // scheduled from one sync point and clients stay in step.
     const custom = opts.quiz ? S.quizPack : null; // a player's own quiz: nothing to fetch
-    let pack = custom ? null : await getPack(opts.game, opts);
+    let pack = null;
+    if (auto) autoFetching = true;
+    try {
+      pack = custom ? null : await getPack(opts.game, opts);
+    } finally {
+      if (auto) autoFetching = false;
+    }
     if (r.destroyed || S.gen !== myGen) return; // room gone or superseded during the fetch
+    // An auto start (#141): someone left during the fetch and too few are here now — no game;
+    // the lobby waits again (a countdown runs once enough are back).
+    if (auto && autoOn() && autoPlayers() < autoMin) return void broadcastOut("autoStart", autoMsg());
     report(onSessionStart, { sid: S.sid, players: r.roster.size, again: S.done > 0 });
     // A themed pack may come as {title, questions}.
     const packTitle = pack && !Array.isArray(pack) && typeof pack.title === "string" ? pack.title : "";

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRoom, HOST_GRACE_MS, AUTO_START_MS, AUTO_START_MIN, RESULT_HOLD_MS } from "../src/room.js";
 
-function harness({ startRule = "any", pack = null, autoStartMs, autoStartMin } = {}) {
+function harness({ startRule = "any", pack = null, autoStartMs, autoStartMin, getPack } = {}) {
   let t = 0;
   let seq = 0;
   const timers = new Map();
@@ -20,7 +20,7 @@ function harness({ startRule = "any", pack = null, autoStartMs, autoStartMin } =
       return id;
     },
     clearTimer: (id) => timers.delete(id),
-    getPack: async () => pack,
+    getPack: getPack ?? (async () => pack),
     broadcast: (type, d) => out.push({ to: "*", type, d }),
     send: (peerId, type, d) => out.push({ to: peerId, type, d }),
     ...(autoStartMs ? { autoStartMs } : {}),
@@ -224,6 +224,41 @@ test("auto room: dropping to 1 during the countdown cancels it (everyone told); 
   assert.equal(h.room._state.session.timers.some((x) => x.step === "autoStart"), true);
   await h.advance(AUTO_START_MS + 10);
   assert.equal(h.v("sessionPhase"), "countdown");
+});
+
+test("auto room: the 2nd person leaves while the start fetches its content → no game alone; waits, a new 2nd arrival starts it", async () => {
+  let release = () => {};
+  let fetches = 0;
+  const pack = [{ q: "1+1?", options: ["2", "3"], answer: 0 }];
+  const getPack = () => {
+    fetches += 1;
+    return new Promise((res) => (release = () => res(pack)));
+  };
+  const h = harness({ startRule: "auto", getPack });
+  h.join(1);
+  h.room.configureAuto({ game: "speed-trivia", quiz: true, rounds: 1 });
+  h.join(2);
+  await h.advance(AUTO_START_MS); // the timer fires: the start is fetching (the lobby still up)
+  assert.equal(fetches, 1);
+  assert.equal(h.v("sessionPhase"), undefined, "still the lobby while fetching");
+  h.join(3); // a join meanwhile: no second countdown on top of the start in flight
+  assert.equal(h.room._state.session.timers.some((x) => x.step === "autoStart"), false);
+  h.room.leave("p3");
+  h.room.leave("p2"); // one left before the content arrives
+  release();
+  await h.advance(10);
+  assert.equal(h.v("sessionPhase"), undefined, "never started with one member");
+  assert.equal(h.room._state.session.members, null);
+  assert.equal(h.autoMsgs().at(-1).d.endsIn, -1, "the one left is told: waiting again");
+  await h.advance(60000);
+  assert.equal(h.v("sessionPhase"), undefined, "still waiting alone");
+  h.join(4);
+  assert.equal(h.autoMsgs().at(-1).d.endsIn, AUTO_START_MS, "a new 2nd person: a fresh countdown");
+  await h.advance(AUTO_START_MS);
+  release();
+  await h.advance(10);
+  assert.equal(h.v("sessionPhase"), "countdown");
+  assert.deepEqual([...h.room._state.session.members].sort(), ["a1", "a4"]);
 });
 
 test("auto room: everyone leaves during the countdown → it stops", async () => {

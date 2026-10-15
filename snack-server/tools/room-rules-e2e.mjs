@@ -8,6 +8,8 @@
 //      presses anything → the game starts by itself for both.
 //   3. 늦게 온 사람: E opens the same link mid-game → moved to `<slug>.g2` (not a spectator), alone
 //      there it waits; F comes mid-game too → moved to the same `.g2` → its countdown → E and F play.
+//   4. 혼자 옮겨진 사람: G is moved to `.g2` and stays alone; the link's room's game ends; H opens the
+//      link → the link's room (not moved); G's client goes back there (LONE_RETURN_MS) → G and H play.
 // Usage: node snack-server/tools/room-rules-e2e.mjs [--skip-build] [--shots <dir>]
 // Ports: RULES_E2E_PORT (page, default 4713) · RULES_E2E_HUB_PORT (edge hub, default 4712).
 import { spawnSync } from "node:child_process";
@@ -188,6 +190,29 @@ try {
   await waitFor(async () => (await Promise.all([E, F].map(vars))).every((v) => v.sessionPhase === "play"), 20000, "E and F play in the next room");
   step("late arrivals: the next room started by itself → E and F play", (await Promise.all([E, F].map(vars))).every((v) => v.iAmSpectator !== true));
   await shot(E, "late-moved-play");
+
+  // ── 4. moved alone, the link's room frees up (#141 review): a friend opening the link lands in
+  //       the link's room — the one alone in `.g2` goes back there (LONE_RETURN_MS) and they play ──
+  const S = FRIENDS_SLUG; // its public room (the friends room above had its own ?room= id)
+  const P = await open(b1, "폴", `${BASE}/p/${S}`, logs);
+  const Q = await open(b2, "퀸", `${BASE}/p/${S}`, logs);
+  await waitFor(async () => (await Promise.all([P, Q].map(vars))).every((v) => v.sessionPhase === "play"), 25000, "P and Q play in the link's room");
+  const G = await open(b3, "그레이스", `${BASE}/p/${S}`, logs);
+  await waitFor(async () => (await vars(G)).roster?.join() === "그레이스" && Boolean(hub.room(`${S}.g2`)?.sockets.size), 15000, "G moved to .g2, alone");
+  const movedBefore = hub.history().get(`room:${S}`)?.moved ?? 0;
+  await waitFor(async () => ["result", "lobby"].includes((await vars(P)).sessionPhase), 25000, "the link's room's game ended");
+  await P.context().close();
+  await Q.context().close();
+  const H = await open(b2, "해리", `${BASE}/p/${S}`, logs);
+  await waitFor(async () => (await vars(H)).roster?.includes("해리"), 15000, "H in a lobby");
+  const vh = await vars(H);
+  step("moved alone: a friend opening the link lands in the link's room (not moved to .g2)", (hub.history().get(`room:${S}`)?.moved ?? 0) === movedBefore && vh.sessionPhase !== "countdown" && vh.sessionPhase !== "play", { moved: [movedBefore, hub.history().get(`room:${S}`)?.moved], roster: vh.roster });
+  await waitFor(async () => (await Promise.all([G, H].map(vars))).every((v) => [...(v.roster || [])].sort().join() === "그레이스,해리"), 45000, "G back in the link's room with H");
+  const tg = await G.evaluate(texts);
+  step("moved alone: back in the link's room after a while — G and H together, no one left in .g2", !hub.room(`${S}.g2`)?.sockets.size, { g2Sockets: hub.room(`${S}.g2`)?.sockets.size, text: tg.startWaitMain });
+  await waitFor(async () => (await Promise.all([G, H].map(vars))).every((v) => v.sessionPhase === "play"), 25000, "G and H play");
+  step("moved alone: the two started by themselves → G and H play", (await Promise.all([G, H].map(vars))).every((v) => v.iAmSpectator !== true));
+  await shot(G, "moved-back-play");
 } catch (e) {
   step("run", false, { error: String(e?.message ?? e), logs: logs.slice(-40) });
 } finally {

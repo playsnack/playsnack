@@ -309,6 +309,14 @@ export class EdgeRoomTransport extends ServerTransport {
   /** Moved here from this room (a refused new room sends us back to watch there). */
   private movedFrom: string | null = null;
   private stay = false;
+  /** Moved, and the new room's state not here yet (a refusal now is that room's). */
+  private moving = false;
+  /** Left this room alone to go back to the link's room (#141): refused there → back here. */
+  private leftAlone: string | null = null;
+  /** What this room shows now: people here, its session phase — "alone in a moved room?" (#141). */
+  private here = 0;
+  private phase = "lobby";
+  private loneTimer: VisibleTimer | null = null;
 
   /**
    * `opts.organize`: this device made the room a moment ago (a new friends-room code) — it asks to
@@ -339,8 +347,10 @@ export class EdgeRoomTransport extends ServerTransport {
   /** Into another room of this app, quietly: the screen keeps showing the lobby it had. */
   private moveTo(room: string, stay = false) {
     dlog("conn", `room → ${room}${stay ? " (stay)" : ""}`);
+    this.clearLone();
     this.roomId = room;
     this.stay = stay;
+    this.moving = true;
     this.url = edgeRoomUrl(this.roomUrl, room);
     this.emit({ t: "moved", d: { room } });
     this.reopen();
@@ -356,20 +366,81 @@ export class EdgeRoomTransport extends ServerTransport {
       const room = typeof m.d?.room === "string" ? m.d.room : "";
       if (!isNextRoom(this.roomId, room)) return this.fail("moved"), true;
       this.movedFrom ??= this.roomId;
+      this.leftAlone = null;
       this.moveTo(room);
     } else if (m.t === "denied") {
       const reason = String(m.d?.reason ?? "denied");
+      const alone = this.moving ? this.leftAlone : null;
       // Our own seat still held by the old socket the room has not seen close yet (a long
       // background, an expired seat token): it lets go soon — keep trying within the budget.
       if (reason === "seat_taken" && this.connState === "reconnecting") this.lost();
+      // The link's room could not take us back (#141): wait in the room we came from again.
+      else if (alone) {
+        this.leftAlone = null;
+        this.movedFrom = this.roomId;
+        this.moveTo(alone);
+      }
       // The next room could not open (today's free-tier guard): watch the game where we were.
-      else if (this.movedFrom && !this.stay && this.connState === "connecting") this.moveTo(this.movedFrom, true);
+      else if (this.movedFrom && !this.stay && this.moving) this.moveTo(this.movedFrom, true);
       else this.fail(reason);
     }
     else return false;
     return true;
   }
+
+  protected receive(m: RoomMessage) {
+    super.receive(m);
+    if (m.t === "state") {
+      this.moving = false;
+      this.leftAlone = null;
+      this.here = Number(m.d?.participants) || 0;
+      const sh = m.d?.sharedState as Record<string, unknown> | undefined;
+      this.phase = typeof sh?.sessionPhase === "string" ? sh.sessionPhase : "lobby";
+    } else if (m.t === "participants") this.here = Number(m.d?.count) || 0;
+    else if (m.t === "setVar" && m.d?.id === "sessionPhase") this.phase = String(m.d.value);
+    else return;
+    this.watchAlone();
+  }
+
+  /**
+   * #141: a public room starts only with 2+ people, and moves a late arrival on only while its
+   * game runs — so someone alone in a room it moved them to (`slug.g2`) could wait there for
+   * good once the link's room is back in its lobby (a friend opening the link lands there; rooms
+   * never talk to each other). Alone there, no game running, for LONE_RETURN_MS on screen: back
+   * to the link's room. Still mid-game there, it moves us to the same next room again.
+   */
+  private watchAlone() {
+    const alone = this.roomId !== this.me.slug && !this.stay && !this.moving && this.here < 2 && this.phase !== "countdown" && this.phase !== "play";
+    if (!alone) return this.clearLone();
+    if (this.loneTimer) return;
+    const gen = this.gen;
+    this.loneTimer = visibleTimeout(() => {
+      this.loneTimer = null;
+      if (gen !== this.gen || this.connState !== "connected") return;
+      dlog("conn", `alone in ${this.roomId} → back to ${this.me.slug}`);
+      this.leftAlone = this.roomId;
+      this.movedFrom = null;
+      this.moveTo(this.me.slug);
+    }, LONE_RETURN_MS, this.env);
+  }
+
+  private clearLone() {
+    this.loneTimer?.cancel();
+    this.loneTimer = null;
+  }
+
+  close() {
+    this.clearLone();
+    super.close();
+  }
 }
+
+/**
+ * Alone (no one else, no game running) this long on screen in a room a public room moved us to:
+ * back to the link's room (#141) — about one short game plus its result, so the link's room is
+ * usually back in its lobby by then; if not, it moves us on to the same next room again.
+ */
+export const LONE_RETURN_MS = 20000;
 
 export type EdgeRoomOptions = { organize?: boolean; autoStart?: { start: unknown; ms?: number } };
 const edgeRoomUrl = (roomUrl: string, room: string) => `${roomUrl.replace(/\/+$/, "")}/room/${encodeURIComponent(room)}`;

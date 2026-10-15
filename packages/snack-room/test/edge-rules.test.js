@@ -185,6 +185,41 @@ test("public room (#141): the countdown stops when one of the two leaves; the on
   a.close();
 });
 
+test("public room (#141): moved alone to .g2, the first room's game ends — a friend opening the link lands in the first room; going back there (the client's LONE_RETURN_MS) they play together", { timeout: 30000 }, async () => {
+  const room = `tpl-strand-${RUN}`;
+  const counting = (p) => p.frames.filter((m) => m.t === "autoStart" && m.d.endsIn >= 0);
+  const a = player(hub.url, room, "sa");
+  await a.hello({ autoStart: AUTO });
+  const b = player(hub.url, room, "sb");
+  await b.hello({ autoStart: AUTO });
+  assert.ok(await a.until(() => a.vars.sessionPhase === "play", 8000));
+  const c = player(hub.url, room, "sc"); // late: moved on
+  await c.hello({ autoStart: AUTO });
+  assert.ok(await c.until(() => c.closed === 4010));
+  const c2 = player(hub.url, `${room}.g2`, "sc");
+  await c2.hello({ autoStart: AUTO });
+  assert.ok(await c2.until(() => c2.vars.roomMode === "auto"));
+  assert.ok(await a.until(() => a.vars.sessionPhase === "result", 6000));
+  [a, b].forEach((x) => x.close()); // the first room's players go home
+  await sleep(300);
+  // a friend opens the link: the first room is not mid-game — not moved, waits there alone
+  const d = player(hub.url, room, "sd");
+  await d.hello({ autoStart: AUTO });
+  assert.ok(await d.until(() => d.frame((m) => m.t === "state")));
+  assert.equal(d.frame((m) => m.t === "moveTo"), undefined);
+  assert.equal(counting(c2).length, 0, "the mover, alone in .g2, never counted down");
+  // the mover's client goes back to the link's room: taken (not moved), and the two play
+  c2.close();
+  const c3 = player(hub.url, room, "sc");
+  await c3.hello({ autoStart: AUTO });
+  assert.ok(await c3.until(() => c3.frame((m) => m.t === "state")));
+  assert.equal(c3.frame((m) => m.t === "moveTo"), undefined);
+  assert.ok(await d.until(() => counting(d).length === 1), "two in the link's room: counting");
+  assert.ok(await d.until(() => d.vars.sessionPhase === "countdown", 4000));
+  assert.deepEqual([...(d.vars.roster ?? [])].sort(), ["sc", "sd"]);
+  [c3, d].forEach((x) => x.close());
+});
+
 test("public room after a game: the result holds, then the lobby — and the countdown again", { timeout: 30000 }, async () => {
   const room = `tpl-coop-${RUN}`;
   const a = player(hub.url, room, "qa");

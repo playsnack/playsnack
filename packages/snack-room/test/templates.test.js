@@ -583,6 +583,16 @@ test("tap-battle friends room (host): the host has 시작하기; a friend sees '
   assert.equal(T.phase(1), "play");
 });
 
+// #141: device i stays in a lobby with no countdown the whole time (checked every second — a game
+// that started and ended in between would show), not just at the end.
+async function waitsAlone(T, i, ms) {
+  for (let left = ms; left > 0; left -= 1000) {
+    await T.advance(Math.min(1000, left));
+    assert.equal(T.phase(i), "lobby", `still the lobby (${ms - left + Math.min(1000, left)} ms)`);
+    assert.equal(T.v(i, "autoStartIn"), 0, "no countdown");
+  }
+}
+
 test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2명' counts down and the game starts by itself", async () => {
   const doc = load("tap-battle");
   const T = table("tap-battle", ["A", "B"], { startRule: "auto" });
@@ -596,8 +606,15 @@ test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2�
   await T.advance(6000 + 3200);
   assert.equal(T.phase(0), "play");
   assert.equal(T.phase(1), "play");
-  await T.advance(11000);
+  // both play (so the room re-arms after the result — #136 "someone played")
+  for (let k = 0; k < 10; k++) {
+    T.tap(0, "tapArea");
+    T.tap(1, "tapArea");
+    await T.advance(100);
+  }
+  await T.advance(10000);
   assert.equal(T.phase(0), "result");
+  assert.ok(T.room._state.session.acted.size >= 2, "someone played this game");
   assert.equal(T.tap(0, "againBtn"), false);
   assert.equal(T.prop(0, "againWaitMain"), "잠시 뒤 다음 판이 자동으로 시작돼요");
   // #141: B leaves at the result — A alone: the next game waits for a second person
@@ -605,8 +622,8 @@ test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2�
   await T.advance(200);
   assert.equal(T.prop(0, "againWaitMain"), "한 명 더 오면 다음 판을 시작해요");
   assert.equal(T.prop(0, "againWaitSub"), "링크를 친구에게 보내도 돼요");
-  await T.advance(8000 + 30000);
-  assert.equal(T.phase(0), "lobby", "back in the lobby, not looping alone");
+  await T.advance(8000); // RESULT_HOLD_MS: back to the lobby — which does not count down alone
+  await waitsAlone(T, 0, 30000);
   assert.equal(T.prop(0, "startWaitMain"), "한 명 더 오면 시작해요");
   assert.equal(T.shown(0, "startBtn"), false);
   const c = T.late("C");
@@ -628,8 +645,7 @@ for (const id of ["balance-game-vote", "coop-click", "coop-tap-goal", "majority-
     assert.equal(T.shown(0, "startWait"), true);
     assert.equal(T.shown(0, "startBtn"), false);
     assert.equal(T.tap(0, "startBtn"), false);
-    await T.advance(30000);
-    assert.equal(T.phase(0), "lobby", "alone: never starts");
+    await waitsAlone(T, 0, 30000); // alone: never starts
     const b = T.late("B");
     await T.advance(100);
     for (const i of [0, b]) {
@@ -638,11 +654,12 @@ for (const id of ["balance-game-vote", "coop-click", "coop-tap-goal", "majority-
       assert.equal(T.shown(i, "startBtn"), false);
     }
     await T.advance(3000);
+    assert.equal(T.v(0, "autoStartIn"), 7, "counting down");
     T.gone(b);
-    await T.advance(200);
+    await T.advance(20);
+    assert.equal(T.v(0, "autoStartIn"), 0, "the room stopped the countdown (autoStart endsIn −1)");
     assert.equal(T.prop(0, "startWaitMain"), "한 명 더 오면 시작해요", "cancelled: waiting again");
-    await T.advance(30000);
-    assert.equal(T.phase(0), "lobby");
+    await waitsAlone(T, 0, 30000);
   });
 }
 
