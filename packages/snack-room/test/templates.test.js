@@ -707,15 +707,15 @@ test("speed-trivia public room (auto): alone it waits; with two the lobby counts
 });
 
 // 밸런스게임 (#126): picks stay hidden until everyone here picked (or the timer) — then all at once.
-test("balance-game: no peeking — '1/3명 골랐어요' + only my own pick marked; all picked → split + names on every device", async () => {
+test("balance-game: no peeking — pick count + only my own pick marked; all picked → split + names on every device", async () => {
   const T = table("balance-game-vote", ["A", "B", "C"]);
   T.tap(0, "startBtn");
   await T.advance(3000 + 100);
   assert.equal(T.phase(1), "play");
-  assert.equal(T.prop(1, "pickProgress"), "0/3명 골랐어요 · 다 고르면 공개");
+  assert.equal(T.prop(1, "pickProgress"), "0/3명 선택 · 시간 끝나면 공개");
   T.tap(0, "cardA"); // A picks
   await T.advance(200);
-  assert.equal(T.prop(1, "pickProgress"), "1/3명 골랐어요 · 다 고르면 공개", "B sees only the count");
+  assert.equal(T.prop(1, "pickProgress"), "1/3명 선택 · 시간 끝나면 공개", "B sees only the count");
   assert.equal(T.shown(1, "cardAPct"), false, "no % before the reveal");
   assert.equal(T.shown(1, "cardANames"), false);
   assert.equal(T.shown(1, "cardAMine"), false, "A's pick is not marked on B's phone");
@@ -745,7 +745,7 @@ test("balance-game: no peeking — '1/3명 골랐어요' + only my own pick mark
   assert.equal(T.v(1, "roundNum"), 2);
   assert.equal(T.shown(1, "cardAPct"), false);
   assert.equal(T.shown(0, "cardAMine"), false);
-  assert.equal(T.prop(0, "pickProgress"), "0/3명 골랐어요 · 다 고르면 공개");
+  assert.equal(T.prop(0, "pickProgress"), "0/3명 선택 · 시간 끝나면 공개");
 });
 
 test("balance-game: a reload mid-round shows my pick again; someone who never picks → the timer reveals", async () => {
@@ -758,10 +758,40 @@ test("balance-game: a reload mid-round shows my pick again; someone who never pi
   await T.advance(100);
   assert.equal(T.phase(1), "play");
   assert.equal(T.shown(1, "cardBMine"), true, "the room gave my pick back");
-  assert.equal(T.prop(1, "pickProgress"), "1/2명 골랐어요 · 다 고르면 공개");
+  assert.equal(T.prop(1, "pickProgress"), "1/2명 선택 · 시간 끝나면 공개");
   assert.equal(T.shown(0, "cardBMine"), false);
   await T.advance(10000 - 300);
   assert.equal(T.prop(0, "pickProgress"), "결과 공개 🎉", "A never picked: revealed when the 10 s ran out");
   assert.equal(T.prop(0, "cardBPct"), "100%");
   assert.equal(T.prop(0, "cardANames"), "아무도 없어요");
+});
+
+test("balance-game: visible server countdown survives reload and clock skew, then resets for the next round", async () => {
+  const T = table("balance-game-vote", ["A", "B"], { clock: [3600000, -60000] });
+  T.tap(0, "startBtn");
+  await T.advance(3100);
+  assert.equal(T.prop(0, "voteTimerSecs"), "10초");
+  assert.equal(T.prop(1, "voteTimerSecs"), "10초");
+  const full = T.prop(0, "voteTimerBar", "width");
+  await T.advance(4200);
+  assert.equal(T.prop(0, "voteTimerSecs"), "6초");
+  assert.ok(T.prop(0, "voteTimerBar", "width") < full);
+  T.reload(1);
+  await T.advance(100);
+  assert.equal(T.prop(1, "voteTimerSecs"), "6초", "a reload gets time left, not another 10 seconds");
+  assert.ok(Math.abs(T.prop(1, "voteTimerBar", "width") - T.prop(0, "voteTimerBar", "width")) <= 1);
+  await T.advance(5600);
+  assert.equal(T.prop(0, "voteTimerSecs"), "공개", "nobody picked: the round still ends");
+  assert.equal(T.prop(1, "voteTimerSecs"), "공개");
+  assert.equal(T.prop(0, "voteTimerBar", "width"), 0);
+  await T.advance(3600);
+  assert.equal(T.v(0, "roundNum"), 2);
+  assert.equal(T.prop(0, "voteTimerSecs"), "10초");
+  T.tap(0, "cardA");
+  T.tap(1, "cardB");
+  await T.advance(16);
+  assert.equal(T.prop(0, "voteTimerSecs"), "곧 공개");
+  assert.equal(T.prop(0, "voteTimerBar", "width"), 0, "early reveal does not show a misleading full timer");
+  await T.advance(300);
+  assert.equal(T.prop(0, "voteTimerSecs"), "공개");
 });

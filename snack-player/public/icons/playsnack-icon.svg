@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">PlaySnack</title>
+  <desc id="desc">A lime play button with a single smooth bite taken from its upper edge.</desc>
+  <defs>
+    <mask id="bite" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <rect width="64" height="64" fill="white"/>
+      <circle cx="42" cy="18" r="9.4" fill="black"/>
+    </mask>
+  </defs>
+  <rect id="background" width="64" height="64" fill="#0B0C0E"/>
+  <g id="mark">
+    <path d="M18 14.5C18 11.6 21.2 9.8 23.7 11.3L54.2 28.9C56.6 30.3 56.6 33.7 54.2 35.1L23.7 52.7C21.2 54.2 18 52.4 18 49.5Z" fill="#D9FF00" mask="url(#bite)"/>
+  </g>
+</svg>
