@@ -1,6 +1,6 @@
 # Cloudflare Pages — 사이트 + 통계 API 이전 (#75)
 
-상태: **전환 완료 (2026-10-14, #100)**. 라이브 = `https://playsnack.pages.dev` (Cloudflare Pages + Pages Functions, 방 = 방 서버 `snack-room.playsnack.workers.dev`). `playsnack.vercel.app`은 2026-10-15 Vercel 프로젝트 삭제로 내려갔다(#107, `vercel.json` 제거). 배포는 **자동**: main에 머지되면 GitHub Actions(`.github/workflows/deploy-cloudflare.yml`)가 방 서버 → 사이트 순서로 배포하고 간단히 확인한다(#103). 수동 실행은 Actions 탭의 'Deploy to Cloudflare' → Run workflow.
+상태: **전환 완료 (2026-10-14, #100)**. 라이브 = `https://playsnack.pages.dev` (Cloudflare Pages + Pages Functions, 방 = 방 서버 `snack-room.playsnack.workers.dev`). `playsnack.vercel.app`은 2026-10-15 Vercel 프로젝트 삭제로 내려갔다(#107, `vercel.json` 제거). 배포는 **자동**(`.github/workflows/deploy-cloudflare.yml`, #103·#192): `develop`에 머지되면 시험(`develop.playsnack.pages.dev` + 시험 방 서버 `snack-room-dev`), `main`에 머지(릴리스 PR)되면 실서비스로, 방 서버 → 사이트 순서로 배포하고 간단히 확인한다. 브랜치 규칙은 docs/git-as-jira.md. 수동 실행은 Actions 탭의 'Deploy to Cloudflare' → Run workflow.
 시험 주소: **https://test.playsnack.pages.dev** (Pages 프로젝트 `playsnack`의 Preview 브랜치 `test`). 프로덕션(`playsnack.pages.dev`)은 아직 비어 있다(404).
 
 ## 1. 무엇이 어디에
