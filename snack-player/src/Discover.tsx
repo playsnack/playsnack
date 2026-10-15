@@ -12,9 +12,10 @@ import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 // its own: make a quiz about yourself, friends guess) as the one lime hero,
 // then 추천 (games the owner reviewed + fixed on a real phone — index.json
 // `featured`, by rank) as cards, then every other game under "검토 전 게임" as
-// a quieter list. Tapping a card or row opens the app (/p/tpl-<id>). No live numbers here until there is real data to show
-// (master plan D0) — only what is true: the app, its kind, and whether it's
-// played together.
+// a quieter list. The 대표작 card itself is not a button — its buttons are;
+// a 추천 card or 검토 전 row opens the app (/p/tpl-<id>). No live numbers
+// here until there is real data to show (master plan D0) — only what is
+// true: the app, its kind, and whether it's played together.
 // Skin = "Mini-Block Arcade": chunky blocks (radius 0 + 2px border + blur:0 hard
 // shadow), lime is the single hero color. Pixel font only for Latin/digit-only text (logo, scores); Korean headings are Pretendard 700.
 
@@ -66,23 +67,27 @@ export function Discover() {
           탭하면 바로 시작해요 · <span style={tagInline}>같이</span> 표시는 친구랑 함께 해요
         </p>
 
-        {/* 대표작: one lime card. For the 나 맞히기 quiz: 만들기 (→ QuizMaker) first,
-            or play the public room's built-in questions right away. */}
-        {apps?.flagship && (apps.flagship.id === QUIZ_APP_ID ? (
-          <section style={hero} data-section="flagship" data-app={apps.flagship.id} aria-label="대표작 나 맞히기 퀴즈">
-            <span style={heroKicker}>대표작</span>
-            <div style={heroTitle}><span aria-hidden="true">🙋 </span>나 맞히기 퀴즈</div>
-            <p style={heroBody}>내가 낸 문제를 친구들이 맞혀요</p>
-            <button className="blk" style={heroPrimary} data-action="make" onClick={makeQuiz}>내 퀴즈 만들기</button>
-            <button style={heroSecondary} data-action="play" onClick={() => open(apps.flagship!.id)}>기본 문제로 바로 하기 →</button>
-          </section>
-        ) : (
-          <section style={hero} data-section="flagship" data-app={apps.flagship.id} aria-label={`대표작 ${apps.flagship.title}`}>
-            <span style={heroKicker}>대표작</span>
-            <div style={heroTitle}><span aria-hidden="true">{apps.flagship.emoji} </span>{apps.flagship.title}</div>
-            <button className="blk" style={heroPrimary} data-action="play" onClick={() => open(apps.flagship!.id)}>바로 하기</button>
-          </section>
-        ))}
+        {/* 대표작: one lime card. For the 나 맞히기 quiz: 만들기 (→ QuizMaker) first;
+            the second link opens the quiz app's public room, which plays the
+            built-in 스피드 퀴즈 questions with whoever is there — so it names
+            that game and says "같이" (one player alone may wait, #141). */}
+        {apps?.flagship && (() => {
+          const f = apps.flagship;
+          const quiz = f.id === QUIZ_APP_ID;
+          // A non-quiz flagship gets a plain card (its own title + 바로 하기), so
+          // moving `flagship` in index.json never drops that game from the home.
+          return (
+            <section style={hero} data-section="flagship" data-app={f.id} aria-label={`대표작 ${quiz ? "나 맞히기 퀴즈" : f.title}`}>
+              <span style={heroKicker}>대표작</span>
+              <div style={heroTitle}><span aria-hidden="true">{quiz ? "🙋" : f.emoji} </span>{quiz ? "나 맞히기 퀴즈" : f.title}</div>
+              {quiz && <p style={heroBody}>내가 낸 문제를 친구들이 맞혀요</p>}
+              <button className="blk" style={heroPrimary} data-action={quiz ? "make" : "play"} onClick={quiz ? makeQuiz : () => open(f.id)}>
+                {quiz ? "내 퀴즈 만들기" : "바로 하기"}
+              </button>
+              {quiz && <button style={heroSecondary} data-action="play" onClick={() => open(f.id)}>스피드 퀴즈로 같이 하기 →</button>}
+            </section>
+          );
+        })()}
 
         {!!apps?.featured.length && <h2 style={sectionTitle}>⭐ 추천</h2>}
         <div style={grid} data-section="featured">
@@ -168,7 +173,7 @@ const heroKicker: React.CSSProperties = {
   alignSelf: "flex-start", background: C.accentInk, color: C.accent, borderRadius: R.chip,
   padding: `2px ${S.s2}px`, fontSize: TOKENS.size.caption, fontWeight: 800, lineHeight: 1.5,
 };
-const heroTitle: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: TOKENS.size.titleMd + 1, fontWeight: 700, marginTop: S.s3, lineHeight: 1.35 };
+const heroTitle: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: TOKENS.size.titleLg, fontWeight: 700, marginTop: S.s3, lineHeight: 1.35 };
 const heroBody: React.CSSProperties = { margin: `${S.s1}px 0 0`, fontSize: TOKENS.size.bodyMd, fontWeight: 600, lineHeight: 1.5 };
 const heroPrimary: React.CSSProperties = {
   marginTop: S.s4, minHeight: TOKENS.layout.btnH, padding: `0 ${S.s4}px`, borderRadius: R.block,
@@ -180,7 +185,8 @@ const heroSecondary: React.CSSProperties = {
   fontFamily: TOKENS.font.heading, fontWeight: 700, fontSize: TOKENS.size.bodyMd, textDecoration: "underline",
   textUnderlineOffset: 3, cursor: "pointer",
 };
+// A secondary block (dark surface, not lime) so the 대표작 stays the only lime hero.
 const makeCta: React.CSSProperties = {
-  width: "100%", marginTop: S.s5, padding: S.s4, borderRadius: R.block, border: `${TOKENS.border.block}px solid ${C.accentInk}`,
-  background: C.accent, color: C.accentInk, boxShadow: blockShadow, fontWeight: 800, fontSize: TOKENS.size.bodyLg, cursor: "pointer",
+  width: "100%", marginTop: S.s5, padding: S.s4, borderRadius: R.block, border: `${TOKENS.border.block}px solid ${C.borderBlock}`,
+  background: C.surface, color: C.ink, boxShadow: blockShadow, fontWeight: 800, fontSize: TOKENS.size.bodyLg, cursor: "pointer",
 };
