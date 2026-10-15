@@ -75,7 +75,8 @@ test("clear of the top-row pills, 💬 and 🪲 at 360 and 390 wide", () => {
     const card = nameCardRect(w);
     assert.ok(card.w >= 240, `${w}: room for the field and 바꾸기 (${card.w})`);
     for (const [zone, z] of Object.entries(shellZones(w))) assert.ok(!hit(card, z), `${w}: overlaps ${zone}`);
-    assert.ok(card.x + card.w <= w - 16, `${w}: inside the screen`);
+    assert.ok(card.x >= 12 && card.x + card.w <= w - 12, `${w}: inside the screen`);
+    assert.ok(Math.abs(card.x - (w - card.x - card.w)) < 1, `${w}: centred (#114)`);
   }
 });
 
