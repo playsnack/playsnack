@@ -58,20 +58,20 @@ function player(room, anonId, hello = {}) {
   };
   return p;
 }
-/** Push today's DO-request estimate to `share` of the free limit (msgs/20 = requests). */
+/** Push today's DO-request estimate to `share` of the free limit (1 message = 1 request, #151). */
 const setShare = async (share) => {
   const now = (await hub.meter.report()).used.doRequests;
   const want = Math.ceil(FREE.doRequests * share);
-  if (want > now) await hub.meter.add({ msgs: (want - now) * 20 });
+  if (want > now) await hub.meter.add({ msgs: want - now });
 };
 const denied = (p) => p.frame((m) => m.t === "denied")?.d.reason;
 
 test("meter: estimates, % of each free limit and the stage", async () => {
   const m = new UsageMeter({ store: memoryStore(), free: FREE });
   assert.equal((await m.admit()).ok, true);
-  await m.add({ conns: 10, msgs: 400, awakeMs: 1000 * 1000, rows: 5 });
+  await m.add({ conns: 10, msgs: 40, awakeMs: 1000 * 1000, rows: 5 });
   const r = await m.report();
-  assert.deepEqual(r.used, { workerRequests: 10, doRequests: 10 + 20 + 2, doGbSeconds: 128, rowsWritten: 5 + 2 });
+  assert.deepEqual(r.used, { workerRequests: 10, doRequests: 10 + 40 + 2, doGbSeconds: 128, rowsWritten: 5 + 2 });
   assert.equal(r.percent.doGbSeconds, 12.8);
   assert.equal(r.stage, 0);
   await m.add({ rows: 700 });
@@ -199,7 +199,7 @@ test("rooms report batched: at most once per reportMs, plus when they empty", as
   assert.equal(calls, 1, "one report when the room empties");
   const u = await meter.report();
   assert.equal(u.used.workerRequests, 1);
-  assert.equal(u.used.doRequests, 1 + 2 + 2, "1 socket + 31 msgs/20 + admit + report");
+  assert.equal(u.used.doRequests, 1 + 31 + 1 + 2, "1 socket + 31 msgs (1:1) + the cleanup alarm + admit + report");
   assert.ok(u.used.rowsWritten >= 2);
   room.forget();
 });

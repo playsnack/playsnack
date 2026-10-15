@@ -12,7 +12,7 @@
 - 판이 결과로 넘어가면(같은 엔진 훅 `onResult`) 친구 방만(`FRIEND_ROOM_RE`, API와 같은 정규식) **위 GET이 돌려주는 것과 같은 레코드**(`{v, app, endedAt, title?, about?, board, quizRecap?}`, 허용 필드만, 같은 24 KB 맞추기 — 문제별 답을 상위 8명으로 → 순위만)를 DO 저장소 `result`에 `{sid, exp, rec}`로 쓴다. **판마다 한 번**: 저장된 `sid`와 같으면 안 쓴다. 다른 판이 끝나면 덮어쓴다(방의 마지막 판).
 - **7일**: 마지막 사람이 나가고 24시간 뒤 정리 알람이 방(`meta` · `lock` · `snap`)은 지우되 7일이 안 된 `result`는 남기고 알람을 `exp`로 옮긴다. 그때 다시 울리면 전부 지운다. 읽을 때도 `exp`가 지났으면 없음.
 - **읽기**: `GET <방 서버>/room/<방 id>/result` → `200 {ok:true, result}` · `404 {ok:false, error:"not_found"}`(친구 방 id가 아니면 DO를 깨우지 않고 404). CORS `*`, `cache-control: public, max-age=10`. 플레이어는 `VITE_ROOM_URL`(그리고 `VITE_ROOM_MODE`가 `relay`가 아님)이면 여기서 읽고(`roomResult.ts roomResultUrl`), 아니면 지금처럼 `/api/room-result`. "혼자 로비에 있을 때만 보여 줌" 규칙(`lastResultWatcher`)은 같다 — DO의 첫 `state`가 참가자 1명 · 로비면 조회.
-- **무료 한도 계산**: 저장 1회 = rows 3(쓰기 + 알람 이동 + 나중 삭제), 읽기 1회 = Worker 요청 1 + DO 요청 1 — 둘 다 방의 `UsageReporter`로 Meter에 보고(`docs/edge-rooms.md` §6).
+- **무료 한도 계산**: 저장 1회 = rows 3(쓰기 + 알람 이동 + 나중 삭제) + 그 알람이 울릴 때 DO 요청 1, 읽기 1회 = Worker 요청 1 + DO 요청 1 — 둘 다 방의 `UsageReporter`로 Meter에 보고(`docs/edge-rooms.md` §6).
 - 개인정보 · "목록에 없음" 성격은 §4와 같다(DO 저장소에는 방 id 자체가 키 — DO 하나가 방 하나라 따로 저장하지 않음 — anonId · IP 없음). 덮어쓰기 위험은 **없다**: 결과는 DO의 엔진만 쓴다(클라이언트가 POST할 길이 없음).
 - `VITE_ROOM_MODE=relay`(메시를 엣지 중계로)는 여전히 호스트 폰이 `/api/room-result`에 보낸다.
 
