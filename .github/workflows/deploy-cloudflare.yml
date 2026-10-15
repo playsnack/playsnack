@@ -1,16 +1,20 @@
-# Deploys the live site (Cloudflare Pages: playsnack.pages.dev) and the room server
-# (Cloudflare Worker: snack-room.playsnack.workers.dev) on every push to main.
+# Deploys on every push (docs/git-as-jira.md "Branch strategy"):
+#   develop → test:  site preview develop.playsnack.pages.dev + room server snack-room-dev.playsnack.workers.dev
+#   main    → live:  site playsnack.pages.dev               + room server snack-room.playsnack.workers.dev
 # Secrets: CLOUDFLARE_API_TOKEN (Pages: Edit + Workers Scripts: Edit), CLOUDFLARE_ACCOUNT_ID.
-# Free: public-repo Actions minutes; Pages direct upload doesn't use Pages build minutes.
+# Free: public-repo Actions minutes; Pages direct upload doesn't use Pages build minutes. The test
+# room server is a second Worker on the same account, so it shares the free daily limits — it only
+# sees test traffic. The preview site has no stats secrets, so /api/ev stays in memory there (test
+# plays never reach the real /stats).
 name: Deploy to Cloudflare
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-cloudflare
+  group: deploy-cloudflare-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -23,6 +27,8 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Untrusted text: passed through env, never pasted into a script.
+      COMMIT_MSG: ${{ github.event.head_commit.message || 'manual deploy' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -34,24 +40,49 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      - name: Pick the target (main = live, develop = test)
+        run: |
+          if [ "$GITHUB_REF_NAME" = main ]; then
+            echo "WRANGLER_ENV=" >> "$GITHUB_ENV"
+            echo "ROOM_HOST=snack-room.playsnack.workers.dev" >> "$GITHUB_ENV"
+            echo "SITE=https://playsnack.pages.dev" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF_NAME" = develop ]; then
+            echo "WRANGLER_ENV=dev" >> "$GITHUB_ENV"
+            echo "ROOM_HOST=snack-room-dev.playsnack.workers.dev" >> "$GITHUB_ENV"
+            echo "SITE=https://develop.playsnack.pages.dev" >> "$GITHUB_ENV"
+          else
+            echo "only main and develop deploy"; exit 1
+          fi
+
       # Room server first: the site's new build may rely on room-server changes.
-      - name: Deploy room server (snack-room)
+      - name: Deploy room server
         working-directory: edge/room
         run: |
           pnpm install --ignore-workspace --frozen-lockfile || pnpm install --ignore-workspace
-          npx wrangler deploy
+          if [ -z "$WRANGLER_ENV" ]; then
+            npx wrangler deploy --env=""  # top-level (live) config
+          else
+            npx wrangler deploy --env "$WRANGLER_ENV"
+            # The test room server's own token secret: set once (random), kept afterwards.
+            if ! npx wrangler secret list --env "$WRANGLER_ENV" | grep -q ROOM_TOKEN_SECRET; then
+              openssl rand -hex 32 | npx wrangler secret put ROOM_TOKEN_SECRET --env "$WRANGLER_ENV"
+            fi
+          fi
 
-      - name: Build site (rooms = room server)
-        run: node scripts/pages-build.mjs
+      - name: Build site (rooms = this target's room server)
+        run: PAGES_ROOM_URL="wss://$ROOM_HOST" node scripts/pages-build.mjs
 
-      - name: Deploy site (Pages production)
-        run: edge/room/node_modules/.bin/wrangler pages deploy snack-player/dist --project-name playsnack --branch main --commit-hash "$GITHUB_SHA" --commit-message "${{ github.event.head_commit.message || 'manual deploy' }}"
+      - name: Deploy site
+        run: edge/room/node_modules/.bin/wrangler pages deploy snack-player/dist --project-name playsnack --branch "$GITHUB_REF_NAME" --commit-hash "$GITHUB_SHA" --commit-message "$COMMIT_MSG"
 
       - name: Smoke check
         run: |
+          sleep 5
           for p in / /p/tpl-speed-trivia-score /stats /data/bite/index.json; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "https://playsnack.pages.dev$p")
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE$p")
             echo "$p $code"; [ "$code" = 200 ] || exit 1
           done
-          curl -sf https://playsnack.pages.dev/api/ev | grep -q '"store":"kv"'
-          curl -sf https://snack-room.playsnack.workers.dev/usage > /dev/null
+          if [ "$GITHUB_REF_NAME" = main ]; then
+            curl -sf "$SITE/api/ev" | grep -q '"store":"kv"'
+          fi
+          curl -sf "https://$ROOM_HOST/usage" > /dev/null
