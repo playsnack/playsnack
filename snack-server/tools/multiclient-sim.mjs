@@ -84,7 +84,7 @@ async function simOne(id, n) {
   if (kind === "session") {
     const sv = varNames(doc);
     const sp = startPayload(doc) || {};
-    const sub = sv.includes("nunchiNum") ? "nunchi" : sv.includes("reactionGo") ? "reaction" : sp.mode === "guess" ? "guess" : sv.includes("roundAnswer") ? "quiz" : sv.includes("coopTotal") ? "tally" : sv.includes("votesByOption") ? "vote" : "tap";
+    const sub = sv.includes("nunchiNum") ? "nunchi" : sv.includes("reactionGo") ? "reaction" : sp.mode === "guess" ? "guess" : sv.includes("roundAnswer") ? "quiz" : sv.includes("coopTotal") && !findEmit(doc, "taps") ? "tally" : sv.includes("votesByOption") ? "vote" : "tap";
     const device = sub === "reaction" ? Boolean(findEmit(doc, "reaction")) : sub === "tap" ? Boolean(findEmit(doc, "taps")) : undefined; // MP-08: device-measured
     const ACT = 4;
     // Every client must be SHOWN each phase, in order: a start that never happened (or a
@@ -162,7 +162,7 @@ async function simOne(id, n) {
       const recapOk = () => everyClient((c) => c.shared.quizRecap?.subject === clients[0].nick && JSON.stringify((c.shared.quizRecap.rounds?.[0]?.picks || []).map((p) => [p.nick, p.ms, p.correct]).sort()) === JSON.stringify(answerers.map((a, i) => [a.nick, claim(i), true])));
       quizCheck = async () => ((await until(recapOk, SETTLE_MS + 3000)) ? null : `quizRecap: ${JSON.stringify(clients[1].shared.quizRecap)}`);
     } else {
-      clients[0].start(3000); // single play window
+      clients[0].start(sp.goal ? { ...sp, duration: 3000 } : 3000); // single play window (a co-op goal far above these taps)
       await reachedPlay;
       if (sub === "tally") {
         for (let k = 0; k < ACT; k++) { clients.forEach((c) => c.tally(1)); await sleep(40); }
@@ -181,8 +181,10 @@ async function simOne(id, n) {
         }
         clients[0].taps(1); // an old batch arriving late: never rolls the count back
         const want = clients.map((c, i) => [c.nick, finalOf(i)]).sort((a, b) => b[1] - a[1]);
-        view = (c) => (c.shared.raceBoard || []).map((e) => [e.nick, e.score]); exact = false;
-        check = (v) => JSON.stringify(v) === JSON.stringify(want) ? null : `taps (device counts): board=${JSON.stringify(v)} want=${JSON.stringify(want)}`;
+        // co-op goal (다같이 300번 클릭): the shared total is the sum of the board
+        const sum = want.reduce((t, [, k]) => t + k, 0);
+        view = (c) => ({ board: (c.shared.raceBoard || []).map((e) => [e.nick, e.score]), ...(sp.goal ? { coop: c.shared.coopTotal } : {}) }); exact = false;
+        check = (v) => JSON.stringify(v.board) === JSON.stringify(want) && (!sp.goal || v.coop === sum) ? null : `taps (device counts): board=${JSON.stringify(v.board)} want=${JSON.stringify(want)}${sp.goal ? ` coopTotal=${v.coop} want=${sum}` : ""}`;
       } else {
         for (let k = 0; k < ACT; k++) { clients.forEach((c) => c.tap()); await sleep(40); }
         view = (c) => c.shared.raceBoard || []; expected = n * ACT;

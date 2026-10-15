@@ -632,6 +632,7 @@ export function createRoom(o) {
     S.playAt = 0;
     S.playMs = 0;
     S.lateUntil = 0;
+    S.goal = 0;
     r.scores.clear();
     r.coop = 0;
     r.voters.clear();
@@ -727,6 +728,14 @@ export function createRoom(o) {
       const dur = Math.min(60000, Math.max(3000, Number(opts.duration) || 12000));
       S.rounds = [];
       S.playMs = dur;
+      // Co-op goal (다같이 300번 클릭, opts.goal): everyone's device-counted taps add up to
+      // one total; reaching the goal ends the play early and records how long it took.
+      const goal = Math.floor(Number(opts.goal));
+      if (goal > 0) {
+        S.goal = Math.min(100000, goal);
+        setVar("coopTotal", 0);
+        setVar("coopTimeMs", 0);
+      }
       later("play", { sessionCountdown: 0 }, 3000);
       later("result", null, 3000 + dur);
     }
@@ -743,6 +752,18 @@ export function createRoom(o) {
     r.scores.set(peer.anonId, v);
     r.nicks.set(peer.anonId, peerNick(peer) || r.nicks.get(peer.anonId) || "게스트");
     setVar("raceBoard", raceBoard());
+    if (S.goal) coopGoal();
+  };
+  // Co-op goal: the shared total is the sum of every player's count (so it is as
+  // loss-proof and rate-capped as the counts); the first count that reaches the goal
+  // in play ends the game with the time it took.
+  const coopGoal = () => {
+    r.coop = [...r.scores.values()].reduce((a, b) => a + b, 0);
+    setVar("coopTotal", r.coop);
+    if (S.phase !== "play" || r.coop < S.goal) return;
+    setVar("coopTimeMs", Math.max(0, now() - S.playAt));
+    cancel("result");
+    toResult();
   };
   // Reaction: 0 = 부정출발 (before green, or faster than a human can), null = after the
   // window (not ranked); otherwise 2000 − ms, clamped to what the host itself measured.
