@@ -1748,3 +1748,166 @@ test("rename survives snapshot → restore (host hand-over / room server wake-up
   assert.deepEqual(c.room.stateFor("p2").sharedState.roster, ["민지", "닉2"]);
   assert.equal(c.out.length, 0);
 });
+
+// ── Hidden picks (start {hidden: true} — 밸런스게임, #126) ──
+const BAL = [
+  { a: "치킨", b: "피자" },
+  { a: "여름", b: "겨울" },
+];
+const HIDDEN_START = { game: "balance", rounds: 2, roundMs: 10000, revealMs: 3000, hidden: true };
+const ZERO = { o0: 0, o1: 0 };
+const anonOf = (peer) => `a${peer.slice(1).replace(/b$/, "")}`; // "p1" / "p1b" (a reload) → "a1"
+// Nothing that left the room before the reveal says what anyone ELSE picked: no tally but
+// zeros, no names, and a pick (myPick) only ever goes to a peer of the player who made it.
+const assertNoLeak = (h, from, picks) => {
+  for (const m of h.out.slice(from)) {
+    const vars = m.type === "setVar" ? { [m.d.id]: m.d.value } : m.type === "state" ? m.d.sharedState : {};
+    if ("votesByOption" in vars) assert.deepEqual(vars.votesByOption, ZERO, `running tally to ${m.to}: ${JSON.stringify(m)}`);
+    if ("roundPicks" in vars) assert.ok(Object.values(vars.roundPicks).every((x) => x.length === 0), `names to ${m.to}`);
+    if ("myPick" in vars) {
+      assert.notEqual(m.to, "*", "a pick broadcast to everyone");
+      assert.ok([].concat(picks[anonOf(m.to)] ?? []).includes(vars.myPick.option), `${m.to} got someone else's pick`);
+    }
+    if ("revealRound" in vars) assert.equal(vars.revealRound, -1);
+  }
+};
+const lastTo = (h, peer, id) => [...h.out].reverse().find((m) => m.to === peer && m.type === "setVar" && m.d.id === id)?.d.value;
+
+test("hidden picks: before the reveal nobody gets another's pick or a running tally — only n/m; timeout reveals the split + names at once", async () => {
+  const h = harness({ pack: BAL, defaults: { ...ZERO } });
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "start", HIDDEN_START);
+  await h.advance(3000);
+  assert.equal(h.v("sessionPhase"), "play");
+  assert.equal(h.v("revealRound"), -1);
+  assert.deepEqual(h.v("voteProgress"), { voted: 0, of: 3, round: 0, sessionNo: 1 });
+  const from = h.out.length;
+  h.act(1, "vote", { option: "o0" });
+  h.act(2, "vote", { option: "o0" });
+  h.act(2, "vote", { option: "o1" }); // a change of mind before the reveal is fine
+  assert.deepEqual(h.v("voteProgress"), { voted: 2, of: 3, round: 0, sessionNo: 1 });
+  assert.deepEqual(lastTo(h, "p1", "myPick"), { sessionNo: 1, round: 0, option: "o0" }, "my own pick comes back to me");
+  assert.equal(lastTo(h, "p2", "myPick")?.option, "o1");
+  assert.equal(lastTo(h, "p3", "myPick"), undefined);
+  h.join(9); // a newcomer mid-round (a spectator): its state carries no live tally
+  h.room.join("p1b", { anonId: "a1", nick: "닉1" }); // p1 reloads: gets its own pick back
+  assert.equal(h.room.stateFor("p1b").sharedState.myPick?.option, "o0");
+  assert.equal(h.room.stateFor("p3").sharedState.myPick, undefined);
+  assert.deepEqual(h.room.stateFor("p9").sharedState.votesByOption, ZERO);
+  h.act(9, "vote", { option: "o1" });
+  assert.equal(h.v("voteProgress").voted, 2, "a spectator's vote is refused");
+  assertNoLeak(h, from, { a1: "o0", a2: ["o0", "o1"] });
+  await h.advance(10000 - 1);
+  assert.equal(h.v("revealRound"), -1, "p3 never picked → the full window");
+  await h.advance(1);
+  assert.equal(h.v("revealRound"), 0);
+  assert.deepEqual(h.v("votesByOption"), { o0: 1, o1: 1 });
+  assert.deepEqual(h.v("roundPicks"), { o0: ["닉1"], o1: ["닉2"] });
+  // after the reveal the round is closed: a late pick changes nothing
+  h.act(3, "vote", { option: "o1" });
+  assert.equal(h.out.filter((m) => m.type === "actionAck" && m.to === "p3").at(-1).d.reason, "closed");
+  assert.deepEqual(h.room.stateFor("p3").sharedState.votesByOption, { o0: 1, o1: 1 });
+  await h.advance(3000);
+  assert.equal(h.v("roundNum"), 2);
+  assert.equal(h.v("revealRound"), -1);
+  assert.deepEqual(h.v("votesByOption"), ZERO);
+  assert.notEqual(h.room.stateFor("p1b").sharedState.myPick.round, h.v("roundIdx"), "last round's pick is not this round's");
+  await h.advance(10000 + 3000);
+  assert.equal(h.v("sessionPhase"), "result");
+});
+
+test("hidden picks: everyone present picked → revealed EARLY_REVEAL_MS later; a leave of the last one missing reveals too", async () => {
+  const h = harness({ pack: BAL, defaults: { ...ZERO } });
+  [1, 2].forEach(h.join);
+  h.act(1, "start", HIDDEN_START);
+  await h.advance(3000 + 1000);
+  h.act(1, "vote", { option: "o1" });
+  h.act(2, "vote", { option: "o1" });
+  assert.deepEqual(h.v("voteProgress"), { voted: 2, of: 2, round: 0, sessionNo: 1 });
+  await h.advance(EARLY_REVEAL_MS - 1);
+  assert.equal(h.v("revealRound"), -1);
+  await h.advance(1);
+  assert.equal(h.v("revealRound"), 0);
+  assert.deepEqual(h.v("votesByOption"), { o0: 0, o1: 2 });
+  assert.deepEqual(h.v("roundPicks"), { o0: [], o1: ["닉1", "닉2"] });
+  await h.advance(3000); // revealMs → round 2
+  assert.equal(h.v("roundNum"), 2);
+  // round 2: p1 picks, p2 (the last one missing) leaves → everyone here has picked
+  h.join(3); // a spectator (first join mid-game) never counts
+  h.act(1, "vote", { option: "o0" });
+  assert.deepEqual(h.v("voteProgress"), { voted: 1, of: 2, round: 1, sessionNo: 1 });
+  h.room.leave("p2");
+  assert.deepEqual(h.v("voteProgress"), { voted: 1, of: 1, round: 1, sessionNo: 1 });
+  await h.advance(EARLY_REVEAL_MS);
+  assert.equal(h.v("revealRound"), 1);
+  assert.deepEqual(h.v("roundPicks"), { o0: ["닉1"], o1: [] });
+});
+
+test("hidden picks: a member reloading mid-round keeps their pick (only to them) and doesn't reopen; one coming back unpicked during the beat reopens it", async () => {
+  const h = harness({ pack: BAL, defaults: { ...ZERO } });
+  [1, 2, 3].forEach(h.join);
+  h.act(1, "start", HIDDEN_START);
+  await h.advance(3000 + 1000);
+  const from = h.out.length;
+  h.act(1, "vote", { option: "o0" });
+  h.act(2, "vote", { option: "o1" });
+  h.room.leave("p3"); // p3's phone drops → 2/2 → the beat starts
+  await h.advance(100);
+  h.join(3); // p3 back (a member, not a spectator), not picked → back to the window's end
+  assert.deepEqual(h.v("voteProgress"), { voted: 2, of: 3, round: 0, sessionNo: 1 });
+  await h.advance(1000);
+  assert.equal(h.v("revealRound"), -1, "reopened");
+  h.room.leave("p1");
+  h.join(1); // p1 reloads: its own pick in its state, the count unchanged
+  assert.equal(h.out.filter((m) => m.type === "state" && m.to === "p1").at(-1).d.sharedState.myPick?.option, "o0");
+  assert.deepEqual(h.v("voteProgress"), { voted: 2, of: 3, round: 0, sessionNo: 1 });
+  assertNoLeak(h, from, { a1: "o0", a2: "o1" });
+  h.act(3, "vote", { option: "o0" });
+  await h.advance(EARLY_REVEAL_MS);
+  assert.equal(h.v("revealRound"), 0);
+  assert.deepEqual(h.v("roundPicks"), { o0: ["닉1", "닉3"], o1: ["닉2"] });
+});
+
+test("hidden picks: a hand-over / room-server wake-up mid-round keeps the picks hidden and the reveal on schedule", async () => {
+  const a = harness({ pack: BAL, defaults: { ...ZERO } });
+  [1, 2].forEach(a.join);
+  a.act(1, "start", HIDDEN_START);
+  await a.advance(3000 + 2000);
+  a.act(1, "vote", { option: "o1" });
+  const snap = JSON.parse(JSON.stringify(a.room.snapshot()));
+  a.room.destroy();
+  const b = harness({ pack: BAL, defaults: { ...ZERO } });
+  assert.equal(b.room.restore(snap, 0), true);
+  [2, 1].forEach(b.join);
+  assertNoLeak(b, 0, { a1: "o1" });
+  assert.equal(b.out.find((m) => m.type === "state" && m.to === "p1").d.sharedState.myPick?.option, "o1");
+  assert.equal(b.out.find((m) => m.type === "state" && m.to === "p2").d.sharedState.myPick, undefined);
+  assert.deepEqual(b.v("voteProgress"), { voted: 1, of: 2, round: 0, sessionNo: 1 });
+  b.act(2, "vote", { option: "o1" });
+  await b.advance(EARLY_REVEAL_MS);
+  assert.equal(b.v("revealRound"), 0);
+  assert.deepEqual(b.v("votesByOption"), { o0: 0, o1: 2 });
+  // untouched by a rejoin (no messages) too: the window's own end still reveals
+  const c = harness({ pack: BAL, defaults: { ...ZERO } });
+  c.room.restore(snap, 1000);
+  c.room.rejoin("p1", { anonId: "a1", nick: "닉1" });
+  c.room.rejoin("p2", { anonId: "a2", nick: "닉2" });
+  assert.equal(c.out.length, 0);
+  await c.advance(10000 - 2000 - 1000 - 1);
+  assert.equal(c.v("revealRound"), undefined);
+  await c.advance(1);
+  assert.equal(c.v("revealRound"), 0);
+  assert.deepEqual(c.v("roundPicks"), { o0: [], o1: ["닉1"] });
+});
+
+test("hidden picks are opt-in: a plain round vote (우리 중 누가?) still shows the live tally", async () => {
+  const h = harness({ pack: BAL, defaults: { ...ZERO } });
+  [1, 2].forEach(h.join);
+  h.act(1, "start", { game: "balance", rounds: 1, roundMs: 5000 });
+  await h.advance(3000);
+  h.act(1, "vote", { option: "o0" });
+  assert.deepEqual(h.v("votesByOption"), { o0: 1, o1: 0 });
+  assert.equal(h.v("voteProgress"), undefined);
+  assert.equal(h.v("revealRound"), undefined, "MP-13: no new variables for templates that never asked");
+  assert.equal(h.v("myPick"), undefined);
+});

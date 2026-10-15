@@ -45,7 +45,7 @@ export const GAME_LIMITS = {
   sendChunk: 100, // frames sent per task (the rest follow in the next task, in order)
 };
 const ORGANIZER_ONLY = new Set(["start", "lobby", "quizPack"]);
-const COALESCED = new Set(["roster", "rosterPhotos", "quizProgress"]);
+const COALESCED = new Set(["roster", "rosterPhotos", "quizProgress", "voteProgress"]);
 const ANON_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const rid = () => Math.random().toString(36).slice(2, 10);
 
