@@ -20,7 +20,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 before(async () => {
   if (EXTERNAL) return;
-  hub = await startEdgeHub({ port: Number(process.env.EDGE_TEST_PORT || 4552), limits: { lockMs: LOCK_MS, roomTtlMs: TTL_MS } });
+  hub = await startEdgeHub({ port: Number(process.env.EDGE_TEST_PORT_RELAY || process.env.EDGE_TEST_PORT || 4552), limits: { lockMs: LOCK_MS, roomTtlMs: TTL_MS } });
   URL_ = hub.url;
 });
 after(async () => hub?.close());
