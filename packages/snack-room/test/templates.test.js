@@ -435,3 +435,110 @@ test("speed-trivia spectate: a late joiner mid-quiz sees '관전 중 · A 맞히
   assert.equal(T.v(1, "quizProgress.answered"), 1);
   assert.equal(T.v(1, "quizProgress.of"), 4);
 });
+
+// 다같이 300번 클릭 (#125): lobby → 시작하기 → 3·2·1 → everyone's taps add up to 300 →
+// result (time taken, top tappers) → 다시 하기; a late joiner watches.
+// Each listed device taps once per round, `every` ms apart (10/s each: under the 15/s cap).
+async function tapRounds(T, who, rounds, every = 100) {
+  for (let k = 0; k < rounds; k++) {
+    for (const i of who) T.tap(i, "tapArea");
+    await T.advance(every);
+  }
+}
+
+test("coop-click: a lobby first — nothing counts until someone presses 시작하기", async () => {
+  const T = table("coop-click", ["A", "B"]);
+  await T.advance(100);
+  assert.equal(T.phase(0), "lobby");
+  assert.equal(T.prop(0, "lobbyCount"), "참가자 2명");
+  assert.equal(T.prop(1, "lobbyNames"), "A · B");
+  T.tap(1, "tapArea"); // the pad is not on screen in the lobby
+  await T.advance(500);
+  assert.equal(T.v(1, "myTaps"), 0);
+  assert.equal(T.v(0, "coopTotal"), 0);
+});
+
+test("coop-click: 3 players → 3·2·1 → taps add up to 300 → result with time and top tappers → 다시 하기", async () => {
+  const T = table("coop-click", ["A", "B", "C"]);
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(100);
+  assert.equal(T.phase(2), "countdown");
+  assert.equal(T.prop(2, "cdNum"), "3");
+  await T.advance(3000);
+  for (const i of [0, 1, 2]) assert.equal(T.phase(i), "play", `device ${i}`);
+  // A taps every round, B 2 of 3, C 1 of 3 → A 60, B 40, C 20 per 60 rounds = 120 per 60 rounds.
+  for (let k = 0; k < 150 && T.phase(0) === "play"; k++) {
+    T.tap(0, "tapArea");
+    if (k % 3 !== 2) T.tap(1, "tapArea");
+    if (k % 3 === 0) T.tap(2, "tapArea");
+    await T.advance(100);
+  }
+  await T.advance(600); // last batch + the result
+  for (const i of [0, 1, 2]) assert.equal(T.phase(i), "result", `device ${i}`);
+  const total = T.v(0, "coopTotal");
+  assert.ok(total >= 300, `total ${total}`);
+  const ms = T.v(0, "coopTimeMs");
+  assert.ok(ms > 10000 && ms < 20000, `took ${ms} ms`); // ~150 rounds of 100 ms, ended early (not the 60 s cap)
+  assert.equal(T.prop(1, "resTitle"), `${(ms / 1000).toFixed(1)}초 만에 300 달성!`);
+  assert.equal(T.prop(1, "resSub"), "300 / 300 · 3명이 함께");
+  const board = rows(T.v(1, "raceBoard"));
+  assert.deepEqual(board.map((r) => r.nick), ["A", "B", "C"]);
+  assert.equal(board.reduce((s, r) => s + r.score, 0), total, "total = sum of everyone's taps");
+  for (const i of [0, 1, 2]) assert.equal(board.find((r) => r.nick === "ABC"[i]).score, T.v(i, "myTaps"), `board == 내 탭 for ${"ABC"[i]}`);
+  assert.equal(T.prop(0, "rnick0"), "A");
+  assert.equal(T.prop(0, "resMine"), `내가 보탠 탭 ${T.v(0, "myTaps")}회`);
+  // 다시 하기 from another device: a fresh count for everyone
+  T.tap(2, "againBtn");
+  await T.advance(3100);
+  for (const i of [0, 1, 2]) assert.equal(T.phase(i), "play", `again device ${i}`);
+  assert.equal(T.v(0, "coopTotal"), 0);
+  assert.equal(T.v(0, "coopTimeMs"), 0);
+  assert.equal(T.v(1, "myTaps"), 0);
+  assert.equal(T.prop(1, "goalNum"), "0");
+});
+
+test("coop-click: time runs out short of 300 → '아쉽다', the board still shows who tapped", async () => {
+  const T = table("coop-click", ["A", "B"]);
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(3100);
+  await tapRounds(T, [0, 1], 20); // 40 taps in 2 s
+  await T.advance(300); // the last batches land
+  assert.equal(T.prop(0, "goalNum"), "40");
+  await T.advance(60000);
+  assert.equal(T.phase(0), "result");
+  assert.equal(T.v(0, "coopTimeMs"), 0);
+  assert.equal(T.v(0, "coopTotal"), 40);
+  assert.equal(T.prop(1, "resTitle"), "아쉽다! 60초 안에 못 채웠어요");
+  assert.deepEqual(rows(T.v(0, "raceBoard")), [{ nick: "A", score: 20 }, { nick: "B", score: 20 }]);
+});
+
+test("coop-click: a late joiner mid-game spectates — pad inert, taps not counted — and plays the next game", async () => {
+  const T = table("coop-click", ["A", "B"]);
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(3100);
+  await tapRounds(T, [0, 1], 10);
+  const c = T.late("C");
+  await T.advance(100);
+  assert.equal(T.phase(c), "play");
+  assert.equal(T.v(c, "iAmSpectator"), true);
+  assert.equal(T.prop(c, "navP", "props.subtitle"), "관전 중 · 다음 판부터 같이 해요");
+  assert.equal(T.prop(0, "navP", "props.subtitle"), "다 같이 연타! · 구경 1명");
+  const before = T.v(0, "coopTotal");
+  await tapRounds(T, [c], 10);
+  assert.equal(T.v(c, "myTaps"), 0);
+  assert.equal(T.v(0, "coopTotal"), before);
+  assert.equal(T.prop(c, "goalNum"), String(before), "the spectator sees the shared count");
+  await T.advance(60000);
+  assert.equal(T.phase(c), "result");
+  assert.ok(!rows(T.v(c, "raceBoard")).some((r) => r.nick === "C"));
+  T.tap(c, "againBtn"); // the spectator may start the next one and plays it
+  await T.advance(3100);
+  assert.equal(T.v(c, "iAmSpectator"), false);
+  await tapRounds(T, [c], 5);
+  await T.advance(300);
+  assert.equal(T.v(0, "coopTotal"), 5);
+  assert.deepEqual(rows(T.v(0, "raceBoard")), [{ nick: "C", score: 5 }]);
+});
