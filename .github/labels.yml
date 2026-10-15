@@ -1,0 +1,81 @@
+- name: "type: epic"
+  color: "6F42C1"
+  description: Large outcome spanning stories.
+- name: "type: feature"
+  color: "0E8A16"
+  description: New product behavior or workflow improvement.
+- name: "type: story"
+  color: "1D76DB"
+  description: User-visible slice of value.
+- name: "type: bug"
+  color: "D73A4A"
+  description: Broken, regressed, confusing, or unreliable behavior.
+- name: "type: task"
+  color: "5319E7"
+  description: Internal work, docs, cleanup, investigation, or release chore.
+- name: "type: subtask"
+  color: "C5DEF5"
+  description: Small child task under a task or story.
+- name: "status: backlog"
+  color: "EDEDED"
+  description: Not ready yet.
+- name: "status: ready"
+  color: "C2E0C6"
+  description: Ready to pick up.
+- name: "status: in-progress"
+  color: "FBCA04"
+  description: Actively being worked on.
+- name: "status: review"
+  color: "D4C5F9"
+  description: Ready for review.
+- name: "status: blocked"
+  color: "B60205"
+  description: Cannot progress until something changes.
+- name: "status: done"
+  color: "0E8A16"
+  description: Finished.
+- name: "priority: high"
+  color: "B60205"
+  description: Important and time-sensitive.
+- name: "priority: medium"
+  color: "FBCA04"
+  description: Normal priority.
+- name: "priority: low"
+  color: "D4C5F9"
+  description: Useful but not urgent.
+- name: "severity: critical"
+  color: "B60205"
+  description: Production-breaking or data/security risk.
+- name: "severity: major"
+  color: "D93F0B"
+  description: Significant user-facing failure.
+- name: "severity: minor"
+  color: "F9D0C4"
+  description: Small or edge-case issue.
+- name: "area: snack-player"
+  color: "1D76DB"
+  description: React player app.
+- name: "area: snack-server"
+  color: "1D76DB"
+  description: Express/WebSocket server and AI builder.
+- name: "area: bite-engine"
+  color: "0052CC"
+  description: Bite runtime package.
+- name: "area: bite-layout"
+  color: "0052CC"
+  description: Bite layout package.
+- name: "area: bite-renderer"
+  color: "0052CC"
+  description: Bite Pixi renderer package.
+- name: "area: snack-room"
+  color: "0366D6"
+  description: Room engine and multiplayer session behavior.
+- name: "area: content-templates"
+  color: "0E8A16"
+  description: Curated content banks and Bite templates.
+- name: "area: docs-process"
+  color: "0075CA"
+  description: Documentation, planning, and workflow.
+- name: "area: infra-deploy"
+  color: "6F42C1"
+  description: Hosting, deploy, CI, and release infrastructure.
