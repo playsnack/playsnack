@@ -452,6 +452,11 @@ export function createRoom(o) {
     const here = playersHere();
     return { voted: here.filter((id) => r.voters.has(id)).length, of: here.length, round: S.roundIdx, sessionNo: S.round };
   };
+  // Relative time is sampled again on resync: a reload must not restart the window.
+  const voteClock = () => ({
+    round: S.roundIdx, sessionNo: S.round, ms: S.roundMs,
+    leftMs: S.hidden && S.phase === "play" && S.accepting ? Math.max(0, S.roundStart + S.roundMs - now()) : 0,
+  });
   const roundPicks = () => {
     const out = {};
     for (const k of Object.keys(tally())) out[k] = [];
@@ -469,6 +474,7 @@ export function createRoom(o) {
     // and sessionNo (a last game's myPick for the same round index is not mine any more).
     setPhase("play", { voteProgress: voteProgress(), roundIdx: i, roundTotal: S.rounds.length, roundNum: i + 1, roundContent: S.rounds[i], revealRound: -1, votesByOption: tally(), roundPicks: {} });
     later("revealVoteRound", i, S.roundMs);
+    setVar("voteClock", voteClock());
   };
   const revealVoteRound = (i) => {
     if (!S.hidden || S.roundIdx !== i) return; // stale timer
@@ -478,6 +484,7 @@ export function createRoom(o) {
     setVar("votesByOption", tally());
     setVar("roundPicks", roundPicks());
     setVar("revealRound", i);
+    setVar("voteClock", voteClock());
     later("startRound", i + 1, S.revealMs);
   };
   const syncVoteReveal = ({ mayPull = true } = {}) => {
@@ -1287,6 +1294,7 @@ export function createRoom(o) {
         ...(Object.keys(t).length ? { votesByOption: t } : {}),
         ...(r.coop ? { coopTotal: r.coop } : {}),
         ...Object.fromEntries(r.vars), // e.g. a hidden 눈치 배틀 tally stays as last shown
+        ...(r.vars.has("voteClock") ? { voteClock: voteClock() } : {}),
         roster: rosterArr(),
         ...(photos.some(Boolean) || r.vars.has("rosterPhotos") ? { rosterPhotos: photos } : {}),
       };
