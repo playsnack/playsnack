@@ -75,17 +75,14 @@ test("model from the real API answers: daily rows, week sums, join, ask, shares,
   assert.equal(m.join.p75, fmtPercentile(estimatePercentile(m.week.joinEdgeMs, 0.75)));
   assert.match(m.join.p75, /^약 1\.\d초$/);
   assert.equal(m.join.since, "10월 13일", "the first day with room-server joins (inside the 7 days)");
-  // Every join (the old way included): only for the small comparison line.
-  assert.equal(m.join.all.ok, ok);
-  assert.equal(m.join.all.timed, ok);
-  assert.equal(m.join.all.older, ok + 4 - 11);
-  assert.equal(m.join.all.successRate, `${Math.round((ok / (ok + 4)) * 100)}%`);
-  assert.equal(m.join.all.p50, joinTimes(m.week.joinMs).p50);
-  assert.notEqual(m.join.all.p50, m.join.p50, "the old way is slower");
-  // Failure reasons are kept for every join (the line says so while the old way is in the 7 days).
+  // The old combined numbers are slower and are not in the model at all (owner, 2026-10-15).
+  assert.notEqual(joinTimes(m.week.joinMs).p50, m.join.p50, "the old way is slower");
+  assert.ok(!("all" in m.join));
+  // Failure reasons: the room server's only (silence today, bad_link yesterday — not the 2 older silences).
+  assert.deepEqual(m.week.joinFailReasons, { silence: 3, bad_link: 1 });
   assert.deepEqual(m.join.reasons.map((r) => [r.key, r.label, r.n]), [
-    ["silence", "15초 동안 방 소식이 없음", 3],
     ["bad_link", "링크가 잘렸거나 잘못됨", 1],
+    ["silence", "15초 동안 방 소식이 없음", 1],
   ]);
   // "다음에도?": 3 asked a day; yes every day, no on odd days, skip today.
   assert.deepEqual([m.ask.shown, m.ask.yes, m.ask.no, m.ask.skip], [21, 7, 3, 1]);
@@ -108,10 +105,13 @@ test("rendered page: plain Korean, honest notes, no fake-live words", async () =
   const { weeks, day, growth, now } = await statsFixture();
   const m = buildModel(weeks, day, now);
   const html = renderToStaticMarkup(createElement(StatsBody, { m, g: growth, at: null, onReload: () => {} }));
-  for (const s of ["날마다", "최근 7일", "입장 방식이 바뀐 10월 13일부터 센 숫자예요", "이전 방식 포함 최근 7일 전체: 절반은 약", "이전 방식 포함 최근 7일 전체: 성공률", "실패 이유 (이전 방식 포함)", "자주 쓰는 사람", "오늘 들어온 기기", "5대", "처음 온 기기", "40%", "다시 온 기기", "60%", "10판 이상 한 기기", "퀴즈를 5개 이상 만든 기기", "1대", "10/14 (수)", "오늘", "방 입장", "입장까지 걸린 시간", "4번 중 3번은", "1초 이하", "10초 넘음",
+  for (const s of ["날마다", "최근 7일", "지금 입장 방식만 10월 13일부터 센 숫자예요.", "실패 이유", "자주 쓰는 사람", "오늘 들어온 기기", "5대", "처음 온 기기", "40%", "다시 온 기기", "60%", "10판 이상 한 기기", "퀴즈를 5개 이상 만든 기기", "1대", "10/14 (수)", "오늘", "방 입장", "입장까지 걸린 시간", "4번 중 3번은", "1초 이하", "10초 넘음",
     "공유", "다음에도 하고 싶나요?", "좋아요", "아니요", "건너뜀", "사람이 적어요", "앱에서 난 문제", "이번 달 무료 한도", "400,000",
     "잠깐만 남는 임시 숫자"]) assert.ok(html.includes(s), s);
   assert.ok(!html.includes("아직 연결 전"), "wired: no 'not connected' note");
+  // Only the room server's join numbers: no old-way line or label, and the "since" note once.
+  assert.ok(!html.includes("이전 방식"));
+  assert.equal((html.match(/10월 13일부터/g) || []).length, 1);
   assert.ok(!html.includes("아직 기록이 없어요"), "every fixture day has records");
   // No developer words for a visitor.
   assert.doesNotMatch(html, /p50|p75|p95|KV|명령|wired|session|bucket|NaN/);
@@ -144,6 +144,11 @@ test("날마다 table: every number has its own labelled column; 3+ together lea
   assert.deepEqual(DAY_COLUMNS.filter((c) => c.strong).map((c) => c.key), ["together"]);
   // Today: 3 finished, 2 with 3+; 1 made, 1 remade; 1 room; joins 4 in / 1 out.
   assert.deepEqual(DAY_COLUMNS.map((c) => c.value(m.days[0].s)), ["2", "3", "1", "1", "1", "80%"]);
+  // 입장 = the room server's joins, like the 방 입장 card: yesterday 5 in / 1 out; the days
+  // before, joined the old way only, show "—" (not counted), not that day's old-way rate.
+  const join = DAY_COLUMNS.find((c) => c.key === "join")!;
+  assert.deepEqual(m.days.map((d) => join.value(d.s)), ["80%", "83%", "—", "—", "—", "—", "—"]);
+  assert.ok(m.days[2].s.joinOk > 0, "that day did have (old-way) joins");
   const html = renderToStaticMarkup(createElement(StatsBody, { m, at: null, onReload: () => {} }));
   const table = html.slice(html.indexOf("<table"), html.indexOf("</table>"));
   for (const c of DAY_COLUMNS) assert.ok(table.includes(`${c.head[0]}<br/>`), c.key);
@@ -156,29 +161,28 @@ test("날마다 table: every number has its own labelled column; 3+ together lea
   assert.ok(help.length > 0 && help.length <= 60, help);
 });
 
-test("join numbers before any room-server join: said plainly, the old numbers only as the small line", async () => {
+test("join numbers before any room-server join: said plainly in the cards, no old numbers, no zeros as results", async () => {
   const { weeks, day, now } = await statsFixture({ edge: false });
   const m = buildModel(weeks, day, now);
   assert.equal(m.join.has, false);
-  assert.deepEqual([m.join.ok, m.join.fail, m.join.total, m.join.since], [0, 0, 0, null]);
+  assert.ok(m.week.joinOk > 0, "there were (old-way) joins");
+  assert.deepEqual([m.join.ok, m.join.fail, m.join.total, m.join.since, m.join.reasons.length], [0, 0, 0, null, 0]);
   assert.equal(m.join.successRate, "—");
-  assert.ok(m.join.all.ok > 0 && m.join.all.older === m.join.all.ok + m.join.all.fail);
   const html = renderToStaticMarkup(createElement(StatsBody, { m, at: null, onReload: () => {} }));
-  assert.equal((html.match(/지금 입장 방식으로 들어간 기록이 아직 없어요/g) || []).length, 2, "방 입장 + 걸린 시간");
-  assert.ok(html.includes("이전 방식 포함 최근 7일 전체: 성공률"));
-  assert.ok(html.includes("이전 방식 포함 최근 7일 전체: 절반은 약"));
+  assert.equal((html.match(/지금 입장 방식으로 들어간 기록이 아직 없어요/g) || []).length, 2, "방 입장 + 걸린 시간 cards only");
+  assert.ok(!html.includes("센 숫자예요"), "no counting note in the help lines");
+  assert.ok(!html.includes("이전 방식") && !html.includes("실패 이유"));
   // No result-looking zeros or a verdict for joins that were never measured.
   assert.ok(!html.includes("목표 달성") && !html.includes("목표 미달"));
   assert.ok(!html.includes("4번 중 3번은<"));
   assert.doesNotMatch(html, /서버/);
-  // All joins the room server's (the 7 days past the switch): no comparison line, no "since".
+  // Room-server joins on every day of the 7 (counting began before the window): no "since" note.
   const { weeks: w2, day: d2 } = await statsFixture();
-  const only = w2.map((w) => ({ ...w, byDay: (w.byDay || []).map((d) => ({ ...d, summary: { ...d.summary, joinOk: d.summary.joinEdgeOk, joinFail: d.summary.joinEdgeFail, joinMs: d.summary.joinEdgeMs } })) }));
-  const m2 = buildModel(only, d2, now);
-  assert.equal(m2.join.all.older, 0);
+  const all = w2.map((w) => ({ ...w, byDay: (w.byDay || []).map((d) => ({ ...d, summary: { ...d.summary, joinEdgeOk: d.summary.joinEdgeOk || 1 } })) }));
+  const m2 = buildModel(all, d2, now);
+  assert.equal(m2.join.since, null);
   const html2 = renderToStaticMarkup(createElement(StatsBody, { m: m2, at: null, onReload: () => {} }));
-  assert.ok(!html2.includes("이전 방식"));
-  assert.ok(html2.includes("입장 방식이 바뀐 10월 13일부터"));
+  assert.ok(!html2.includes("센 숫자예요") && !html2.includes("이전 방식"));
   // An older API answer without the edge fields reads as "no room-server joins yet", not NaN.
   const old = weeks.map((w) => ({ ...w, byDay: (w.byDay || []).map((d) => { const { joinEdgeOk: _a, joinEdgeFail: _b, joinEdgeMs: _c, ...rest } = d.summary; return { ...d, summary: rest as typeof d.summary }; }) }));
   const m3 = buildModel(old, day, now);

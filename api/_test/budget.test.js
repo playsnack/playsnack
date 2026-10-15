@@ -285,11 +285,11 @@ test('room_join via edge: its counters ride in the same pipeline — +1 command 
     assert.equal(await cost([{ ...ok, via }]), 9, via);
     assert.equal(await cost([{ ...fail, via }]), 8, via);
   }
-  // edge: one more HINCRBY in the same pipeline (its time bucket / join_edge_fail).
+  // edge: one more HINCRBY in the same pipeline (its time bucket / its failure reason).
   assert.equal(await cost([{ ...ok, via: 'edge' }]), 10);
   assert.equal(await cost([{ ...fail, via: 'edge' }]), 9);
   const last = up.calls.at(-1);
-  assert.ok(last.some(([c, k, f]) => c === 'HINCRBY' && k === 'stats:daily:2026-10-15' && f === 'join_edge_fail'));
+  assert.ok(last.some(([c, k, f]) => c === 'HINCRBY' && k === 'stats:daily:2026-10-15' && f === 'join_edge_fail_reason:timeout'));
   // The most a join can make is unchanged: 7 day fields (§5a) — an edge join's tries are not counted.
   const most = { ...ok, tries: 4, slow: true, ms: 7000 };
   const mesh = await cost([{ ...most, via: 'mesh' }]);

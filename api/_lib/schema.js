@@ -171,11 +171,13 @@ export const JOIN_MS_PREFIX = 'join_ms_bucket:';
  * The same, room-server joins only (via 'edge', from 2026-10-15): the old combined keys above
  * keep counting every join. One extra field per edge join, in the same HINCRBY batch
  * (docs/telemetry.md §5a): a success adds its time bucket (or JOIN_EDGE_OK_UNTIMED when it
- * carries no usable ms), a failure JOIN_EDGE_FAIL — so edge successes = Σ buckets + untimed.
+ * carries no usable ms), a failure its reason (JOIN_EDGE_FAIL_REASON_PREFIX, or JOIN_EDGE_FAIL
+ * when it has none) — so edge successes = Σ buckets + untimed, failures = Σ reasons + JOIN_EDGE_FAIL.
  */
 export const JOIN_EDGE_MS_PREFIX = 'join_edge_ms_bucket:';
 export const JOIN_EDGE_OK_UNTIMED = 'join_edge_ok_untimed';
 export const JOIN_EDGE_FAIL = 'join_edge_fail';
+export const JOIN_EDGE_FAIL_REASON_PREFIX = 'join_edge_fail_reason:';
 
 /**
  * Normalize one event into counter fields. Returns null when the event is dropped.
@@ -245,7 +247,11 @@ export function normalizeEvent(raw) {
       // Broker tries mean nothing to the room server (it never sends them): not counted for an
       // edge join, so its one extra field keeps a join at ≤ 7 day fields (docs/telemetry.md §5a).
       if (ev.tries !== undefined && !edge) fields.push(`${res}_by_tries:${triesBucket(ev.tries)}`);
-      if (edge) fields.push(!ev.ok ? JOIN_EDGE_FAIL : validMs(ev.ms) ? JOIN_EDGE_MS_PREFIX + timeBucket(ev.ms) : JOIN_EDGE_OK_UNTIMED);
+      if (edge) {
+        fields.push(ev.ok
+          ? (validMs(ev.ms) ? JOIN_EDGE_MS_PREFIX + timeBucket(ev.ms) : JOIN_EDGE_OK_UNTIMED)
+          : (ev.reason !== undefined ? JOIN_EDGE_FAIL_REASON_PREFIX + ev.reason : JOIN_EDGE_FAIL));
+      }
       if (ev.slow) fields.push('joins_ok_after_slow_start');
       withApp();
       break;
@@ -434,9 +440,10 @@ export function summarize(c) {
     joinFailReasons: byPrefix(c, 'join_failed_reason:'),
     // Successful joins per time bucket, every bucket present and in order (for p50/p75/p95).
     joinMs: Object.fromEntries(TIME_BUCKETS.map((b) => [b, n(JOIN_MS_PREFIX + b)])),
-    // Room-server joins only (via 'edge'): successes = Σ time buckets + untimed.
+    // Room-server joins only (via 'edge'): successes = Σ time buckets + untimed, failures = Σ reasons + no-reason.
     joinEdgeOk: TIME_BUCKETS.reduce((t, b) => t + n(JOIN_EDGE_MS_PREFIX + b), 0) + n(JOIN_EDGE_OK_UNTIMED),
-    joinEdgeFail: n(JOIN_EDGE_FAIL),
+    joinEdgeFail: Object.values(byPrefix(c, JOIN_EDGE_FAIL_REASON_PREFIX)).reduce((t, v) => t + v, 0) + n(JOIN_EDGE_FAIL),
+    joinEdgeFailReasons: byPrefix(c, JOIN_EDGE_FAIL_REASON_PREFIX),
     joinEdgeMs: Object.fromEntries(TIME_BUCKETS.map((b) => [b, n(JOIN_EDGE_MS_PREFIX + b)])),
     share: n('shares'),
     shareWhat: byPrefix(c, 'shares:'),

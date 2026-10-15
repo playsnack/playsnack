@@ -36,8 +36,11 @@ export function joinTracker(o: {
   slug: string;
   /** The room id as the transport sees it (`slug` or `slug~CODE`). */
   room: string;
-  /** The transport this join uses (RoomTransport.via): the stats keep room-server joins apart. */
-  via?: RoomVia;
+  /**
+   * The transport this join uses (RoomTransport.via): the stats keep room-server joins apart.
+   * Required (undefined only when truly unknown), so a caller cannot drop it by accident.
+   */
+  via: RoomVia | undefined;
   now?: () => number;
   /** Defaults to telemetry's trackJoin (main's metrics helper). */
   send?: (ev: JoinEvent) => void;

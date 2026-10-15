@@ -79,9 +79,9 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
   const w = m.week;
   const b = budgetLine(m.budget);
   const reg = regulars(m.days[0] ? m.days[0].s : null);
-  // Join numbers count room-server joins only ("지금 입장 방식" — the page never says 서버); the old way shows up as one small line while the 7 days still hold it.
-  const edgeNote = m.join.since ? `입장 방식이 바뀐 ${m.join.since}부터 센 숫자예요` : "지금 입장 방식으로 들어간 경우만 센 숫자예요";
-  const olderLine = m.join.all.older > 0 ? (what: string) => `이전 방식 포함 최근 7일 전체: ${what}` : null;
+  // Join numbers count room-server joins only ("지금 입장 방식" — the page never says 서버); the
+  // old way is not shown at all (owner, 2026-10-15). Said once, under 방 입장: when counting began.
+  const edgeNote = m.join.since ? `지금 입장 방식만 ${m.join.since}부터 센 숫자예요.` : null;
   return (
     <>
       {!m.wired && (
@@ -109,7 +109,7 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
 
       <H2>날마다</H2>
       <p style={help}>끝난 판 = 결과 화면까지 간 판 · 나도 만들기 = 결과를 보고 만든 퀴즈</p>
-      <div style={{ overflowX: "auto" }} role="region" aria-label="날마다 숫자 표" tabIndex={0}>
+      <div style={tableBox} role="region" aria-label="날마다 숫자 표" tabIndex={0}>
         <table style={table}>
           <thead>
             <tr>
@@ -158,23 +158,22 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
       </section>
 
       <H2>방 입장</H2>
-      <p style={help}>{edgeNote}.</p>
+      {edgeNote && <p style={help}>{edgeNote}</p>}
       <section style={card}>
         {m.join.has ? (
           <Row label="입장 성공률" value={m.join.successRate} sub={`성공 ${fmtInt(m.join.ok)} · 실패 ${fmtInt(m.join.fail)}`} />
         ) : (
           <p style={{ ...muted, margin: 0 }}>지금 입장 방식으로 들어간 기록이 아직 없어요.</p>
         )}
-        {olderLine && <p style={{ ...help, marginTop: S.s2, marginBottom: 0 }}>{olderLine(`성공률 ${m.join.all.successRate}`)}</p>}
         {m.join.reasons.length > 0 && (
           <>
-            <div style={{ ...muted, marginTop: S.s3 }}>실패 이유{m.join.all.older > 0 && " (이전 방식 포함)"}</div>
+            <div style={{ ...muted, marginTop: S.s3 }}>실패 이유</div>
             {m.join.reasons.map((r) => <Row key={r.key} label={r.label} value={fmtInt(r.n)} small />)}
           </>
         )}
       </section>
       <H2>입장까지 걸린 시간</H2>
-      <p style={help}>링크를 열고 방에 들어가기까지 걸린 시간이에요(잘 들어간 경우만). {edgeNote}. 목표: 4번 중 3번은 2초 안에.</p>
+      <p style={help}>링크를 열고 방에 들어가기까지 걸린 시간이에요(잘 들어간 경우만). 목표: 4번 중 3번은 2초 안에.</p>
       <section style={card}>
         {m.join.total === 0 ? (
           <p style={{ ...muted, margin: 0 }}>{m.join.has ? "아직 시간을 잰 입장이 없어요." : "지금 입장 방식으로 들어간 기록이 아직 없어요."}</p>
@@ -195,9 +194,6 @@ export function StatsBody({ m, g = null, at, onReload }: { m: StatsModel; g?: Gr
             </p>
             <p style={{ ...help, marginBottom: 0 }}>위 세 숫자는 시간 구간으로만 세서 짐작한 값이에요(이 시간 안에 들어왔다는 뜻).</p>
           </>
-        )}
-        {olderLine && m.join.all.timed > 0 && (
-          <p style={{ ...help, marginTop: S.s2, marginBottom: 0 }}>{olderLine(`절반은 ${m.join.all.p50}`)}</p>
         )}
       </section>
 
@@ -321,7 +317,9 @@ const note: React.CSSProperties = {
 };
 const card: React.CSSProperties = { marginTop: S.s3, padding: S.s4, background: C.surface, border: `2px solid ${C.borderBlock}`, boxShadow: "0 5px 0 #000000" };
 const bigNum: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: TOKENS.size.displayLg, color: C.accent, lineHeight: 1.2, margin: `${S.s3}px 0` };
-const table: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: TOKENS.size.bodySm, background: C.surface, border: `2px solid ${C.borderBlock}` };
+/** The box border sits on the scroll box, not the table, so it stays put while the table scrolls sideways. */
+const tableBox: React.CSSProperties = { overflowX: "auto", background: C.surface, border: `2px solid ${C.borderBlock}` };
+const table: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: TOKENS.size.bodySm, background: C.surface };
 const th: React.CSSProperties = { textAlign: "right", padding: `${S.s2}px 6px`, color: C.inkMuted, fontWeight: TOKENS.weight.strong, borderBottom: `2px solid ${C.borderBlock}`, whiteSpace: "nowrap" };
 const thL: React.CSSProperties = { ...th, textAlign: "left" };
 const td: React.CSSProperties = { textAlign: "right", padding: `${S.s2}px 6px`, borderBottom: `1px solid ${C.hairline}`, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };

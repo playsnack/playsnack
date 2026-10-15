@@ -18,9 +18,13 @@ export type Summary = {
   joinFail: number;
   joinFailReasons: Record<string, number>;
   joinMs: Record<string, number>;
-  /** Room-server joins only (`via: 'edge'`, counted from 2026-10-15); the three above count every join. */
+  /**
+   * Room-server joins only (`via: 'edge'`, counted from 2026-10-15) — the only join numbers
+   * the page shows. The four above count every join (kept for history, not shown).
+   */
   joinEdgeOk: number;
   joinEdgeFail: number;
+  joinEdgeFailReasons: Record<string, number>;
   joinEdgeMs: Record<string, number>;
   share: number;
   shareWhat: Record<string, number>;
@@ -166,7 +170,7 @@ const sumRec = (a: Record<string, number>, b: Record<string, number>) => {
 const EMPTY: Summary = {
   sessionsDone: 0, sessionsDone3: 0, sessionsDup: 0, sessionsAbout: 0, rematch: 0, roomsCreated: 0,
   gamesCreated: 0, gamesEditor: 0, gamesRemade: 0, joinOk: 0, joinFail: 0, joinFailReasons: {}, joinMs: {},
-  joinEdgeOk: 0, joinEdgeFail: 0, joinEdgeMs: {},
+  joinEdgeOk: 0, joinEdgeFail: 0, joinEdgeFailReasons: {}, joinEdgeMs: {},
   share: 0, shareWhat: {}, askShown: 0, askYes: 0, askNo: 0, askSkip: 0, askNoReasons: {}, errors: 0,
   devicesSeen: 0, devicesByAge: {}, devicesByUses: {}, devicesByGames: {}, devicesByMade: {}, bad: {},
 };
@@ -202,7 +206,8 @@ export const DAY_COLUMNS: { key: string; head: [string, string]; value: (s: Summ
   { key: "made", head: ["퀴즈", "직접 만듦"], value: (s) => fmtInt(s.gamesEditor) },
   { key: "remade", head: ["퀴즈", "나도 만들기"], value: (s) => fmtInt(s.gamesRemade) },
   { key: "rooms", head: ["새 친구 방", "만듦"], value: (s) => fmtInt(s.roomsCreated) },
-  { key: "join", head: ["입장", "성공률"], value: (s) => fmtPct(s.joinOk, s.joinOk + s.joinFail) },
+  // Room-server joins only, like the 방 입장 card ("—" on a day before they were counted).
+  { key: "join", head: ["입장", "성공률"], value: (s) => fmtPct(s.joinEdgeOk, s.joinEdgeOk + s.joinEdgeFail) },
 ];
 
 /** Join times from one bucket map: the 6 bars, estimated p50/p75/p95 and the "2 s" bar. */
@@ -250,10 +255,11 @@ export type StatsModel = {
   cumulative: Record<string, number>;
   errorsToday: { msg: string; count: number }[];
   /**
-   * Joins to the room server only (`via: 'edge'`) — the page's main join numbers, so the old
-   * player-hosted joins (3–5 s) do not blur the new ones. `has` = any edge join in the 7 days;
-   * `since` = the first of those days ("10월 15일"). `all` = every join, the old way included:
-   * shown as one small comparison line only while the 7 days still hold other joins (`older`).
+   * Joins to the room server only (`via: 'edge'`) — the page's only join numbers, so the old
+   * player-hosted joins (3–5 s) do not blur the new ones (owner, 2026-10-15: the old combined
+   * numbers stay stored but are not shown). `has` = any edge join in the 7 days; `since` = the
+   * first of those days ("10월 15일") when it is inside the window — when counting started
+   * (the deploy that sends `via`), not when rooms moved to the room server.
    */
   join: ReturnType<typeof joinTimes> & {
     has: boolean;
@@ -261,9 +267,8 @@ export type StatsModel = {
     ok: number;
     fail: number;
     successRate: string;
-    /** Why joins failed — every join (no per-way reasons are kept). */
+    /** Why room-server joins failed. */
     reasons: { key: string; label: string; n: number }[];
-    all: { successRate: string; p50: string; ok: number; fail: number; timed: number; older: number };
   };
   ask: { shown: number; yes: number; no: number; skip: number; noAnswer: number; reasons: { key: string; label: string; n: number }[] };
   shares: { total: number; what: { key: string; label: string; n: number }[] };
@@ -285,11 +290,11 @@ export function buildModel(weeks: (WeekBody | null)[], day: DayBody | null, now:
   const anyBody = [...weeks, day].filter((b): b is WeekBody | DayBody => !!b);
   const budget = anyBody.map((b) => b.budget).filter((b): b is Budget => !!b).sort((a, b) => (b.used || 0) - (a.used || 0))[0] || null;
   const edgeTries = week.joinEdgeOk + week.joinEdgeFail;
-  // The day room-server joins started showing up — only when that is inside these 7 days
-  // (on the oldest day it may just be where the window begins).
+  // The first day with joins tagged as room-server ones = when counting them started (rooms
+  // were already on the room server a day earlier; untagged joins then are not in here).
+  // Only when that is inside these 7 days (on the oldest day it may just be where the window begins).
   const firstEdge = [...days].reverse().find((d) => d.s.joinEdgeOk + d.s.joinEdgeFail > 0);
   const edgeSince = firstEdge && firstEdge !== days[days.length - 1] ? firstEdge.day : null;
-  const allTimes = joinTimes(week.joinMs);
   return {
     today,
     empty: days.every((d) => d.empty),
@@ -309,15 +314,7 @@ export function buildModel(weeks: (WeekBody | null)[], day: DayBody | null, now:
       ok: week.joinEdgeOk,
       fail: week.joinEdgeFail,
       successRate: fmtPct(week.joinEdgeOk, edgeTries),
-      reasons: rankedRows(week.joinFailReasons, JOIN_FAIL_LABEL),
-      all: {
-        successRate: fmtPct(week.joinOk, week.joinOk + week.joinFail),
-        p50: allTimes.p50,
-        ok: week.joinOk,
-        fail: week.joinFail,
-        timed: allTimes.total,
-        older: Math.max(0, week.joinOk + week.joinFail - edgeTries),
-      },
+      reasons: rankedRows(week.joinEdgeFailReasons, JOIN_FAIL_LABEL),
     },
     ask: {
       shown: week.askShown,
