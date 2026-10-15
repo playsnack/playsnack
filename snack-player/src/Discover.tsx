@@ -8,10 +8,11 @@ import { MAKE_PARAM, QUIZ_APP_ID, QUIZ_SLUG } from "./quiz";
 import { BLOCK_CSS } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
-// Home: 추천 (games the owner reviewed + fixed on a real phone — index.json
-// `featured`, by rank) first as hero cards, then every other game under
-// "검토 전 게임" as a quieter list. Tapping a card or row opens the app
-// (/p/tpl-<id>). No live numbers here until there is real data to show
+// Home: the 대표작 card (index.json `flagship` — today "나 맞히기", a game of
+// its own: make a quiz about yourself, friends guess) as the one lime hero,
+// then 추천 (games the owner reviewed + fixed on a real phone — index.json
+// `featured`, by rank) as cards, then every other game under "검토 전 게임" as
+// a quieter list. Tapping a card or row opens the app (/p/tpl-<id>). No live numbers here until there is real data to show
 // (master plan D0) — only what is true: the app, its kind, and whether it's
 // played together.
 // Skin = "Mini-Block Arcade": chunky blocks (radius 0 + 2px border + blur:0 hard
@@ -43,13 +44,15 @@ export function Discover() {
     } catch {}
   }, [apps]);
 
-  const open = (id: string) => {
+  const go = (path: string) => {
     try {
       sessionStorage.setItem(SCROLL_KEY, String(shellRef.current?.scrollTop ?? 0));
     } catch {}
-    // The quiz app's primary action is making a "나 맞히기" quiz (App → QuizMaker).
-    location.href = hrefTo(id === QUIZ_APP_ID ? playPath(QUIZ_SLUG, new URLSearchParams({ [MAKE_PARAM]: "1" })) : `/p/tpl-${id}`);
+    location.href = hrefTo(path);
   };
+  const open = (id: string) => go(`/p/tpl-${id}`);
+  // "나 맞히기 만들기": the quiz link with ?make=1 and no room → App → QuizMaker.
+  const makeQuiz = () => go(playPath(QUIZ_SLUG, new URLSearchParams({ [MAKE_PARAM]: "1" })));
 
   if (failed) return <MessageScreen icon="📡" title="목록을 불러오지 못했어요" body="인터넷 연결을 확인하고 다시 시도해 주세요." primary={{ label: "다시 시도", onClick: load }} />;
 
@@ -63,21 +66,30 @@ export function Discover() {
           탭하면 바로 시작해요 · <span style={tagInline}>같이</span> 표시는 친구랑 함께 해요
         </p>
 
-        {/* The first game: make a quiz about yourself, then invite friends. */}
-        {apps?.featured.some((m) => m.id === QUIZ_APP_ID) && (
-          <button className="blk" style={makeCta} onClick={() => open(QUIZ_APP_ID)}>
-            🙋 나 맞히기 만들기
-            <span style={{ display: "block", marginTop: S.s1, fontWeight: 700, fontSize: TOKENS.size.bodySm }}>내 답을 고르고 친구를 초대해요</span>
-          </button>
-        )}
+        {/* 대표작: one lime card. For the 나 맞히기 quiz: 만들기 (→ QuizMaker) first,
+            or play the public room's built-in questions right away. */}
+        {apps?.flagship && (apps.flagship.id === QUIZ_APP_ID ? (
+          <section style={hero} data-section="flagship" data-app={apps.flagship.id} aria-label="대표작 나 맞히기 퀴즈">
+            <span style={heroKicker}>대표작</span>
+            <div style={heroTitle}><span aria-hidden="true">🙋 </span>나 맞히기 퀴즈</div>
+            <p style={heroBody}>내가 낸 문제를 친구들이 맞혀요</p>
+            <button className="blk" style={heroPrimary} data-action="make" onClick={makeQuiz}>내 퀴즈 만들기</button>
+            <button style={heroSecondary} data-action="play" onClick={() => open(apps.flagship!.id)}>기본 문제로 바로 하기 →</button>
+          </section>
+        ) : (
+          <section style={hero} data-section="flagship" data-app={apps.flagship.id} aria-label={`대표작 ${apps.flagship.title}`}>
+            <span style={heroKicker}>대표작</span>
+            <div style={heroTitle}><span aria-hidden="true">{apps.flagship.emoji} </span>{apps.flagship.title}</div>
+            <button className="blk" style={heroPrimary} data-action="play" onClick={() => open(apps.flagship!.id)}>바로 하기</button>
+          </section>
+        ))}
 
-        <h2 style={sectionTitle}>⭐ 추천</h2>
+        {!!apps?.featured.length && <h2 style={sectionTitle}>⭐ 추천</h2>}
         <div style={grid} data-section="featured">
           {(apps?.featured ?? []).map((m) => (
             <button key={m.id} className="blk" style={card} data-app={m.id} onClick={() => open(m.id)}>
               <span style={{ fontSize: 34 }}>{m.emoji}</span>
               <div style={cardTitle}>{m.title}</div>
-              {m.id === QUIZ_APP_ID && <div style={{ ...cardTitle, marginTop: S.s1, color: C.accent, fontSize: TOKENS.size.bodySm }}>나 맞히기 만들기 →</div>}
               <div style={{ display: "flex", alignItems: "center", gap: S.s2, marginTop: S.s2, flexWrap: "wrap" }}>
                 <span style={{ color: C.inkMuted, fontSize: TOKENS.size.caption }}>{CAT[m.category] ?? "스낵"}</span>
                 {m.mode === "multi" && <span style={tag}>같이</span>}
@@ -146,6 +158,28 @@ const row: React.CSSProperties = {
 };
 const rowTitle: React.CSSProperties = { flex: 1, minWidth: 0, fontWeight: 600, color: C.ink, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const tagInline: React.CSSProperties = { ...tag, fontSize: 12, padding: "1px 6px" };
+// 대표작: the one lime hero on the page — dark ink on lime, chunky block edges.
+const hero: React.CSSProperties = {
+  marginTop: S.s5, padding: S.s4, background: C.accent, color: C.accentInk, borderRadius: R.block,
+  border: `${TOKENS.border.block}px solid ${C.accentInk}`, boxShadow: blockShadow,
+  display: "flex", flexDirection: "column", alignItems: "stretch",
+};
+const heroKicker: React.CSSProperties = {
+  alignSelf: "flex-start", background: C.accentInk, color: C.accent, borderRadius: R.chip,
+  padding: `2px ${S.s2}px`, fontSize: TOKENS.size.caption, fontWeight: 800, lineHeight: 1.5,
+};
+const heroTitle: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: TOKENS.size.titleMd + 1, fontWeight: 700, marginTop: S.s3, lineHeight: 1.35 };
+const heroBody: React.CSSProperties = { margin: `${S.s1}px 0 0`, fontSize: TOKENS.size.bodyMd, fontWeight: 600, lineHeight: 1.5 };
+const heroPrimary: React.CSSProperties = {
+  marginTop: S.s4, minHeight: TOKENS.layout.btnH, padding: `0 ${S.s4}px`, borderRadius: R.block,
+  border: `${TOKENS.border.block}px solid ${C.accentInk}`, background: C.accentInk, color: C.accent, boxShadow: blockShadow,
+  fontFamily: TOKENS.font.heading, fontWeight: 800, fontSize: TOKENS.size.bodyLg, cursor: "pointer",
+};
+const heroSecondary: React.CSSProperties = {
+  marginTop: S.s3, minHeight: TOKENS.layout.tap, background: "transparent", border: "none", color: C.accentInk,
+  fontFamily: TOKENS.font.heading, fontWeight: 700, fontSize: TOKENS.size.bodyMd, textDecoration: "underline",
+  textUnderlineOffset: 3, cursor: "pointer",
+};
 const makeCta: React.CSSProperties = {
   width: "100%", marginTop: S.s5, padding: S.s4, borderRadius: R.block, border: `${TOKENS.border.block}px solid ${C.accentInk}`,
   background: C.accent, color: C.accentInk, boxShadow: blockShadow, fontWeight: 800, fontSize: TOKENS.size.bodyLg, cursor: "pointer",

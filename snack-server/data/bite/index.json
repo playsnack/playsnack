@@ -305,7 +305,7 @@
     "avg": 0,
     "useCount": 0,
     "order": 27,
-    "featured": 2,
+    "featured": 1,
     "createdAt": 0
   },
   {
@@ -474,7 +474,7 @@
     "avg": 0,
     "useCount": 0,
     "order": 40,
-    "featured": 3,
+    "featured": 2,
     "createdAt": 0
   },
   {
@@ -506,7 +506,7 @@
     "avg": 0,
     "useCount": 0,
     "order": 42,
-    "featured": 1,
+    "flagship": true,
     "createdAt": 0
   },
   {
