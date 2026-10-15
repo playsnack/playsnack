@@ -2,6 +2,9 @@
 // shipped in every build, serverless or not). Two flags shape it:
 //   hidden: true        → not on the home screen, but old links still open it
 //   mergedInto: "<id>"  → old links redirect to that app instead
+//   featured: n         → in the home "추천" section, rank n (1 = first). Set it
+//                         only after the owner has reviewed + fixed the game on a
+//                         real phone; everything else lists under "검토 전 게임".
 import type { BiteDoc } from "@snack/bite";
 
 export type CatalogEntry = {
@@ -13,6 +16,7 @@ export type CatalogEntry = {
   order?: number;
   hidden?: boolean;
   mergedInto?: string;
+  featured?: number;
 };
 
 let cache: Promise<CatalogEntry[]> | null = null;
@@ -26,13 +30,22 @@ export function loadCatalog(): Promise<CatalogEntry[]> {
   return cache;
 }
 
-/** Apps shown on the home screen, in catalog order. */
-export async function homeApps(): Promise<CatalogEntry[]> {
-  const all = await loadCatalog();
-  return all
+export type HomeSections = { featured: CatalogEntry[]; unreviewed: CatalogEntry[] };
+
+/** Split the home lineup: 추천 (featured, by rank) first, the rest (검토 전) in catalog order. */
+export function splitHome(all: CatalogEntry[]): HomeSections {
+  const shown = all
     .map((t, i) => ({ ...t, order: t.order ?? i }))
-    .filter((t) => !t.hidden && !t.mergedInto)
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    .filter((t) => !t.hidden && !t.mergedInto);
+  const isFeatured = (t: CatalogEntry) => typeof t.featured === "number" && t.featured > 0;
+  return {
+    featured: shown.filter(isFeatured).sort((a, b) => a.featured! - b.featured! || a.order! - b.order!),
+    unreviewed: shown.filter((t) => !isFeatured(t)).sort((a, b) => a.order! - b.order!),
+  };
+}
+
+export async function homeSections(): Promise<HomeSections> {
+  return splitHome(await loadCatalog());
 }
 
 /** For a template link (`tpl-<id>`): the template it now lives in, if it was merged. */
