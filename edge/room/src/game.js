@@ -26,8 +26,8 @@
 //   AUTO_START_MIN — one alone waits) the lobby counts down and starts by itself. Someone new
 //   arriving while a game runs (who would only watch) gets `moveTo` the next generation room
 //   (`slug.g2`, `slug.g3`, … — the same for every late arrival, so they play together there:
-//   the first one waits there for the next) and is closed 4010. A new room goes through the same usage guard (RoomGate);
-//   refused, the client comes back here with `stay: true` and watches instead.
+//   the first one waits there for the next) and is closed 4010. A new room goes through the same
+//   usage guard (RoomGate); refused, the client comes back here with `stay: true` and watches.
 //
 // Hibernation: engine state lives in memory; a pending engine timer (setTimeout) keeps the
 // DO awake through a game. Idle (lobby / result), the DO may hibernate and lose memory, so
