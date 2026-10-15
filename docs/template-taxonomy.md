@@ -7,6 +7,10 @@ Confidence: format + server-contract claims verified 3-0; the matrix/30-list is
 design synthesis (medium). Caveat: the Kaggle "17k App Store" set is strategy-only —
 popularity grounding comes from GameAnalytics/Sensor Tower + the format evidence, not it.
 
+## Home catalog fields (`snack-server/data/bite/index.json`)
+- `hidden: true` → off the home screen, old links still open it · `mergedInto: "<id>"` → old links redirect there.
+- **추천 rule:** a game goes into the home "추천" section only after the owner reviewed + fixed it on a real phone — then set `"featured": n` (rank, 1 = first) on its entry and add its id to `REVIEWED` in `snack-player/test/catalog.test.ts`; every game without `featured` lists under "검토 전 게임".
+
 ## Key evidence
 - **Highest-engagement genre = "classic" (trivia/word/quiz)**: top-quartile D1 retention 31%, ~10 min sessions (beats casual 28%/7 min). → skew templates toward **quiz/trivia**.
 - **Proven together-pattern = host-driven simultaneous play + live leaderboard** (Kahoot/Jackbox): room/code join, own-device browser, no install.
