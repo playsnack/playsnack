@@ -23,6 +23,22 @@ test("ok: ms from start to the first connected; later states are not joins", () 
   assert.deepEqual(sent, [{ k: "room_join", ok: true, ms: 1234, room: "friend" }]);
 });
 
+test("via: the transport the join used rides on every outcome (and only when known)", () => {
+  let t = 0;
+  const sent: unknown[] = [];
+  const j = joinTracker({ slug: "tpl-tap-battle", room: "tpl-tap-battle", via: "edge", now: () => t, send: (e) => sent.push(e) });
+  j.start("connect");
+  t += 700;
+  j.conn("connected");
+  j.start("retry");
+  t += 15000;
+  j.conn("failed", "timeout");
+  assert.deepEqual(sent, [
+    { k: "room_join", ok: true, ms: 700, room: "public", via: "edge" },
+    { k: "room_join", ok: false, ms: 15000, room: "public", reason: "timeout", via: "edge" },
+  ]);
+});
+
 test("fail: reason is the code word only; retry is a new attempt", () => {
   const { j, sent, advance } = setup();
   j.start("connect");

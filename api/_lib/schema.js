@@ -32,6 +32,12 @@ export const JOIN_FAIL_REASONS = new Set(['bad_link', 'not_found', 'network', 't
 export const MAX_JOIN_TRIES = 20;
 export const JOIN_TRIES_BUCKETS = ['1', '2', '3', '4+'];
 export const triesBucket = (n) => (n >= 4 ? '4+' : String(n));
+/**
+ * room_join `via`: the transport the join used — 'edge' = the room server (Cloudflare Durable
+ * Object, docs/edge-rooms.md), 'mesh' = player-hosted (MQTT broker or edge relay), 'server' =
+ * snack-server. Any other value is ignored (the event still counts, without a via).
+ */
+export const JOIN_VIA = new Set(['edge', 'mesh', 'server']);
 export const GAME_SOURCES =new Set(['editor', 'remake']);
 export const ASK_ANSWERS = new Set(['yes', 'no', 'skip']);
 export const ASK_REASONS = new Set(['boring', 'hard', 'laggy', 'few', 'other']);
@@ -161,6 +167,15 @@ export const MONTHLY_FIELDS = [
 export const REJECTED_PREFIX = 'rejected_events:';
 /** Successful joins by time-to-join bucket — the p75 ≤ 2 s quality bar (docs/telemetry.md §9). */
 export const JOIN_MS_PREFIX = 'join_ms_bucket:';
+/**
+ * The same, room-server joins only (via 'edge', from 2026-10-15): the old combined keys above
+ * keep counting every join. One extra field per edge join, in the same HINCRBY batch
+ * (docs/telemetry.md §5a): a success adds its time bucket (or JOIN_EDGE_OK_UNTIMED when it
+ * carries no usable ms), a failure JOIN_EDGE_FAIL — so edge successes = Σ buckets + untimed.
+ */
+export const JOIN_EDGE_MS_PREFIX = 'join_edge_ms_bucket:';
+export const JOIN_EDGE_OK_UNTIMED = 'join_edge_ok_untimed';
+export const JOIN_EDGE_FAIL = 'join_edge_fail';
 
 /**
  * Normalize one event into counter fields. Returns null when the event is dropped.
@@ -218,12 +233,19 @@ export function normalizeEvent(raw) {
       // slow: true only — a join that got in after the "slow, still trying" notice showed.
       if (ev.tries !== undefined && !(Number.isInteger(ev.tries) && ev.tries >= 1 && ev.tries <= MAX_JOIN_TRIES)) return null;
       if (ev.slow !== undefined && (ev.slow !== true || !ev.ok)) return null;
+      // via: an off-list value is ignored, not a reason to drop the join. Only 'edge' gets its
+      // own counters (mesh / server joins are the old combined numbers minus these).
+      const via = JOIN_VIA.has(ev.via) ? ev.via : null;
+      const edge = via === 'edge';
       const res = ev.ok ? 'joins_ok' : 'joins_failed';
       fields.push(res);
       if (validMs(ev.ms)) fields.push(`${ev.ok ? JOIN_MS_PREFIX : 'join_failed_ms_bucket:'}${timeBucket(ev.ms)}`);
       if (ev.room !== undefined) fields.push(`${res}_by_room:${ev.room}`);
       if (ev.reason !== undefined) fields.push(`join_failed_reason:${ev.reason}`);
-      if (ev.tries !== undefined) fields.push(`${res}_by_tries:${triesBucket(ev.tries)}`);
+      // Broker tries mean nothing to the room server (it never sends them): not counted for an
+      // edge join, so its one extra field keeps a join at ≤ 7 day fields (docs/telemetry.md §5a).
+      if (ev.tries !== undefined && !edge) fields.push(`${res}_by_tries:${triesBucket(ev.tries)}`);
+      if (edge) fields.push(!ev.ok ? JOIN_EDGE_FAIL : validMs(ev.ms) ? JOIN_EDGE_MS_PREFIX + timeBucket(ev.ms) : JOIN_EDGE_OK_UNTIMED);
       if (ev.slow) fields.push('joins_ok_after_slow_start');
       withApp();
       break;
@@ -412,6 +434,10 @@ export function summarize(c) {
     joinFailReasons: byPrefix(c, 'join_failed_reason:'),
     // Successful joins per time bucket, every bucket present and in order (for p50/p75/p95).
     joinMs: Object.fromEntries(TIME_BUCKETS.map((b) => [b, n(JOIN_MS_PREFIX + b)])),
+    // Room-server joins only (via 'edge'): successes = Σ time buckets + untimed.
+    joinEdgeOk: TIME_BUCKETS.reduce((t, b) => t + n(JOIN_EDGE_MS_PREFIX + b), 0) + n(JOIN_EDGE_OK_UNTIMED),
+    joinEdgeFail: n(JOIN_EDGE_FAIL),
+    joinEdgeMs: Object.fromEntries(TIME_BUCKETS.map((b) => [b, n(JOIN_EDGE_MS_PREFIX + b)])),
     share: n('shares'),
     shareWhat: byPrefix(c, 'shares:'),
     askShown: n('asked_again'),

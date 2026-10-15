@@ -6,7 +6,7 @@
 // "participants", "reaction", "actionAck"; outbound actions and reactions.
 
 import { debugEnabled, dlog, noteRoomMessage } from "./debugLog";
-import { engineMetrics } from "./telemetry";
+import { engineMetrics, type RoomVia } from "./telemetry";
 import { engineResults } from "./roomResult";
 import type { Bus } from "@snack/room/mesh-client";
 import { browserEnv, isHidden, onPageBack, visibleTimeout, type PageBack, type PageEnv, type VisibleTimer } from "./visibleTimer";
@@ -25,6 +25,8 @@ export type ConnState = "connecting" | "connected" | "reconnecting" | "failed";
 export type ConnStatus = { state: ConnState; reason?: string };
 
 export interface RoomTransport {
+  /** Where the room runs: 'edge' room server, player-hosted 'mesh', or snack-'server' (room_join telemetry). */
+  readonly via: RoomVia;
   /** Open the connection and join the room. */
   connect(): void;
   close(): void;
@@ -63,6 +65,7 @@ const FINAL_CLOSE = new Set([4000, 4001, 4009, 4029]);
  * ("connecting" → "connected" once the room state arrives | "failed").
  */
 abstract class BaseTransport implements RoomTransport {
+  abstract readonly via: RoomVia;
   private listeners = new Set<(m: RoomMessage) => void>();
   private state: ConnState | null = null;
   private timer: VisibleTimer | null = null;
@@ -150,6 +153,7 @@ abstract class BaseTransport implements RoomTransport {
  * (edge rooms: and the seat token), so the player keeps their seat.
  */
 export class ServerTransport extends BaseTransport {
+  readonly via: RoomVia = "server";
   private ws: WebSocket | null = null;
   /** Reconnect tries since the room state last arrived (picks the backoff pause). */
   private tries = 0;
@@ -304,6 +308,7 @@ export class ServerTransport extends BaseTransport {
  * (a reload / reconnect takes this device's seat back) and the organizer token.
  */
 export class EdgeRoomTransport extends ServerTransport {
+  override readonly via: RoomVia = "edge";
   /** The room this transport is in now: the link's, or the next one a public room moved us to (#136). */
   roomId: string;
   /** Moved here from this room (a refused new room sends us back to watch there). */
@@ -439,6 +444,7 @@ abstract class EngineTransport extends BaseTransport {
  * hosts (runs the room engine); the server only relays messages.
  */
 export class RelayTransport extends EngineTransport {
+  readonly via: RoomVia = "server";
   constructor(private url: string, private me: Identity, private packUrl: string, private eventsUrl?: string) {
     super();
   }
@@ -471,6 +477,7 @@ export class RelayTransport extends EngineTransport {
  * backend.ts BROKER_URL); one of them hosts the room engine.
  */
 export class MeshTransport extends EngineTransport {
+  readonly via: RoomVia = "mesh";
   /**
    * `freshRoom`: this device made the room code a moment ago, so nobody can be there yet —
    * the first connect waits FRESH_DISCOVERY_MS for a host instead of the mesh's 1.5 s

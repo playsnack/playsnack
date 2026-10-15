@@ -6,7 +6,7 @@
 //               later states (a drop after joining, a repeated "failed") are not joins.
 // Also what the connecting screen says while a join is slow (slowJoinText).
 // Erasable TypeScript only (Node runs it directly in tests).
-import { joinFailReason, trackJoin, type RoomKind, type TelemetryEvent } from "./telemetry.ts";
+import { joinFailReason, trackJoin, type RoomKind, type RoomVia, type TelemetryEvent } from "./telemetry.ts";
 import { dlog, setRoomCode } from "./debugLog.ts";
 
 type JoinEvent = Extract<TelemetryEvent, { k: "room_join" }>;
@@ -36,12 +36,14 @@ export function joinTracker(o: {
   slug: string;
   /** The room id as the transport sees it (`slug` or `slug~CODE`). */
   room: string;
+  /** The transport this join uses (RoomTransport.via): the stats keep room-server joins apart. */
+  via?: RoomVia;
   now?: () => number;
   /** Defaults to telemetry's trackJoin (main's metrics helper). */
   send?: (ev: JoinEvent) => void;
 }): JoinTracker {
   const now = o.now ?? (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
-  const send = o.send ?? ((ev: JoinEvent) => trackJoin(o.slug, ev.ok, { ms: ev.ms, room: ev.room, reason: ev.reason, tries: ev.tries, slow: ev.slow }));
+  const send = o.send ?? ((ev: JoinEvent) => trackJoin(o.slug, ev.ok, { ms: ev.ms, room: ev.room, reason: ev.reason, tries: ev.tries, slow: ev.slow, via: ev.via }));
   const code = o.room.includes("~") ? o.room.slice(o.room.indexOf("~") + 1) : null;
   const room: RoomKind = code ? "friend" : "public";
   setRoomCode(code);
@@ -56,6 +58,7 @@ export function joinTracker(o: {
     if (!ok) ev.reason = joinFailReason(reason);
     if (tries > 0) ev.tries = Math.min(20, tries);
     if (ok && ev.ms! >= SLOW_JOIN_MS) ev.slow = true;
+    if (o.via) ev.via = o.via;
     return ev;
   };
   const detail = (ev: JoinEvent) => [ev.tries ? `${ev.tries} ${ev.tries === 1 ? "try" : "tries"}` : "", ev.slow ? "after a slow start" : ""].filter(Boolean).join(", ");
