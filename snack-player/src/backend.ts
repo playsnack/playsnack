@@ -20,7 +20,7 @@ const json = async <T>(url: string): Promise<T> => {
 };
 
 // ── routes: path links (/p/<slug>) in both modes. The static host rewrites
-// /p/* to index.html (vercel.json); snack-server has the same fallback. Old
+// /p/* to index.html (Cloudflare Pages _redirects); snack-server has the same fallback. Old
 // hash links (#/p/…) still open: they are read as the path form and the
 // address bar is rewritten in place (no reload). Rules: links.ts.
 export type { Route } from "./links";
