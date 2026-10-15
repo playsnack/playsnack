@@ -19,6 +19,7 @@ import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
 import { joinTracker, slowJoinText } from "./roomJoin";
 import { visibleTimeout, type VisibleTimer } from "./visibleTimer";
+import { autoStartTicker } from "./autoStart";
 import { noteDeviceUsage, trackRoomCreate, trackShare } from "./telemetry";
 import {
   MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage, packPending,
@@ -158,8 +159,14 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     // and a mesh heartbeat say the new name too.
     const me = { slug: roomIdFor(slug, params), anonId: getAnonId(), nick: getNick() ?? "" };
     meRef.current = me;
-    const room: RoomTransport = createRoom(me, params);
+    // A public edge room starts by itself with the app's own start payload (#136, doc.room).
+    const roomCfg = doc.room;
+    const room: RoomTransport = createRoom(me, params, roomCfg ? { autoStart: { start: roomCfg.start, ms: roomCfg.autoStartMs } } : {});
     roomRef.current = room;
+    // "10초 뒤 시작" (autoStart.ts): seconds left, into the template's autoStartIn when it has one.
+    const auto = autoStartTicker((n) => {
+      if (doc.vars && Object.prototype.hasOwnProperty.call(doc.vars, "autoStartIn")) runtimeRef.current?.setVar("autoStartIn", n);
+    });
     const join = joinTracker({ slug, room: roomIdFor(slug, params) }); // room_join telemetry + ?debug=1 log
     // The backstop for a transport that never reports: like the transport's own deadline,
     // it counts only time with the page on screen (visibleTimer.ts, #115).
@@ -198,7 +205,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       }
       // A new broker connect try (serverless): counted for room_join, not room traffic.
       if (m.t === "connAttempt") return join.attempt(Number(m.d.n), m.d.reason as string | undefined);
+      // A public room mid-game moved us to its next room (#136): still joining, the screen stays.
+      if (m.t === "moved") return;
       heard(); // any room traffic means we're in
+      if (m.t === "autoStart") return auto.message(m.d.endsIn);
       if (m.t === "state") {
         quizRef.current.live = true;
         sharedRef.current = m.d.sharedState as Record<string, unknown>;
@@ -215,6 +225,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         setSpectator({ me: sh.iAmSpectator, phase: String(sh.sessionPhase ?? "lobby") });
       } else if (m.t === "setVar") {
         if (m.d.id === "sessionPhase") last.phase(m.d.value); // a game started here: the old result steps aside
+        if (m.d.id === "sessionPhase" && m.d.value !== "lobby") auto.clear(); // the countdown is over
         if (forTemplate(doc, m.d.id as string)) runtimeRef.current?.setVar(m.d.id as string, m.d.value);
         onQuizVar(m.d.id as string, m.d.value);
         if (m.d.id === "iAmSpectator") setSpectator((x) => ({ ...x, me: m.d.value }));
@@ -239,6 +250,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       : () => setRoomGen((g) => g + 1);
     return () => {
       silence?.cancel();
+      auto.stop();
       setReconnecting(false);
       last.close();
       join.end();

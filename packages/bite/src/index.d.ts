@@ -12,6 +12,8 @@ export interface BiteDoc {
   frame: [number, number];
   vars: Record<string, Json>;
   data?: { url: string };
+  /** Together apps: the room's start payload — a public room starts by itself with it (§6.2). */
+  room?: { start: Json; autoStartMs?: number };
   components?: Record<string, { props?: Record<string, Json>; view: BiteNode; description?: string }>;
   start: string;
   phases: Record<string, { enter?: BiteAction[]; tick?: BiteAction[] }>;

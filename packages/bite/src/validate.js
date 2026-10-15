@@ -3,7 +3,9 @@
 // in English because they are fed back to the LLM for self-repair.
 import { compileExpr, template, RESERVED, FUNCS } from "./expr.js";
 
-const TOP_KEYS = new Set(["bite", "meta", "frame", "vars", "data", "components", "start", "phases", "view"]);
+const TOP_KEYS = new Set(["bite", "meta", "frame", "vars", "data", "room", "components", "start", "phases", "view"]);
+const ROOM_KEYS = new Set(["start", "autoStartMs"]);
+const AUTO_START_RANGE = [3000, 60000]; // @snack/room AUTO_START_RANGE
 const META_KEYS = new Set(["name", "multi", "description"]);
 const PHASE_KEYS = new Set(["enter", "tick"]);
 const KIND_KEYS = ["box", "text", "image", "use"];
@@ -226,6 +228,21 @@ export function validate(doc, { hostActions } = {}) {
       else checkField(v, fields[k], `${p}.payload.${k}`, k);
     }
   };
+
+  // `room` (docs/bite-format.md §6.2): the app's own start payload — a public room starts by itself with it.
+  if ("room" in doc) {
+    const room = doc.room;
+    if (!isObj(room)) err("room", "must be { start, autoStartMs? }");
+    else {
+      for (const k of Object.keys(room)) if (!ROOM_KEYS.has(k)) err(`room.${k}`, `unknown key '${k}' (start, autoStartMs)`);
+      if (!("start" in room)) err("room.start", "required — the same payload the lobby's start button emits");
+      else if (!isObj(room.start) && typeof room.start !== "number") err("room.start", "must be the start payload object (or a duration number)");
+      else if (isObj(room.start) && Object.values(room.start).some(isTemplate)) err("room.start", "must be literal values (the room keeps it as sent — no {variables})");
+      else checkEmit({ emit: "start", payload: room.start }, "room");
+      if ("autoStartMs" in room && !(typeof room.autoStartMs === "number" && room.autoStartMs >= AUTO_START_RANGE[0] && room.autoStartMs <= AUTO_START_RANGE[1]))
+        err("room.autoStartMs", `must be a number of ms in ${AUTO_START_RANGE.join("–")}`);
+    }
+  }
 
   for (const [name, ph] of Object.entries(phases)) {
     const p = `phases.${name}`;

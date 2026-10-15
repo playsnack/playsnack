@@ -28,13 +28,14 @@ const findEmits = (doc) => {
   return out;
 };
 
-async function sentVars(doc) {
+async function sentVars(doc, startRule = "any") {
   let t = 0;
   let seq = 0;
   const timers = new Map();
   const sent = new Map(); // id → how it reached a player
   const note = (id, how) => sent.set(id, (sent.get(id) ?? new Set()).add(how));
   const room = createRoom({
+    startRule,
     defaults: doc.vars?.votesByOption ?? {},
     now: () => t,
     random: () => 0.3,
@@ -75,6 +76,7 @@ async function sentVars(doc) {
   const act = (p, name, payload) => room.action(p, { name, payload, clientMsgId: `${p}-${name}-${++seq}` });
   room.join("p1", { anonId: "a1", nick: "닉1" });
   room.join("p2", { anonId: "a2", nick: "닉2" });
+  if (startRule === "auto" && doc.room) room.configureAuto(doc.room.start, doc.room.autoStartMs);
   const emits = findEmits(doc);
   const start = emits.find((e) => e.emit === "start");
   for (let session = 0; session < 2; session++) {
@@ -108,6 +110,8 @@ test("MP-13: the room sends only variables each shipped template declares", asyn
     checked += 1;
     const declared = new Set(Object.keys(doc.vars ?? {}));
     const sent = await sentVars(doc);
+    // friends room (방장, #135) / public room (자동 시작, #136): the session templates also get roomMode, hostNick, iAmHost
+    if (doc.room) for (const rule of ["host", "auto"]) for (const [id, how] of await sentVars(doc, rule)) sent.set(id, new Set([...(sent.get(id) ?? []), ...how]));
     const undeclared = [...sent].filter(([id]) => !declared.has(id)).map(([id, how]) => `${id} (${[...how].join("/")})`);
     if (undeclared.length) bad.push(`${f}: ${undeclared.join(", ")}`);
   }

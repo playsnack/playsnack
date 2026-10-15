@@ -158,8 +158,14 @@ export class ServerTransport extends BaseTransport {
   private retryTimer: unknown = null;
   private offBack: (() => void) | null = null;
 
-  constructor(private url: string, protected me: Identity) {
+  constructor(protected url: string, protected me: Identity) {
     super();
+  }
+
+  /** A new socket for this join now (the edge room moved us to another room, #136). */
+  protected reopen() {
+    this.tries = 0;
+    this.open(this.gen);
   }
 
   /** What the first frame carries (the edge room adds its tokens). */
@@ -298,30 +304,80 @@ export class ServerTransport extends BaseTransport {
  * (a reload / reconnect takes this device's seat back) and the organizer token.
  */
 export class EdgeRoomTransport extends ServerTransport {
-  constructor(roomUrl: string, me: Identity) {
-    super(`${roomUrl.replace(/\/+$/, "")}/room/${encodeURIComponent(me.slug)}`, me);
+  /** The room this transport is in now: the link's, or the next one a public room moved us to (#136). */
+  roomId: string;
+  /** Moved here from this room (a refused new room sends us back to watch there). */
+  private movedFrom: string | null = null;
+  private stay = false;
+
+  /**
+   * `opts.organize`: this device made the room a moment ago (a new friends-room code) — it asks to
+   * organize it, and the organizer is the room's host (방장, #135).
+   * `opts.autoStart`: the app's start payload (its template's `room`) — a public room starts by
+   * itself with it, and may move a late arrival to the next room (`moveTo`, #136).
+   */
+  constructor(private roomUrl: string, me: Identity, private opts: EdgeRoomOptions = {}) {
+    super(edgeRoomUrl(roomUrl, me.slug), me);
+    this.roomId = me.slug;
   }
 
   protected helloData() {
-    const token = sessionTokens.get(this.me.slug);
-    const organizerToken = sessionTokens.get(`org:${this.me.slug}`);
-    return { ...this.me, ...(token ? { token } : {}), ...(organizerToken ? { organizerToken } : {}) };
+    const room = this.roomId;
+    const token = sessionTokens.get(room);
+    const organizerToken = sessionTokens.get(`org:${room}`);
+    const { organize, autoStart } = this.opts;
+    return {
+      ...this.me,
+      slug: room,
+      ...(token ? { token } : {}),
+      ...(organizerToken ? { organizerToken } : organize && room === this.me.slug ? { organize: true } : {}),
+      ...(autoStart ? { autoStart } : {}),
+      ...(this.stay ? { stay: true } : {}),
+    };
+  }
+
+  /** Into another room of this app, quietly: the screen keeps showing the lobby it had. */
+  private moveTo(room: string, stay = false) {
+    dlog("conn", `room → ${room}${stay ? " (stay)" : ""}`);
+    this.roomId = room;
+    this.stay = stay;
+    this.url = edgeRoomUrl(this.roomUrl, room);
+    this.emit({ t: "moved", d: { room } });
+    this.reopen();
   }
 
   protected control(m: RoomMessage) {
     const token = typeof m.d?.token === "string" ? m.d.token : "";
-    if (m.t === "token") sessionTokens.set(this.me.slug, token);
-    else if (m.t === "organizer") sessionTokens.set(`org:${this.me.slug}`, token);
-    else if (m.t === "denied") {
+    if (m.t === "token") sessionTokens.set(this.roomId, token);
+    else if (m.t === "organizer") sessionTokens.set(`org:${this.roomId}`, token);
+    else if (m.t === "moveTo") {
+      // A public room whose game is under way: its next room plays soon (the same one for every
+      // late arrival). Only a next room of this same app is followed.
+      const room = typeof m.d?.room === "string" ? m.d.room : "";
+      if (!isNextRoom(this.roomId, room)) return this.fail("moved"), true;
+      this.movedFrom ??= this.roomId;
+      this.moveTo(room);
+    } else if (m.t === "denied") {
       const reason = String(m.d?.reason ?? "denied");
       // Our own seat still held by the old socket the room has not seen close yet (a long
       // background, an expired seat token): it lets go soon — keep trying within the budget.
       if (reason === "seat_taken" && this.connState === "reconnecting") this.lost();
+      // The next room could not open (today's free-tier guard): watch the game where we were.
+      else if (this.movedFrom && !this.stay && this.connState === "connecting") this.moveTo(this.movedFrom, true);
       else this.fail(reason);
     }
     else return false;
     return true;
   }
+}
+
+export type EdgeRoomOptions = { organize?: boolean; autoStart?: { start: unknown; ms?: number } };
+const edgeRoomUrl = (roomUrl: string, room: string) => `${roomUrl.replace(/\/+$/, "")}/room/${encodeURIComponent(room)}`;
+/** `slug` → `slug.g2` → `slug.g3` … (edge/room game.js nextRoomId): only a public room moves, one step on. */
+export function isNextRoom(from: string, to: string): boolean {
+  if (from.includes("~")) return false;
+  const m = /^(.*)\.g(\d{1,6})$/.exec(from);
+  return to === (m ? `${m[1]}.g${Number(m[2]) + 1}` : `${from}.g2`);
 }
 
 type EngineConn = { sendAction(n: string, p: unknown, id: string): void; sendReaction(e: string): void; handoff(): void; close(): void };
@@ -467,8 +523,10 @@ export class MeshTransport extends EngineTransport {
       me: this.me,
       getPack: this.getPack,
       // games are reported by the host only (docs/telemetry.md §9.5); a friends room's
-      // finished game is saved for its link (docs/room-results.md)
-      engine: { ...engineMetrics(this.me.slug), ...engineResults(this.me.slug) },
+      // finished game is saved for its link (docs/room-results.md). A friends room has a host
+      // (방장, #135): the first device in (the engine's first join is its own device). Public mesh
+      // rooms keep "anyone starts" — auto-start + moving late arrivals needs the edge room server.
+      engine: { ...engineMetrics(this.me.slug), ...engineResults(this.me.slug), ...(this.me.slug.includes("~") ? { startRule: "host" as const } : {}) },
       onRole: (isHost) => dlog("host", isHost ? "this device hosts the room" : "another player hosts"),
       // Mesh internals for the test log: line adoption / discovery; stale-host drops only counted.
       debug: debugEnabled()
