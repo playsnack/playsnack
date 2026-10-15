@@ -8,6 +8,7 @@ import { WebGLRenderer } from "pixi.js";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { getAnonId, getNick, isNickAuto, setNick } from "./identity";
 import { NameCard } from "./NameCard";
+import { ReactionLayer, type ReactionFxApi } from "./ReactionLayer";
 import { showNameCard } from "./nameChoice";
 import { CONNECT_TIMEOUT_MS, type ConnState, type RoomTransport } from "./roomTransport";
 import { createRoom, EDGE_ROOM_SERVER, hrefTo, isFreshRoom, loadRoomDoc, markFreshRoom, navigate, SERVERLESS } from "./backend";
@@ -68,7 +69,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const runtimeRef = useRef<Runtime | null>(null);
   const roomRef = useRef<RoomTransport | null>(null);
   const sharedRef = useRef<Record<string, unknown> | null>(null);
-  const fxRef = useRef<HTMLDivElement | null>(null);
+  const fxRef = useRef<ReactionFxApi | null>(null);
   const retryRef = useRef<() => void>(() => {});
   const [reactOpen, setReactOpen] = useState(false);
   // "이름 정하기" (#104, nameChoice.ts): this device's identity as the room transport holds it,
@@ -99,23 +100,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const roomParam = roomParamOf(params);
   const invalidRoom = roomParam.kind === "invalid";
 
-  // Floating emoji reaction that rises and fades (DOM overlay above the canvas).
-  const spawnReaction = (emoji: string) => {
-    const c = fxRef.current;
-    if (!c || !emoji) return;
-    const el = document.createElement("div");
-    el.textContent = emoji;
-    el.style.cssText = `position:absolute;bottom:96px;left:${20 + Math.random() * 60}%;font-size:34px;will-change:transform,opacity;`;
-    c.appendChild(el);
-    el.animate(
-      [{ transform: "translateY(0) scale(1)", opacity: 1 },
-       { transform: `translateY(-${180 + Math.random() * 130}px) scale(1.35)`, opacity: 0 }],
-      { duration: 1600 + Math.random() * 500, easing: "ease-out" },
-    ).onfinish = () => el.remove();
-  };
+  // Floating emoji reactions over the canvas (ReactionLayer.tsx, #121).
   const sendReaction = (emoji: string) => {
     roomRef.current?.sendReaction(emoji);
-    spawnReaction(emoji); // optimistic local
+    fxRef.current?.mine(emoji); // an immediate local burst; the room's echo is skipped
   };
 
   const applyShared = (shared: Record<string, unknown> | null | undefined) => {
@@ -215,7 +203,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         last.participants(m.d.count);
         setParticipants(m.d.count as number);
       } else if (m.t === "reaction") {
-        spawnReaction(m.d.emoji as string);
+        fxRef.current?.incoming(m.d.emoji as string);
       }
     });
     setConn("connecting");
@@ -547,7 +535,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       {withRoom && conn === "connected" && showSpectatorNotice(doc, spectator.me, spectator.phase) && (
         <div style={spectatorNotice} role="status">{SPECTATOR_NOTICE_TEXT}</div>
       )}
-      <div ref={fxRef} style={fxOverlay} />
+      <ReactionLayer handle={fxRef} />
       {extras.overlay}
       {/* The result screen's own "친구 초대" is the template's; its QR sits in the top row. */}
       {withRoom && conn !== "failed" && inResult && <div style={inviteDockTop}><QrButton onClick={() => setQrOpen(true)} /></div>}
@@ -570,8 +558,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
               ))}
             </div>
           )}
-          <button style={reactionFab} onClick={() => setReactOpen((o) => !o)} aria-label="반응 보내기">
-            {reactOpen ? "✕" : "💬"}
+          <button style={reactionFab} onClick={() => setReactOpen((o) => !o)} aria-label={reactOpen ? "이모지 반응 닫기" : "이모지 반응 보내기"}>
+            {reactOpen ? "✕" : "😀"}
           </button>
         </div>
       )}
@@ -581,9 +569,6 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
 
 const REACTIONS = ["❤️", "🔥", "😂", "👍", "😮"];
 
-const fxOverlay: React.CSSProperties = {
-  position: "fixed", inset: 0, pointerEvents: "none", zIndex: 12, overflow: "hidden",
-};
 // Bottom-left, mirroring the reaction dock; the note sits above the pill.
 const inviteDock: React.CSSProperties = {
   position: "fixed", left: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)", maxWidth: "70vw",
@@ -628,7 +613,7 @@ const reactionDockTop: React.CSSProperties = {
 const resultNoteDock: React.CSSProperties = {
   ...inviteDock, bottom: undefined, top: "calc(var(--snack-safe-top) + 64px)", left: 12, right: 70, maxWidth: undefined,
 };
-// Over the templates' subtitle line, clear of the top-row pills and 💬 / 🪲 (spectate.ts, shellDocks.test.ts).
+// Over the templates' subtitle line, clear of the top-row pills and 😀 / 🪲 (spectate.ts, shellDocks.test.ts).
 const spectatorNotice: React.CSSProperties = {
   ...pill, position: "fixed", top: `calc(var(--snack-safe-top) + ${SPECTATOR_NOTICE_BOX.y}px)`, left: SPECTATOR_NOTICE_BOX.x,
   maxWidth: SPECTATOR_NOTICE_BOX.w, minHeight: 0, height: SPECTATOR_NOTICE_BOX.h, padding: "0 10px", boxShadow: "none",

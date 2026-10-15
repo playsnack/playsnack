@@ -70,7 +70,7 @@ const shellZones = (w: number): Record<string, Box> => ({
 });
 const VIEWPORTS: [number, number][] = [[360, 640], [390, 844]];
 
-test("clear of the top-row pills, 💬 and 🪲 at 360 and 390 wide", () => {
+test("clear of the top-row pills, 😀 and 🪲 at 360 and 390 wide", () => {
   for (const [w] of VIEWPORTS) {
     const card = nameCardRect(w);
     assert.ok(card.w >= 240, `${w}: room for the field and 바꾸기 (${card.w})`);

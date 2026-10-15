@@ -35,8 +35,8 @@ export const nickToCommit = (raw: string): string | null => clampNick(raw) || nu
 
 /**
  * Where the card sits (CSS px, from the play area's top-left — under the safe-area top):
- * centred, under the top-row pills and the 💬 button (bottom 108 — #114: a card squeezed left
- * of the 💬 column looked off-centre on a phone), never over a lobby button
+ * centred, under the top-row pills and the 😀 button (bottom 108 — #114: a card squeezed left
+ * of the 😀 column looked off-centre on a phone), never over a lobby button
  * (test/nameChoice.test.ts checks every together template at 360×640 and 390×844).
  * Width: the play area less `side` on each side, at most `maxW`.
  */

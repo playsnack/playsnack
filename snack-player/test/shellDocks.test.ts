@@ -1,5 +1,5 @@
 // The shell's room buttons sit in the top row (🔗 친구 초대 + QR / 🤝 친구끼리, right of 홈)
-// and under the people chip (💬), on every screen (MP-09). This checks that no
+// and under the people chip (😀), on every screen (MP-09). This checks that no
 // together template draws text or a tappable node there, in any session phase.
 // node --import tsx --test snack-player/test/   (pnpm player:test)
 import { test } from "node:test";
@@ -14,7 +14,7 @@ const index = JSON.parse(readFileSync(new URL("index.json", DIR), "utf8")) as { 
 const TOGETHER = index.filter((t) => t.mode === "multi" && !t.hidden).map((t) => t.id);
 
 type Box = { x: number; y: number; w: number; h: number };
-// Frame coordinates (390 wide): pills are 44 tall from y 10; 💬 is 46×46 at right 12, top 62.
+// Frame coordinates (390 wide): pills are 44 tall from y 10; 😀 is 46×46 at right 12, top 62.
 const ZONES: Record<string, Box> = {
   // 🔗 친구 초대 (84–184) + QR (190–235, measured at 390 by scripts/qr-shots.mjs); the QR alone on the result screen.
   invitePill: { x: 84, y: 10, w: 160, h: 44 },
@@ -66,7 +66,7 @@ for (const id of TOGETHER) {
 // link mid-game, for templates that do not show it themselves. It sits on the templates' subtitle
 // line: never over the shell's own buttons, never over a template button (it lets taps through, but
 // a hidden button is still a broken screen).
-test("spectator notice: clear of the top-row pills, 💬 and 🪲", () => {
+test("spectator notice: clear of the top-row pills, 😀 and 🪲", () => {
   for (const [zone, z] of Object.entries(ZONES)) assert.ok(!hit(SPECTATOR_NOTICE_BOX, z), `overlaps ${zone}`);
 });
 test("spectator notice: only while watching a game in progress, only for templates without iAmSpectator", () => {

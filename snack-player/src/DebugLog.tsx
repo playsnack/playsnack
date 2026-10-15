@@ -66,7 +66,7 @@ export default function DebugLog() {
   );
 }
 
-// Left of the 💬 slot, under the top row: no template draws text or a button there
+// Left of the 😀 slot, under the top row: no template draws text or a button there
 // (shellDocks.test.ts "debugTab" zone: x 294–326, y 62–94 on a 390-wide frame).
 const bugBtn: React.CSSProperties = {
   // zIndex 13: under the shell's transient notices (topDock 15, result note 14), which may pass over this spot.
