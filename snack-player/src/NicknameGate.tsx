@@ -4,6 +4,7 @@ import { NICK_INPUT_MAX_UNITS, NICK_MAX, capGraphemes, clampNick } from "./nick"
 import { SERVERLESS } from "./backend";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 import BlockButton from "./BlockButton";
+import { Brand } from "./Brand";
 import { BLOCK_CSS } from "./ui";
 
 // First-visit onboarding: pick a nickname + (optional) selfie before entering.
@@ -49,7 +50,7 @@ export function NicknameGate({ onDone }: { onDone: (nick: string) => void }) {
     <div style={shell}>
       <style>{CSS}</style>
       <div style={{ width: "100%", maxWidth: 380 }}>
-        <div style={brand}>SNACK</div>
+        <Brand />
         <h1 style={{ fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 600, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 }}>닉네임을 정해주세요</h1>
         <p style={{ color: C.inkMuted, margin: `0 0 ${S.s5}px`, fontSize: TOKENS.size.bodyMd }}>{SERVERLESS ? "같이 하는 방에서 이 이름으로 보여요." : "같이 하는 방에서 이 이름·사진으로 보여요."}</p>
 
@@ -121,7 +122,6 @@ const shell: React.CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center",
   padding: "0 22px", font: `16px ${TOKENS.font.body}`,
 };
-const brand: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: 11, color: C.accent, letterSpacing: 1 };
 const avatarBtn: React.CSSProperties = {
   width: 96, height: 96, borderRadius: R.block, border: `${TOKENS.border.block}px solid ${C.borderBlock}`, boxShadow: blockShadow,
   background: C.surface, backgroundSize: "cover", backgroundPosition: "center",

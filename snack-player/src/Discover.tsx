@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SERVERLESS, hrefTo, navigate } from "./backend";
 import { StatsLink } from "./StatsLink";
+import { Brand } from "./Brand";
 import { homeSections, type HomeSections } from "./catalog";
 import { MessageScreen } from "./Screens";
 import { playPath } from "./links";
@@ -57,7 +58,7 @@ export function Discover() {
     <div ref={shellRef} style={shell}>
       <style>{BLOCK_CSS}</style>
       <div style={{ maxWidth: 520, margin: "0 auto", width: "100%" }}>
-        <div style={brand}>SNACK</div>
+        <Brand />
         <h1 style={h1}>골라서 바로 한 판 🔥</h1>
         <p style={{ color: C.inkMuted, margin: `0 0 ${S.s4}px`, fontSize: TOKENS.size.bodyMd, lineHeight: 1.5 }}>
           탭하면 바로 시작해요 · <span style={tagInline}>같이</span> 표시는 친구랑 함께 해요
@@ -122,7 +123,6 @@ const shell: React.CSSProperties = {
   backgroundImage: "repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0px, rgba(0,0,0,0.22) 1px, transparent 1px, transparent 3px)",
   padding: `calc(var(--snack-safe-top) + ${S.s5}px) 16px 40px`, font: `16px ${TOKENS.font.body}`,
 };
-const brand: React.CSSProperties = { fontFamily: TOKENS.font.displayLatin, fontSize: 11, color: C.accent, letterSpacing: 1 };
 const h1: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 600, margin: `${S.s3}px 0 ${S.s2}px`, lineHeight: 1.4 };
 const sectionTitle: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: 22, fontWeight: 600, margin: `${S.s5}px 0 ${S.s3}px`, lineHeight: 1.4 };
 const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: S.s3 };
