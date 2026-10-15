@@ -5,8 +5,7 @@
 //   planResultImage(view, measure, opts) → draw ops (pure)
 //   drawOps(ctx, ops)                     → paints them on any 2D context
 //   renderResultImage(view, opts)         → browser: fonts ready → canvas → PNG Blob
-//   shareResultImage(blob, opts)          → Web Share with the file ("preview" only without file sharing)
-//   canShareFiles()                       → false → the save-image preview (resultShare.ts)
+//   shareResultImage(blob, opts)          → Web Share with the file, else a preview to save
 // Fonts: the canvas uses the player's own faces (Pretendard / Galmuri11 subsets,
 // with the full faces behind them by unicode-range, then system fonts), and
 // waits for every glyph it draws, so a rare syllable in a nickname is drawn
@@ -274,49 +273,24 @@ export async function renderResultImage(view: ResultView, opts: PlanOpts & { fam
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png"));
 }
 
-/**
- * What a share tap came to (#118):
- *   shared    — the sheet completed;
- *   cancelled — the person closed it (AbortError);
- *   busy      — another share sheet is still open (InvalidStateError: a repeat tap);
- *   retry     — the tap's activation ran out before the sheet could open (NotAllowedError);
- *   failed    — the share target failed;
- *   preview   — this browser cannot share files at all → show the picture to save.
- * Only "preview" leads to the save-image sheet; a failed share never does.
- */
-export type ShareOutcome = "shared" | "cancelled" | "busy" | "retry" | "failed" | "preview";
-
-type ShareNav = Pick<Navigator, "share" | "canShare">;
-const navOf = (nav?: ShareNav): ShareNav | undefined => nav ?? (typeof navigator !== "undefined" ? navigator : undefined);
-
-/** Can this browser put a PNG file in the share sheet? (false → the save-image preview). */
-export function canShareFiles(nav?: ShareNav): boolean {
-  const n = navOf(nav);
-  if (!n || typeof n.share !== "function" || typeof n.canShare !== "function" || typeof File === "undefined") return false;
-  try {
-    return n.canShare({ files: [new File([new Uint8Array(1)], "probe.png", { type: "image/png" })] });
-  } catch {
-    return false;
-  }
-}
+export type ShareOutcome = "shared" | "cancelled" | "preview";
 
 /**
- * Hand the picture out through the share sheet. navigator.share is called
- * before the first await, so a caller that already holds the Blob calls it
- * inside the tap's user activation.
+ * Hand the picture out: the share sheet with the file when the browser can
+ * share files, otherwise "preview" (the caller shows the image to save by long
+ * press / a download link). Only "shared" means the sheet completed.
  */
-export async function shareResultImage(blob: Blob, opts: { fileName: string; title: string; text?: string; url?: string; nav?: ShareNav }): Promise<ShareOutcome> {
-  const nav = navOf(opts.nav);
+export async function shareResultImage(blob: Blob, opts: { fileName: string; title: string; text?: string; url?: string; nav?: Navigator }): Promise<ShareOutcome> {
+  const nav = opts.nav ?? (typeof navigator !== "undefined" ? navigator : undefined);
   const file = typeof File !== "undefined" ? new File([blob], opts.fileName, { type: "image/png" }) : null;
-  if (!file || !nav || typeof nav.share !== "function" || typeof nav.canShare !== "function" || !nav.canShare({ files: [file] })) return "preview";
-  try {
-    await nav.share({ files: [file], title: opts.title, text: opts.text, ...(opts.url ? { url: opts.url } : {}) });
-    return "shared";
-  } catch (e) {
-    const name = (e as { name?: string })?.name;
-    if (name === "AbortError") return "cancelled";
-    if (name === "InvalidStateError") return "busy";
-    if (name === "NotAllowedError") return "retry";
-    return "failed";
+  if (file && nav && typeof nav.share === "function" && typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], title: opts.title, text: opts.text, ...(opts.url ? { url: opts.url } : {}) });
+      return "shared";
+    } catch (e) {
+      if ((e as { name?: string })?.name === "AbortError") return "cancelled";
+      // NotAllowedError (the tap's activation ran out) or a share target failure: offer the picture instead.
+    }
   }
+  return "preview";
 }

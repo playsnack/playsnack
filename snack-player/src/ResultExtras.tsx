@@ -11,7 +11,7 @@ import { createResultController, isKakaoInApp, kakaoExternalUrl, makerLink, RESU
 export { makerLink } from "./resultController";
 import { reactionStore } from "./reactionQuestion";
 import { trackResultEvent } from "./telemetry";
-import { canShareFiles, renderResultImage, shareResultImage } from "./resultImage";
+import { renderResultImage, shareResultImage } from "./resultImage";
 import { BLOCK_CSS, pill, primaryBtn, secondaryBtn } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
@@ -84,8 +84,6 @@ export function useResultExtras({ doc, slug, params, onInvite }: {
         text: `${view.headline}\n나도 만들어 보기 👉 ${makerLink(location.origin)}`,
         url: makerLink(location.origin),
       }),
-      // The save-image sheet is only for a browser that cannot share files (#118).
-      canShareFiles: () => canShareFiles(),
       showPreview: (blob) => {
         armed.current = false;
         setPreview(URL.createObjectURL(blob));

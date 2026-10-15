@@ -493,7 +493,7 @@
                       "quiz": true,
                       "rounds": 6,
                       "answerMs": 9000,
-                      "revealMs": 1800
+                      "revealMs": 3000
                     }
                   }
                 ]
@@ -1653,7 +1653,7 @@
                       "quiz": true,
                       "rounds": 6,
                       "answerMs": 9000,
-                      "revealMs": 1800
+                      "revealMs": 3000
                     }
                   }
                 ]
@@ -1682,7 +1682,7 @@
                       "quiz": true,
                       "rounds": 6,
                       "answerMs": 9000,
-                      "revealMs": 1800
+                      "revealMs": 3000
                     }
                   }
                 ]

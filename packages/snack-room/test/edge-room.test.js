@@ -132,6 +132,48 @@ test("one seat per device: a second socket is refused; with the seat token it ta
   [b, re, o].forEach((x) => x.close());
 });
 
+test("back from the share sheet (#115): a takeover joins before the old socket leaves — same seat, never off the roster, a lone player's game kept", async () => {
+  // Two players: the friend never sees the returning player leave the roster.
+  const room = rid("back");
+  const a = player(room, "ba");
+  await a.hello({ nick: "가나" });
+  assert.ok(await a.until(() => a.frame((m) => m.t === "token")));
+  const b = player(room, "bb");
+  await b.hello({ nick: "다라" });
+  assert.ok(await b.until(() => b.vars.participants === 2));
+  await a.act("start", { duration: 8000 });
+  assert.ok(await b.until(() => b.vars.sessionPhase === "countdown" || b.vars.sessionPhase === "play"));
+  const rosters = () => b.frames.filter((m) => m.t === "setVar" && m.d.id === "roster").map((m) => m.d.value.length);
+  const before = rosters().length;
+  const re = player(room, "ba");
+  await re.hello({ nick: "가나", token: a.frame((m) => m.t === "token").d.token });
+  assert.ok(await re.until(() => re.frame((m) => m.t === "state")));
+  assert.ok(await a.until(() => a.closed !== null));
+  await sleep(300);
+  assert.ok(rosters().slice(before).every((n) => n === 2), `the friend's roster never drops to 1 (${rosters().slice(before)})`);
+  assert.deepEqual(b.vars.roster, ["가나", "다라"]);
+  const st = re.frame((m) => m.t === "state").d;
+  assert.ok(["countdown", "play"].includes(st.sharedState.sessionPhase), "the game goes on for the returning player");
+  assert.notEqual(re.vars.iAmSpectator, true, "a member who comes back is not a spectator");
+  [b, re].forEach((x) => x.close());
+
+  // Alone in the room (inviting friends from the lobby, or mid-game): the room is not torn down.
+  const solo = rid("back-solo");
+  const s = player(solo, "sa");
+  await s.hello({ nick: "혼자" });
+  assert.ok(await s.until(() => s.frame((m) => m.t === "token")));
+  await s.act("start", { duration: 8000 });
+  assert.ok(await s.until(() => s.vars.sessionPhase === "countdown" || s.vars.sessionPhase === "play"));
+  const s2 = player(solo, "sa");
+  await s2.hello({ nick: "혼자", token: s.frame((m) => m.t === "token").d.token });
+  assert.ok(await s2.until(() => s2.frame((m) => m.t === "state")));
+  const st2 = s2.frame((m) => m.t === "state").d;
+  assert.ok(["countdown", "play"].includes(st2.sharedState.sessionPhase), `the lone player's game is kept (${st2.sharedState.sessionPhase})`);
+  assert.ok(await s2.until(() => s2.vars.participants === 1), "one person (the old socket gone)");
+  assert.deepEqual(st2.sharedState.roster, ["혼자"]);
+  s2.close();
+});
+
 const PACK = {
   title: "공원 퀴즈",
   questions: [

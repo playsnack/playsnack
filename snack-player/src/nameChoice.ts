@@ -35,20 +35,19 @@ export const nickToCommit = (raw: string): string | null => clampNick(raw) || nu
 
 /**
  * Where the card sits (CSS px, from the play area's top-left — under the safe-area top):
- * centred, under the top-row pills and the 💬 button (bottom 108 — #114: a card squeezed left
- * of the 💬 column looked off-centre on a phone), never over a lobby button
+ * under the top-row pills (bottom 58), left of the 🪲 / 💬 column (🪲 starts 96 px from the right
+ * edge — DebugLog.tsx; 💬 58), over the templates' title band, never over a lobby button
  * (test/nameChoice.test.ts checks every together template at 360×640 and 390×844).
- * Width: the play area less `side` on each side, at most `maxW`.
+ * Width: `maxW`, narrower on a phone under 390 wide (`calc(100vw - right)` in CSS).
  */
-export const NAME_CARD_BOX = { y: 116, side: 12, maxW: 366, h: 112 } as const;
+export const NAME_CARD_BOX = { x: 12, y: 66, maxW: 278, right: 100, h: 112 } as const;
 /** Its hard block shadow below the box. */
 export const NAME_CARD_SHADOW = 6; // blockShadow (tokens: hardY)
 
 /** The card's box on screen (CSS px, shadow included) in a play area `w` wide. */
 export function nameCardRect(w: number) {
   const b = NAME_CARD_BOX;
-  const cw = Math.min(b.maxW, w - 2 * b.side);
-  return { x: (w - cw) / 2, y: b.y, w: cw, h: b.h + NAME_CARD_SHADOW };
+  return { x: b.x, y: b.y, w: Math.min(b.maxW, w - b.x - b.right), h: b.h + NAME_CARD_SHADOW };
 }
 
 /** The card's box in frame units (the play canvas's coordinates) in a `w`×`h` play area. */
