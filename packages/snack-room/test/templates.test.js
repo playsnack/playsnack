@@ -635,6 +635,7 @@ test("speed-trivia public room (auto): the lobby counts down and the quiz starts
   assert.equal(T.tap(0, "startBtn"), false);
   await T.advance(10000 + 3200);
   assert.equal(T.phase(0), "play");
+});
 
 // 밸런스게임 (#126): picks stay hidden until everyone here picked (or the timer) — then all at once.
 test("balance-game: no peeking — '1/3명 골랐어요' + only my own pick marked; all picked → split + names on every device", async () => {
