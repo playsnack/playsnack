@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Bite format reference
+    url: https://github.com/playsnack/playsnack/blob/main/docs/bite-format.md
+    about: Use this when a task needs the Bite document contract.
+  - name: Quality gates
+    url: https://github.com/playsnack/playsnack#quality-gates
+    about: Check which verification command fits the change.
