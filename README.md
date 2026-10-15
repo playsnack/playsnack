@@ -68,8 +68,7 @@ answers never reach phones before the reveal.
 
 Live at **https://playsnack.pages.dev** (Cloudflare Pages + Pages Functions for `/api/*`;
 rooms on `snack-room.playsnack.workers.dev`; stats in Upstash). Every merge to `main` deploys automatically
-(`.github/workflows/deploy-cloudflare.yml`; see `docs/cloudflare-pages.md`). `playsnack.vercel.app` only redirects there
-(`vercel.json`), keeping the path and query.
+(`.github/workflows/deploy-cloudflare.yml`; see `docs/cloudflare-pages.md`).
 
 **With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
 
@@ -106,16 +105,8 @@ There are two of us, so either of us can merge — no separate approval step.
 3. Merge it yourself when it's ready, with **Create a merge commit** (the only method
    the repo allows).
 
-**When does a merge go live?** The site runs on Vercel's free plan, which deploys a commit
-only when its author is the account owner (@seukwoo). A merge commit is authored by
-whoever clicks merge, so:
-
-- merged by @seukwoo → deployed right away;
-- merged by anyone else → the code is on `main`, but Vercel blocks the deploy. It goes
-  live with @seukwoo's next merge or push, or when @seukwoo hits **Redeploy** on the
-  latest deployment in the Vercel dashboard.
-
-This goes away once the project moves to a paid Vercel plan with both of us on the team.
+**When does a merge go live?** Right away: every merge to `main` deploys the room server and
+the site to Cloudflare through GitHub Actions, whoever merges it (`.github/workflows/deploy-cloudflare.yml`).
 
 ## License
 
