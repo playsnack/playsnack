@@ -92,21 +92,14 @@ SIM_MESH=1 node snack-server/tools/multiclient-sim.mjs   # multiplayer sync over
 
 ## Contributing
 
-`main` is what the live site serves, so changes reach it through pull requests.
-There are two of us, so either of us can merge — no separate approval step.
+`main` is what the live site serves and only takes pull requests. Day-to-day work goes to
+`develop`, which deploys to a test copy of the site. Full rules: [`docs/git-as-jira.md`](docs/git-as-jira.md).
 
-1. Branch off the latest `main` — never commit or push to `main` directly.
-   ```bash
-   git switch main && git pull
-   git switch -c <your-name>/<short-topic>      # e.g. moonjong/quiz-timer
-   ```
-2. Commit, push the branch, and open a pull request into `main`. Describe what changed
-   and how you checked it (which gates you ran, what you tried on a phone).
-3. Merge it yourself when it's ready, with **Create a merge commit** (the only method
-   the repo allows).
-
-**When does a merge go live?** Right away: every merge to `main` deploys the room server and
-the site to Cloudflare through GitHub Actions, whoever merges it (`.github/workflows/deploy-cloudflare.yml`).
+1. Branch off the latest `develop`: `git switch develop && git pull && git switch -c <your-name>/<issue>-<topic>`.
+2. Open a pull request into `develop` (the default) with what changed and how you checked it.
+   Merge with **Create a merge commit**. It deploys to `https://develop.playsnack.pages.dev`.
+3. Check it there on a phone. A release pull request `develop` → `main` then ships the checked
+   work to `https://playsnack.pages.dev`.
 
 ## License
 

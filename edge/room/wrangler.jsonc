@@ -18,5 +18,23 @@
   // Round content: the player's static data/multi-content/<game>.json (same files the mesh host uses).
   // STATS_URL: where the rooms' game stats go (the site's /api/ev; "" = none).
   "vars": { "PACK_BASE_URL": "https://playsnack.pages.dev/data/multi-content", "STATS_URL": "https://playsnack.pages.dev/api/ev" },
-  "observability": { "enabled": false }
+  "observability": { "enabled": false },
+  // Test room server for the develop branch (docs/git-as-jira.md "Branch strategy"):
+  // `wrangler deploy --env dev` → https://snack-room-dev.playsnack.workers.dev, its own Durable
+  // Objects (test rooms never touch live ones) and its own ROOM_TOKEN_SECRET (set once by CI).
+  // Bindings and vars are not inherited by an env, so they are repeated here. No game stats from
+  // test rooms (STATS_URL ""). Same account → shares the free daily limits; test traffic only.
+  "env": {
+    "dev": {
+      "name": "snack-room-dev",
+      "durable_objects": {
+        "bindings": [
+          { "name": "GAMES", "class_name": "Game" },
+          { "name": "ROOMS", "class_name": "Room" },
+          { "name": "METER", "class_name": "Meter" }
+        ]
+      },
+      "vars": { "PACK_BASE_URL": "https://develop.playsnack.pages.dev/data/multi-content", "STATS_URL": "" }
+    }
+  }
 }
