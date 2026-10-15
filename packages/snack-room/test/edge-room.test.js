@@ -215,6 +215,34 @@ test("fairness: answers never leave the room before the reveal; picks go only to
   [org, ...ps].forEach((p) => p.close());
 });
 
+test("hidden picks (밸런스게임 #126): no frame carries another's pick or a running tally before the reveal; all picked → revealed at once", async () => {
+  const room = rid("balance");
+  const org = player(room, "host");
+  await org.hello({ organize: true });
+  const ps = ["b1", "b2"].map((id) => player(room, id));
+  for (const p of ps) await p.hello();
+  assert.ok(await org.until(() => org.vars.participants === 3));
+  await org.act("start", { game: "balance", rounds: 1, roundMs: 8000, revealMs: 1500, hidden: true });
+  assert.ok(await ps[0].until(() => ps[0].vars.sessionPhase === "play" && ps[0].vars.roundContent?.a, 6000));
+  await ps[0].act("vote", { option: "o0" });
+  await ps[1].act("vote", { option: "o1" });
+  assert.ok(await org.until(() => org.vars.voteProgress?.voted === 2));
+  assert.equal(org.vars.revealRound, -1, "host (organizer) has not picked: not revealed yet");
+  await org.act("vote", { option: "o1" });
+  assert.ok(await org.until(() => org.vars.revealRound === 0, 3000), "all 3 picked → early reveal");
+  for (const [p, mine] of [[org, "o1"], [ps[0], "o0"], [ps[1], "o1"]]) {
+    const at = p.frames.findIndex((m) => m.t === "setVar" && m.d.id === "votesByOption" && Object.values(m.d.value).some((n) => n > 0));
+    const pre = p.frames.slice(0, at);
+    assert.ok(at > 0, "the split arrives at the reveal");
+    assert.ok(!pre.some((m) => m.t === "setVar" && m.d.id === "roundPicks" && Object.values(m.d.value).some((x) => x.length)), "no names before the reveal");
+    assert.ok(pre.filter((m) => m.d?.id === "myPick").every((m) => m.d.value.option === mine), "only my own pick comes to me");
+    assert.ok(!pre.some((m) => m.t === "state" && Object.values(m.d.sharedState.votesByOption ?? {}).some((n) => n > 0)));
+  }
+  assert.deepEqual(ps[0].vars.votesByOption, { o0: 1, o1: 2 });
+  assert.deepEqual(ps[0].vars.roundPicks, { o0: ["b1"], o1: ["b2", "host"] });
+  [org, ...ps].forEach((p) => p.close());
+});
+
 test("server clock: a device claim is believed only within [elapsed − window, elapsed]", async () => {
   const room = rid("clock");
   const org = player(room, "host");

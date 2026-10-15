@@ -53,6 +53,7 @@ export const GAME_LIMITS = {
   coalesceMs: 150, // roster / participants / quizProgress: at most one fan-out per this
   sendChunk: 100, // frames sent per task (the rest follow in the next task, in order)
 };
+<<<<<<< HEAD
 // The next generation of a public room: `slug` → `slug.g2` → `slug.g3` … (deterministic, so every
 // late arrival of one game lands in the same room). Never a friends room (no `~`).
 export const nextRoomId = (roomId) => {
@@ -62,6 +63,10 @@ export const nextRoomId = (roomId) => {
 /** A friends room (`slug~CODE`) or an organized one hosts; a public room starts by itself. */
 export const startRuleFor = (roomId, meta) => (meta?.org || String(roomId).includes("~") ? "host" : "auto");
 const COALESCED = new Set(["roster", "rosterPhotos", "quizProgress"]);
+=======
+const ORGANIZER_ONLY = new Set(["start", "lobby", "quizPack"]);
+const COALESCED = new Set(["roster", "rosterPhotos", "quizProgress", "voteProgress"]);
+>>>>>>> origin/main
 const ANON_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const rid = () => Math.random().toString(36).slice(2, 10);
 

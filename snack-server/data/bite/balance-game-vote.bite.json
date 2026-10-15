@@ -25,6 +25,22 @@
     "roundIdx": -1,
     "myVote": "",
     "myVoteRound": -2,
+    "myPick": {
+      "sessionNo": 0,
+      "round": -1,
+      "option": ""
+    },
+    "revealRound": -1,
+    "roundPicks": {
+      "o0": [],
+      "o1": []
+    },
+    "voteProgress": {
+      "voted": 0,
+      "of": 0,
+      "round": -1,
+      "sessionNo": 0
+    },
     "roomMode": "",
     "hostNick": "",
     "iAmHost": false,
@@ -34,7 +50,9 @@
     "start": {
       "game": "balance",
       "rounds": 5,
-      "roundMs": 8000
+      "roundMs": 10000,
+      "revealMs": 3500,
+      "hidden": true
     },
     "autoStartMs": 10000
   },
@@ -347,7 +365,7 @@
           },
           {
             "id": "lobbyHint",
-            "text": "둘 중 하나! 다 같이 고르고 갈라진 %로 우리 방을 알아봐요 · 5라운드",
+            "text": "둘 중 하나! 다 고르면 한 번에 공개돼요 · 5라운드",
             "width": 340,
             "size": 14,
             "weight": 500,
@@ -375,7 +393,9 @@
                     "payload": {
                       "game": "balance",
                       "rounds": 5,
-                      "roundMs": 8000
+                      "roundMs": 10000,
+                      "revealMs": 3500,
+                      "hidden": true
                     }
                   }
                 ]
@@ -520,12 +540,12 @@
             "justify": "center",
             "fill": "#16181c",
             "stroke": {
-              "color": "{phase == 'play' ? ((myVote === 'o0' && myVoteRound === roundIdx) ? '#d9ff00' : '#16181c') : '#16181c'}",
+              "color": "{phase == 'play' ? ((revealRound === roundIdx ? ((myPick.round === roundIdx && myPick.sessionNo === voteProgress.sessionNo) ? myPick.option : '') : (myVoteRound === roundIdx ? myVote : ((myPick.round === roundIdx && myPick.sessionNo === voteProgress.sessionNo) ? myPick.option : ''))) === 'o0' ? '#d9ff00' : '#16181c') : '#16181c'}",
               "width": 3
             },
             "onTap": [
               {
-                "if": "phase == 'play'",
+                "if": "phase == 'play' && revealRound !== roundIdx",
                 "then": [
                   {
                     "set": "myVote",
@@ -555,12 +575,32 @@
                 "align": "center"
               },
               {
+                "id": "cardAMine",
+                "text": "✓ 내 선택",
+                "size": 15,
+                "weight": 700,
+                "color": "#d9ff00",
+                "align": "center",
+                "show": "phase == 'play' && !(revealRound === roundIdx) && (revealRound === roundIdx ? ((myPick.round === roundIdx && myPick.sessionNo === voteProgress.sessionNo) ? myPick.option : '') : (myVoteRound === roundIdx ? myVote : ((myPick.round === roundIdx && myPick.sessionNo === voteProgress.sessionNo) ? myPick.option : ''))) === 'o0'"
+              },
+              {
                 "id": "cardAPct",
                 "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)) === 0 ? '0%' : ('' + (round((votesByOption.o0||0)/((votesByOption.o0||0)+(votesByOption.o1||0))*100)) + '%')) : '0%'}",
                 "size": 32,
                 "font": "display",
                 "color": "#d9ff00",
-                "align": "center"
+                "align": "center",
+                "show": "phase == 'play' && (revealRound === roundIdx)"
+              },
+              {
+                "id": "cardANames",
+                "text": "{phase == 'play' ? ((roundPicks.o0 && roundPicks.o0.length > 0) ? roundPicks.o0.join(' · ') : '아무도 없어요') : ''}",
+                "width": 320,
+                "size": 14,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center",
+                "show": "phase == 'play' && (revealRound === roundIdx)"
               }
             ]
           },
@@ -583,12 +623,12 @@
             "justify": "center",
             "fill": "#16181c",
             "stroke": {
-              "color": "{phase == 'play' ? ((myVote === 'o1' && myVoteRound === roundIdx) ? '#4DA3FF' : '#16181c') : '#16181c'}",
+              "color": "{phase == 'play' ? ((revealRound === roundIdx ? ((myPick.round === roundIdx && myPick.sessionNo === voteProgress.sessionNo) ? myPick.option : '') : (myVoteRound === roundIdx ? myVote : ((myPick.round === roundIdx && myPick.sessionNo === voteProgress.sessionNo) ? myPick.option : ''))) === 'o1' ? '#4DA3FF' : '#16181c') : '#16181c'}",
               "width": 3
             },
             "onTap": [
               {
-                "if": "phase == 'play'",
+                "if": "phase == 'play' && revealRound !== roundIdx",
                 "then": [
                   {
                     "set": "myVote",
@@ -618,14 +658,43 @@
                 "align": "center"
               },
               {
+                "id": "cardBMine",
+                "text": "✓ 내 선택",
+                "size": 15,
+                "weight": 700,
+                "color": "#4DA3FF",
+                "align": "center",
+                "show": "phase == 'play' && !(revealRound === roundIdx) && (revealRound === roundIdx ? ((myPick.round === roundIdx && myPick.sessionNo === voteProgress.sessionNo) ? myPick.option : '') : (myVoteRound === roundIdx ? myVote : ((myPick.round === roundIdx && myPick.sessionNo === voteProgress.sessionNo) ? myPick.option : ''))) === 'o1'"
+              },
+              {
                 "id": "cardBPct",
                 "text": "{phase == 'play' ? (((votesByOption.o0||0)+(votesByOption.o1||0)) === 0 ? '0%' : ('' + (round((votesByOption.o1||0)/((votesByOption.o0||0)+(votesByOption.o1||0))*100)) + '%')) : '0%'}",
                 "size": 32,
                 "font": "display",
                 "color": "#4DA3FF",
-                "align": "center"
+                "align": "center",
+                "show": "phase == 'play' && (revealRound === roundIdx)"
+              },
+              {
+                "id": "cardBNames",
+                "text": "{phase == 'play' ? ((roundPicks.o1 && roundPicks.o1.length > 0) ? roundPicks.o1.join(' · ') : '아무도 없어요') : ''}",
+                "width": 320,
+                "size": 14,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center",
+                "show": "phase == 'play' && (revealRound === roundIdx)"
               }
             ]
+          },
+          {
+            "id": "pickProgress",
+            "width": 340,
+            "size": 16,
+            "weight": 700,
+            "align": "center",
+            "color": "{phase == 'play' && ((revealRound === roundIdx) || (voteProgress.round === roundIdx && voteProgress.of > 0 && voteProgress.voted >= voteProgress.of)) ? '#d9ff00' : '#9aa3af'}",
+            "text": "{phase == 'play' ? ((revealRound === roundIdx) ? '결과 공개 🎉' : (voteProgress.round === roundIdx ? ((voteProgress.round === roundIdx && voteProgress.of > 0 && voteProgress.voted >= voteProgress.of) ? ('다 골랐어요! 곧 공개 (' + voteProgress.voted + '/' + voteProgress.of + ')') : ('' + voteProgress.voted + '/' + voteProgress.of + '명 골랐어요 · 다 고르면 공개')) : '고르면 다 같이 공개돼요')) : ''}"
           }
         ]
       },
@@ -712,7 +781,9 @@
                     "payload": {
                       "game": "balance",
                       "rounds": 5,
-                      "roundMs": 8000
+                      "roundMs": 10000,
+                      "revealMs": 3500,
+                      "hidden": true
                     }
                   }
                 ]
