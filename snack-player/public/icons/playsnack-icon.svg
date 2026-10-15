@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">PlaySnack app icon</title>
+  <desc id="desc">A PlaySnack brand tile with a bright play symbol and snack pieces.</desc>
+  <defs>
+    <linearGradient id="tile" x1="144" y1="96" x2="880" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#101214"/>
+      <stop offset="0.48" stop-color="#050607"/>
+      <stop offset="1" stop-color="#14110e"/>
+    </linearGradient>
+    <linearGradient id="play" x1="325" y1="275" x2="726" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b7ff5a"/>
+      <stop offset="0.52" stop-color="#31f5a3"/>
+      <stop offset="1" stop-color="#00d5ff"/>
+    </linearGradient>
+    <filter id="softShadow" x="160" y="156" width="704" height="724" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="36" stdDeviation="34" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#tile)"/>
+  <path d="M202 515c0-192 126-326 311-326 168 0 303 117 303 293 0 177-128 356-332 356-173 0-282-132-282-323Z" fill="#ffffff" opacity="0.06"/>
+  <g filter="url(#softShadow)">
+    <path d="M363 302c0-54 59-87 105-58l304 193c51 32 51 106 0 138L468 768c-46 29-105-4-105-58V302Z" fill="url(#play)"/>
+    <path d="M426 390c0-24 27-39 47-25l184 123c21 14 21 45 0 59L473 670c-20 14-47-1-47-25V390Z" fill="#07100c" opacity="0.18"/>
+  </g>
+  <circle cx="270" cy="274" r="54" fill="#ff6b6b"/>
+  <circle cx="764" cy="225" r="34" fill="#ffe45e"/>
+  <rect x="216" y="681" width="122" height="122" rx="34" fill="#ffd166" transform="rotate(-13 277 742)"/>
+  <rect x="717" y="711" width="88" height="88" rx="26" fill="#ff8a3d" transform="rotate(17 761 755)"/>
+</svg>

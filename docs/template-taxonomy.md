@@ -13,7 +13,7 @@ popularity grounding comes from GameAnalytics/Sensor Tower + the format evidence
 - **PlayDuo validates our exact product**: create-room + share-invite-link, **≤8 players**, solo-without-login; bingo/MBTI filed as **solo-only**. Worldcup/quiz/tier support realtime + streamer viewer-voting.
 - **Instagram stickers** (poll/quiz/emoji-slider/add-yours) map 1:1 onto tap/choice/slider + shared counter; they work because "a poll is one tap, a quiz feels like a game, a slider expresses nuance without typing."
 
-## Current snackapp server contract (from code)
+## Current PlaySnack server contract (from code)
 Anonymous **symmetric** clients per room (slug). Server authoritatively tallies a per-room
 **`votesByOption` global counter** + broadcasts reactions. **No** per-player scores,
 leaderboard, host/player roles, room codes, or turn token.

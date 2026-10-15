@@ -1,0 +1,57 @@
+name: Task
+description: Internal work, docs, cleanup, investigation, or release chores.
+title: "[Task] "
+labels: ["type: task", "status: ready"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be completed?
+    validations:
+      required: true
+  - type: textarea
+    id: checklist
+    attributes:
+      label: Checklist
+      value: |
+        - [ ] 
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - snack-player
+        - snack-server
+        - Bite engine
+        - Bite layout
+        - Bite renderer
+        - snack-room
+        - content/templates
+        - docs/process
+        - infra/deploy
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - priority: high
+        - priority: medium
+        - priority: low
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done When
+      description: One or more concrete closure conditions.
+      value: |
+        - [ ] 
+    validations:
+      required: true

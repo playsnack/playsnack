@@ -1,4 +1,4 @@
-# snackapp
+# PlaySnack
 
 Make small interactive apps — games, polls, quizzes, "world cup" brackets — by
 chatting, and share them as a link that plays live with everyone who opens it.
@@ -23,7 +23,7 @@ Apps are JSON documents for **Bite**, a small engine built for this project:
 }
 ```
 
-The full format is specified in [`docs/bite-format.md`](docs/bite-format.md).
+The full format is specified in [`docs/bite-format.md`](docs/bite-format.md). PlaySnack is currently in **Beta**.
 
 ## Architecture
 
@@ -58,20 +58,17 @@ pnpm player:build    # → snack-player/dist; any static host that serves index.
 `…/p/tpl-tap-battle?room=K7MNP2QRS4` a friends-only room (the 🤝 친구끼리 pill makes the
 code: 10 symbols from a 32-letter alphabet, 50 bits), and a made app travels inside its
 link's fragment (`/p/app-<hash>#d=…`, never sent to a server). The static host must serve
-`index.html` for `/p/*` (`vercel.json` rewrites; snack-server has the same fallback). Old
+`index.html` for `/p/*` (Cloudflare Pages handles this in production; snack-server has the same fallback). Old
 `#/p/…` links still open and are rewritten to the path form in place.
 
 A friends-only room is **unlisted, not private**: the code keeps strangers from stumbling
 in, nothing more. Serverless rooms ride a public MQTT broker and the room id is the
 topic, so anyone subscribing to the prefix sees every code and all room traffic
 (nicknames, actions). Treat it like a link you would not post publicly. Real protection
-(token auth) is the U1 step of `docs/master-plan.md`.
+(Cloudflare Worker / Durable Objects room admission with short-lived room authority) is
+required before public beta traffic.
 
-Deployed on Vercel from this repo (`vercel.json`): a push to `main` rebuilds the site
-when the commit's author is the repo owner; other merges go live with the owner's next
-one (see [Contributing](#contributing)).
-
-Deploy hook test: 2026-10-12.
+Deployed on Cloudflare from this repo: a merge to `main` is the production path.
 
 **With the server** — adds the AI builder, fresh hourly content, ratings and global stats.
 
@@ -97,27 +94,23 @@ SIM_MESH=1 node snack-server/tools/multiclient-sim.mjs   # multiplayer sync over
 
 `main` is what the live site serves, so changes reach it through pull requests.
 There are two of us, so either of us can merge — no separate approval step.
+Issues and PRs double as the lightweight project board; see
+[`docs/git-as-jira.md`](docs/git-as-jira.md) for labels, branch names, and done rules.
 
-1. Branch off the latest `main` — never commit or push to `main` directly.
+1. Register the work as an Issue, then branch off the latest `main` — never
+   work, commit, or push to `main` directly.
    ```bash
    git switch main && git pull
-   git switch -c <your-name>/<short-topic>      # e.g. moonjong/quiz-timer
+   git switch -c <your-name>/<issue-number>-<short-topic>   # e.g. moonjong/124-quiz-timer
    ```
-2. Commit, push the branch, and open a pull request into `main`. Describe what changed
+2. Keep the branch to one issue or one tightly scoped feature/task slice. Commit,
+   push the branch, and open a pull request into `main`. Describe what changed
    and how you checked it (which gates you ran, what you tried on a phone).
 3. Merge it yourself when it's ready, with **Create a merge commit** (the only method
    the repo allows).
 
-**When does a merge go live?** The site runs on Vercel's free plan, which deploys a commit
-only when its author is the account owner (@seukwoo). A merge commit is authored by
-whoever clicks merge, so:
-
-- merged by @seukwoo → deployed right away;
-- merged by anyone else → the code is on `main`, but Vercel blocks the deploy. It goes
-  live with @seukwoo's next merge or push, or when @seukwoo hits **Redeploy** on the
-  latest deployment in the Vercel dashboard.
-
-This goes away once the project moves to a paid Vercel plan with both of us on the team.
+Cloudflare deployment should be checked after merge when the PR changes hosting, API,
+room, or build behavior.
 
 ## License
 

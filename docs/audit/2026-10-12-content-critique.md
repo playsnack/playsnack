@@ -1,4 +1,4 @@
-# snackapp 콘텐츠 크리틱: "프레임부터 바로잡기" (2026-10-12)
+# PlaySnack 콘텐츠 크리틱: "프레임부터 바로잡기" (2026-10-12)
 
 > 관점: 까다로운 게임/프로덕트 디자이너. 칭찬은 거의 없고, 바로 고칠 수 있게 구체적으로 썼다.
 > 근거: 44개 `*.bite.json` 전부(텍스트·vars·phases 추출), 콘텐츠 뱅크(`seed-content`, `pools`, `multi-content`), `packages/snack-content`, `snack-room/room.js`, `LiveApp.tsx`/`Discover.tsx`, 문서/메모리.

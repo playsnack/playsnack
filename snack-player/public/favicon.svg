@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PlaySnack">
+  <defs>
+    <linearGradient id="tile" x1="8" y1="5" x2="56" y2="59" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#101214"/>
+      <stop offset="0.5" stop-color="#050607"/>
+      <stop offset="1" stop-color="#14110e"/>
+    </linearGradient>
+    <linearGradient id="play" x1="22" y1="18" x2="46" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b7ff5a"/>
+      <stop offset="0.52" stop-color="#31f5a3"/>
+      <stop offset="1" stop-color="#00d5ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#tile)"/>
+  <path d="M23 18c0-4 4.5-6.5 8-4.3l20 12.7c3.6 2.3 3.6 7.5 0 9.8L31 49c-3.5 2.2-8-.3-8-4.3V18Z" fill="url(#play)"/>
+  <circle cx="17" cy="18" r="4.2" fill="#ff6b6b"/>
+  <circle cx="48" cy="15" r="2.7" fill="#ffe45e"/>
+  <rect x="13" y="43" width="8" height="8" rx="2.3" fill="#ffd166" transform="rotate(-13 17 47)"/>
+</svg>

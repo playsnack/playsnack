@@ -48,7 +48,7 @@ test("redaction: room codes keep 3 symbols, link-carried apps shortened", () => 
   _resetForTest({ on: true });
   assert.equal(redact("/p/tpl-tap-battle?room=K7MNP2QRS4&x=1"), "/p/tpl-tap-battle?room=K7M…&x=1");
   assert.equal(redact("room tpl-tap-battle~K7MNP2QRS4"), "room tpl-tap-battle~K7M…");
-  assert.equal(redact("snackapp/v1/tpl-quiz~ABCDEFGH23 closed"), "snackapp/v1/tpl-quiz~ABC… closed");
+  assert.equal(redact("playsnack/v1/tpl-quiz~ABCDEFGH23 closed"), "playsnack/v1/tpl-quiz~ABC… closed");
   assert.equal(redact("/p/app-1x?d=" + "A".repeat(300)), "/p/app-1x?d=<300 chars>");
   // A known room code is cut wherever it appears (e.g. inside an error message).
   setRoomCode("K7MNP2QRS4");

@@ -2,7 +2,7 @@
 // document uses, so the first frame draws with the same metrics layout used.
 //
 // Bandwidth: only two files per family are shipped, each a subset of the
-// characters snackapp renders (snack-player/scripts/subset_fonts.py):
+// characters PlaySnack renders (snack-player/scripts/subset_fonts.py):
 //   body    — Snack Body 500 (Pretendard subset) answers weights ≤ 600,
 //             Snack Body 700 answers weights ≥ 650.
 //   display — Galmuri11 answers weights ≤ 549, Galmuri11 Bold ≥ 550.
