@@ -18,6 +18,7 @@ import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, Ro
 import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
 import { joinTracker, slowJoinText } from "./roomJoin";
+import { visibleTimeout, type VisibleTimer } from "./visibleTimer";
 import { noteDeviceUsage, trackRoomCreate, trackShare } from "./telemetry";
 import {
   MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage, packPending,
@@ -51,6 +52,11 @@ Object.assign(globalThis, { __snackWebGLRenderer: WebGLRenderer });
  * transport's own deadline (45 s — a slow broker gets ≈ 4 connect tries), so its reason wins.
  */
 const ROOM_SILENCE_MS = CONNECT_TIMEOUT_MS + 2_000;
+/**
+ * Getting back into the room after a drop (back from the share sheet, #115) is silent; only
+ * if it takes longer than this does the room chip say "다시 연결 중…".
+ */
+export const RECONNECT_NOTICE_MS = 1_500;
 
 type LoadError = "notFound" | "network";
 const isNetworkError = (e: unknown) =>
@@ -61,7 +67,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const [doc, setDoc] = useState<BiteDoc | null>(null);
   const [err, setErr] = useState<LoadError | null>(null);
   const [loadGen, setLoadGen] = useState(0);
-  const [conn, setConn] = useState<ConnState>("connecting");
+  // The screen's room state. A transport's "reconnecting" keeps it (the screen stays as it was)
+  // and only sets `reconnecting` (#115).
+  const [conn, setConn] = useState<Exclude<ConnState, "reconnecting">>("connecting");
+  const [reconnecting, setReconnecting] = useState(false);
   const [connReason, setConnReason] = useState<string | undefined>(undefined);
   const [roomGen, setRoomGen] = useState(0);
   const [participants, setParticipants] = useState(1);
@@ -152,13 +161,23 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     const room: RoomTransport = createRoom(me, params);
     roomRef.current = room;
     const join = joinTracker({ slug, room: roomIdFor(slug, params) }); // room_join telemetry + ?debug=1 log
-    let silence: ReturnType<typeof setTimeout> | undefined;
+    // The backstop for a transport that never reports: like the transport's own deadline,
+    // it counts only time with the page on screen (visibleTimer.ts, #115).
+    let silence: VisibleTimer | undefined;
+    let back = false; // reconnecting (was in, dropped): the screen stays
     const waitForRoom = () => {
-      clearTimeout(silence);
-      silence = setTimeout(() => { join.conn("failed", "silence"); setConn((s) => (s === "connecting" ? "failed" : s)); }, ROOM_SILENCE_MS);
+      silence?.cancel();
+      silence = visibleTimeout(() => {
+        join.conn("failed", "silence");
+        if (back) {
+          back = false;
+          setReconnecting(false);
+          setConn("failed");
+        } else setConn((s) => (s === "connecting" ? "failed" : s));
+      }, ROOM_SILENCE_MS);
     };
     const heard = () => {
-      clearTimeout(silence);
+      silence?.cancel();
       join.conn("connected");
       setConn((s) => (s === "connecting" ? "connected" : s));
     };
@@ -167,10 +186,14 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         const state = m.d.state as ConnState;
         quizRef.current.live = state === "connected"; // a pack sent before this is dropped (and burns a resend gap)
         join.conn(state, m.d.reason as string | undefined);
-        setConn(state);
-        setConnReason(m.d.reason as string | undefined);
-        if (state === "connecting") waitForRoom();
-        else clearTimeout(silence);
+        back = state === "reconnecting";
+        setReconnecting(back);
+        if (state !== "reconnecting") {
+          setConn(state);
+          setConnReason(m.d.reason as string | undefined);
+        }
+        if (state === "connecting" || state === "reconnecting") waitForRoom();
+        else silence?.cancel();
         return;
       }
       // A new broker connect try (serverless): counted for room_join, not room traffic.
@@ -212,10 +235,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     room.connect();
     // retry() (when the transport has it) restarts the same connection.
     retryRef.current = room.retry
-      ? () => { setConn("connecting"); waitForRoom(); join.start("retry"); room.retry!(); }
+      ? () => { back = false; setReconnecting(false); setConn("connecting"); waitForRoom(); join.start("retry"); room.retry!(); }
       : () => setRoomGen((g) => g + 1);
     return () => {
-      clearTimeout(silence);
+      silence?.cancel();
+      setReconnecting(false);
       last.close();
       join.end();
       room.close();
@@ -235,6 +259,14 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     return () => clearInterval(id);
   }, [conn, withRoom, roomGen]);
   const slowText = withRoom && conn === "connecting" ? slowJoinText(connectingFor) : null;
+  // Back in the room after a drop: quiet at first, then a small "다시 연결 중…" in the room chip.
+  const [reconnectNotice, setReconnectNotice] = useState(false);
+  useEffect(() => {
+    setReconnectNotice(false);
+    if (!reconnecting) return;
+    const t = setTimeout(() => setReconnectNotice(true), RECONNECT_NOTICE_MS);
+    return () => clearTimeout(t);
+  }, [reconnecting]);
   const slow = Boolean(slowText);
 
   // The closest one-person app, offered if the room can't be joined (or is slow to).
@@ -480,7 +512,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     <>
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} onArea={(w, h) => setArea([w, h])} />
       <HomeButton />
-      {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} />}
+      {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} reconnecting={reconnecting && reconnectNotice} />}
       {quizInvite && (
         <div style={{ ...quizInviteBand, top: `calc(var(--snack-safe-top) + ${band.y}px)`, left: band.x, width: band.w, height: band.h }}>
           <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: band.h, flex: 1 } : { ...pill, height: band.h }}

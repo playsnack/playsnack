@@ -396,8 +396,6 @@ export class GameRoom {
       this._peers = null;
       holder.state.replaced = true;
       holder.save(holder.state);
-      this.engine?.leave(holder.state.peer);
-      if (this.engine && !this.engine.size) this.engine = null;
       this.closeQ(holder, 4009, "replaced");
       this.stats.takeovers = (this.stats.takeovers ?? 0) + 1;
     }
@@ -407,6 +405,10 @@ export class GameRoom {
     if (g.organizer && !g.claims?.o) this.reply(sock, "organizer", { token: await this.gate.tokenFor(this.meta, { o: 1 }, this.L.organizerTtlMs) });
     else if (g.organizer) this.reply(sock, "organizer", { token: d.organizerToken });
     this.ensureEngine().join(st.peer, st);
+    // The new socket joins BEFORE the old one leaves (#115: a phone back from the share sheet
+    // replaces a socket the room still holds): the person never leaves the roster, and a room
+    // with only them in it keeps its game instead of being torn down and made anew.
+    if (holder) this.engine.leave(holder.state.peer);
   }
 
   onClose(sock) {

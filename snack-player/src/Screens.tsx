@@ -54,14 +54,14 @@ export function HomeButton() {
   );
 }
 
-/** Top-right room status: joining… → 👥 N명. */
-export function RoomChip({ state, people }: { state: "connecting" | "connected"; people: number }) {
+/** Top-right room status: joining… → 👥 N명 (→ "다시 연결 중…" while getting back in after a drop, #115). */
+export function RoomChip({ state, people, reconnecting = false }: { state: "connecting" | "connected"; people: number; reconnecting?: boolean }) {
   return (
     <div style={{ ...pill, ...chipPos }} aria-live="polite">
-      {state === "connecting" ? (
+      {state === "connecting" || reconnecting ? (
         <>
           <span style={{ width: 8, height: 8, background: C.accent, animation: "snackBlink 0.9s infinite" }} />
-          방에 들어가는 중
+          {state === "connecting" ? "방에 들어가는 중" : "다시 연결 중…"}
         </>
       ) : (
         <>👥 {people}명</>

@@ -9,15 +9,19 @@ import { debugEnabled, dlog, noteRoomMessage } from "./debugLog";
 import { engineMetrics } from "./telemetry";
 import { engineResults } from "./roomResult";
 import type { Bus } from "@snack/room/mesh-client";
+import { browserEnv, isHidden, onPageBack, visibleTimeout, type PageBack, type PageEnv, type VisibleTimer } from "./visibleTimer";
 
 export type RoomMessage = { t: string; d: Record<string, unknown> };
 
 /**
  * Connection status, delivered through onMessage as `{ t: "conn", d: ConnStatus }`
  * whenever it changes ("connecting" first, then "connected" or "failed").
+ * "reconnecting": was in the room, the connection dropped (the page went to the background
+ * for the share sheet, a network blip) and the transport is getting back in on its own —
+ * the screen stays as it is (#115); "failed" only if that does not work within the budget.
  * The screen shows connecting / failed (with retry and "혼자 하기") from this.
  */
-export type ConnState = "connecting" | "connected" | "failed";
+export type ConnState = "connecting" | "connected" | "reconnecting" | "failed";
 export type ConnStatus = { state: ConnState; reason?: string };
 
 export interface RoomTransport {
@@ -42,17 +46,32 @@ export type Identity = { slug: string; anonId: string; nick: string };
 export const CONNECT_TIMEOUT_MS = 45000;
 
 /**
+ * Pause before each reconnect try after a dropped socket (the first one is immediate). The
+ * whole reconnect has the same visible-time budget as a join (CONNECT_TIMEOUT_MS).
+ */
+export const RECONNECT_BACKOFF_MS = [0, 500, 1000, 2000, 4000, 5000];
+/**
+ * Back on screen after at least this long in the background: the socket is replaced even if
+ * it still looks open — iOS may have frozen it without a close (the seat token keeps the seat).
+ */
+export const STALE_AFTER_HIDDEN_MS = 3000;
+/** Close codes the room uses for "do not come back" (edge/room game.js: bad hello, seat replaced, full). */
+const FINAL_CLOSE = new Set([4000, 4001, 4009, 4029]);
+
+/**
  * Shared plumbing: listeners and the connection status every transport reports
  * ("connecting" → "connected" once the room state arrives | "failed").
  */
 abstract class BaseTransport implements RoomTransport {
   private listeners = new Set<(m: RoomMessage) => void>();
   private state: ConnState | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private timer: VisibleTimer | null = null;
   /** Bumped on every connect/close, so callbacks of an abandoned attempt are ignored. */
   protected gen = 0;
   /** "connecting" this long without the room state → failed "timeout". */
   protected connectTimeoutMs = CONNECT_TIMEOUT_MS;
+  /** Clock, timers and page visibility (tests pass a fake: visibleTimer.ts PageEnv). */
+  env: PageEnv = browserEnv();
 
   abstract connect(): void;
   abstract close(): void;
@@ -89,15 +108,22 @@ abstract class BaseTransport implements RoomTransport {
     if (this.state === state) return;
     this.state = state;
     dlog("conn", reason ? `${state} (${reason})` : state);
-    if (this.timer) clearTimeout(this.timer);
+    this.timer?.cancel();
     this.timer = null;
-    if (state === "connecting") {
+    // The deadline counts only time on screen (#115): a page in the background (the share
+    // sheet, another app) is not failing to join.
+    if (state === "connecting" || state === "reconnecting") {
       const gen = this.gen;
-      this.timer = setTimeout(() => {
-        if (gen === this.gen && this.state === "connecting") this.fail("timeout");
-      }, this.connectTimeoutMs);
+      this.timer = visibleTimeout(() => {
+        if (gen === this.gen && this.state === state) this.fail(state === "connecting" ? this.timeoutReason() : "disconnected");
+      }, this.connectTimeoutMs, this.env);
     }
     this.emit({ t: "conn", d: reason ? { state, reason } : { state } });
+  }
+
+  /** Why a join that ran out of time failed. */
+  protected timeoutReason() {
+    return "timeout";
   }
 
   /** Give up on this attempt: report "failed" and stop its connection. */
@@ -110,15 +136,27 @@ abstract class BaseTransport implements RoomTransport {
   protected abstract stop(): void;
 
   protected stopTimer() {
-    if (this.timer) clearTimeout(this.timer);
+    this.timer?.cancel();
     this.timer = null;
     this.state = null;
   }
 }
 
-/** The room runs on snack-server; one WebSocket per player. */
+/**
+ * The room runs on snack-server (or an edge room); one WebSocket per player. A socket that
+ * drops is replaced on its own (#115) — at once, then with RECONNECT_BACKOFF_MS pauses — and
+ * at once when the page comes back from the background; "failed" only when that has not
+ * worked within the visible-time budget. The room takes the same device back by its anonId
+ * (edge rooms: and the seat token), so the player keeps their seat.
+ */
 export class ServerTransport extends BaseTransport {
   private ws: WebSocket | null = null;
+  /** Reconnect tries since the room state last arrived (picks the backoff pause). */
+  private tries = 0;
+  /** A socket of this join opened (else a timeout means the room server was unreachable). */
+  private opened = false;
+  private retryTimer: unknown = null;
+  private offBack: (() => void) | null = null;
 
   constructor(private url: string, protected me: Identity) {
     super();
@@ -136,10 +174,28 @@ export class ServerTransport extends BaseTransport {
 
   connect() {
     const gen = ++this.gen;
+    this.tries = 0;
+    this.opened = false;
     this.setConn("connecting");
+    this.offBack?.();
+    this.offBack = onPageBack((why, hiddenMs) => this.back(gen, why, hiddenMs), this.env);
+    this.open(gen);
+  }
+
+  protected timeoutReason() {
+    return this.opened ? "timeout" : "unreachable";
+  }
+
+  /** A new socket for this join (any old one is dropped quietly). */
+  private open(gen: number) {
+    this.clearRetry();
+    this.stop();
     const ws = new WebSocket(this.url);
     this.ws = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", d: this.helloData() }));
+    ws.onopen = () => {
+      this.opened = true;
+      ws.send(JSON.stringify({ t: "hello", d: this.helloData() }));
+    };
     ws.onmessage = (ev) => {
       let m: RoomMessage;
       try {
@@ -147,24 +203,76 @@ export class ServerTransport extends BaseTransport {
       } catch {
         return;
       }
-      if (gen === this.gen && !this.control(m)) this.receive(m);
+      if (gen !== this.gen || this.ws !== ws || this.control(m)) return;
+      if (m.t === "state") this.tries = 0;
+      this.receive(m);
     };
-    ws.onclose = () => {
-      if (gen === this.gen) this.fail(this.connState === "connected" ? "disconnected" : "unreachable");
+    ws.onclose = (ev) => {
+      if (gen !== this.gen || this.ws !== ws) return;
+      this.ws = null;
+      // The room closed us on purpose — this seat was taken over by another tab of this
+      // device, the room is full, a bad hello: coming back would not help (or would fight).
+      if (FINAL_CLOSE.has(ev?.code)) return this.fail(ev.code === 4009 ? "replaced" : this.connState === "connected" ? "disconnected" : "unreachable");
+      this.lost(gen);
     };
   }
 
+  /** The socket dropped (or the room turned it away for now): get back in, quietly. */
+  protected lost(gen = this.gen) {
+    if (gen !== this.gen || this.connState === "failed" || this.connState === null) return;
+    this.stop();
+    if (this.connState === "connected") this.setConn("reconnecting");
+    // In the background: nothing to do until the page is back (back() then reconnects at once).
+    if (isHidden(this.env)) return dlog("conn", "dropped in the background → reconnect when back");
+    const pause = RECONNECT_BACKOFF_MS[Math.min(this.tries, RECONNECT_BACKOFF_MS.length - 1)];
+    this.tries += 1;
+    dlog("conn", `dropped → reconnect try ${this.tries}${pause ? ` in ${pause} ms` : ""}`);
+    this.clearRetry();
+    this.retryTimer = this.env.setTimeout(() => {
+      this.retryTimer = null;
+      if (gen === this.gen && this.connState !== "failed" && !isHidden(this.env)) this.open(gen); // hidden: back() does it
+    }, pause);
+  }
+
+  /** The page is back (visible, from the back/forward cache, online): reconnect now if needed. */
+  private back(gen: number, why: PageBack, hiddenMs: number) {
+    const st = this.connState;
+    if (gen !== this.gen || st === "failed" || st === null) return;
+    const ws = this.ws;
+    const live = ws != null && ws.readyState <= 1; // CONNECTING or OPEN
+    // A socket that slept through a long background (or a network change) may be dead
+    // without having said so: replace it. The room gives the same device its seat back.
+    const stale = why !== "visible" || hiddenMs >= STALE_AFTER_HIDDEN_MS;
+    if (live && !stale) return;
+    dlog("conn", `page back (${why}${hiddenMs ? `, hidden ${Math.round(hiddenMs / 100) / 10} s` : ""}) → reconnect now`);
+    this.tries = 0;
+    if (st === "connected") this.setConn("reconnecting");
+    this.open(gen);
+  }
+
+  private clearRetry() {
+    if (this.retryTimer != null) this.env.clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+  }
+
   protected stop() {
+    this.clearRetry();
     const ws = this.ws;
     this.ws = null;
     if (ws) {
       ws.onclose = ws.onmessage = ws.onopen = null;
-      ws.close();
+      try {
+        ws.close();
+      } catch {
+        /* already closed */
+      }
     }
   }
 
   close() {
     this.gen++;
+    this.offBack?.();
+    this.offBack = null;
     this.stopTimer();
     this.stop();
   }
@@ -204,7 +312,13 @@ export class EdgeRoomTransport extends ServerTransport {
     const token = typeof m.d?.token === "string" ? m.d.token : "";
     if (m.t === "token") sessionTokens.set(this.me.slug, token);
     else if (m.t === "organizer") sessionTokens.set(`org:${this.me.slug}`, token);
-    else if (m.t === "denied") this.fail(String(m.d?.reason ?? "denied"));
+    else if (m.t === "denied") {
+      const reason = String(m.d?.reason ?? "denied");
+      // Our own seat still held by the old socket the room has not seen close yet (a long
+      // background, an expired seat token): it lets go soon — keep trying within the budget.
+      if (reason === "seat_taken" && this.connState === "reconnecting") this.lost();
+      else this.fail(reason);
+    }
     else return false;
     return true;
   }
