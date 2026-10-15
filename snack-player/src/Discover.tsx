@@ -54,6 +54,9 @@ export function Discover() {
 
   if (failed) return <MessageScreen icon="📡" title="목록을 불러오지 못했어요" body="인터넷 연결을 확인하고 다시 시도해 주세요." primary={{ label: "다시 시도", onClick: load }} />;
 
+  // The quiz already has a dedicated maker entry above the recommendations.
+  const recommended = (apps?.featured ?? []).filter((m) => m.id !== QUIZ_APP_ID);
+
   return (
     <div ref={shellRef} style={shell}>
       <style>{BLOCK_CSS}</style>
@@ -72,20 +75,23 @@ export function Discover() {
           </button>
         )}
 
-        <h2 style={sectionTitle}>⭐ 추천</h2>
-        <div style={grid} data-section="featured">
-          {(apps?.featured ?? []).map((m) => (
-            <button key={m.id} className="blk" style={card} data-app={m.id} onClick={() => open(m.id)}>
-              <span style={{ fontSize: 34 }}>{m.emoji}</span>
-              <div style={cardTitle}>{m.title}</div>
-              {m.id === QUIZ_APP_ID && <div style={{ ...cardTitle, marginTop: S.s1, color: C.accent, fontSize: TOKENS.size.bodySm }}>나 맞히기 만들기 →</div>}
-              <div style={{ display: "flex", alignItems: "center", gap: S.s2, marginTop: S.s2, flexWrap: "wrap" }}>
-                <span style={{ color: C.inkMuted, fontSize: TOKENS.size.caption }}>{CAT[m.category] ?? "스낵"}</span>
-                {m.mode === "multi" && <span style={tag}>같이</span>}
-              </div>
-            </button>
-          ))}
-        </div>
+        {!!recommended.length && (
+          <>
+            <h2 style={sectionTitle}>⭐ 추천</h2>
+            <div style={grid} data-section="featured">
+              {recommended.map((m) => (
+                <button key={m.id} className="blk" style={card} data-app={m.id} onClick={() => open(m.id)}>
+                  <span style={{ fontSize: 34 }}>{m.emoji}</span>
+                  <div style={cardTitle}>{m.title}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: S.s2, marginTop: S.s2, flexWrap: "wrap" }}>
+                    <span style={{ color: C.inkMuted, fontSize: TOKENS.size.caption }}>{CAT[m.category] ?? "스낵"}</span>
+                    {m.mode === "multi" && <span style={tag}>같이</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Not yet reviewed on a real phone: still playable, deliberately quieter. */}
         {!!apps?.unreviewed.length && (
