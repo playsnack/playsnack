@@ -13,6 +13,10 @@
 //   touches there, so pointer events with pointerType "touch" (what iOS sends):
 //     4. slow drag, 5. flick momentum, 6. the canvas cancels touchmove (the iOS
 //        guard that keeps the browser from claiming the pan).
+//   Chromium desktop (1280×800, mouse — #117): 7. the wheel scrolls the list
+//     and the page wheel is cancelled, 8. it stops at the end, 9. wheel up at
+//     the top is left to the page, 10. click-and-drag moves the list, 11. a
+//     wheel stops a coasting list.
 // Usage: node --import tsx snack-server/tools/result-scroll-e2e.mjs [--skip-build] [--base <url>]
 //   --base: check an already running player (dev server or a deploy) instead of a build.
 // Port: RS_E2E_PORT (else 4530) for the static build.
@@ -90,6 +94,8 @@ async function open(browser, ctxOpts) {
     globalThis.__bite.app.setVars(v);
     globalThis.__bite.refresh();
     globalThis.__events = [];
+    globalThis.__wheels = []; // defaultPrevented of each wheel, as the page sees it
+    addEventListener("wheel", (e) => globalThis.__wheels.push(e.defaultPrevented));
     for (const t of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) addEventListener(t, () => globalThis.__events.push(t), true);
   }, VARS);
   await sleep(300);
@@ -158,6 +164,7 @@ const CONFIGS = [
   { name: "Android 360×640", type: chromium, opts: { ...devices["Pixel 7"], viewport: { width: 360, height: 640 } } },
   { name: "iPhone 13 390×844", type: webkit, opts: { ...devices["iPhone 13"], viewport: { width: 390, height: 844 } } },
   { name: "iPhone 13 360×640", type: webkit, opts: { ...devices["iPhone 13"], viewport: { width: 360, height: 640 } } },
+  { name: "Desktop Chrome 1280×800", type: chromium, desktop: true, opts: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } } },
 ];
 
 const browsers = new Map();
@@ -181,6 +188,54 @@ try {
       const finger = (y0 - y1) / info.scale; // frame units the finger travels
       const isChromium = c.type === chromium;
       const drag = isChromium ? touchDrag : pointerDrag;
+
+      if (c.desktop) {
+        // 7–11. a PC browser (#117): wheel / trackpad and click-and-drag
+        const mid = info.top + info.h / 2;
+        await page.mouse.move(x, mid);
+        await page.mouse.wheel(0, 300);
+        await sleep(200);
+        let s = await state(page, info.key);
+        let w = await page.evaluate(() => globalThis.__wheels.splice(0));
+        check(`${c.name}: mouse wheel scrolls the list`, Math.abs(s.y - 300 / info.scale) < 2 && w.length > 0 && w.every(Boolean), `wheel 300px → ${Math.round(s.y)} of ${Math.round(300 / info.scale)} units; page wheel cancelled ${w.join(",")}`);
+        await page.mouse.wheel(0, 100000);
+        await sleep(200);
+        s = await state(page, info.key);
+        check(`${c.name}: wheel stops at the end of the list`, Math.abs(s.y - info.max) < 0.5, `${Math.round(s.y)} / max ${Math.round(info.max)}`);
+        await reset(page, info.key);
+        await page.evaluate(() => globalThis.__wheels.splice(0));
+        await page.mouse.wheel(0, -200);
+        await sleep(200);
+        s = await state(page, info.key);
+        w = await page.evaluate(() => globalThis.__wheels.splice(0));
+        check(`${c.name}: wheel up at the top is left to the page`, s.y === 0 && w.length > 0 && !w.some(Boolean), `y ${s.y}; cancelled ${w.join(",")}`);
+
+        // click-and-drag with the mouse
+        await reset(page, info.key);
+        await page.mouse.move(x, y0);
+        await page.mouse.down();
+        for (let i = 1; i <= 15; i++) { await page.mouse.move(x, y0 + ((y1 - y0) * i) / 15); await sleep(16); }
+        await sleep(120); // rest before release: no fling
+        await page.mouse.up();
+        s = await settle(page, info.key);
+        check(`${c.name}: click-and-drag moves the list`, s.y >= finger * 0.85 && !s.events.includes("pointercancel"), `moved ${Math.round(s.y)} of ${Math.round(finger)} units`);
+
+        // a wheel catches a coasting list
+        await reset(page, info.key);
+        await page.mouse.move(x, info.top + info.h * 0.7);
+        await page.mouse.down();
+        for (let i = 1; i <= 5; i++) { await page.mouse.move(x, info.top + info.h * 0.7 - 16 * i); await sleep(10); }
+        await page.mouse.up();
+        const coasting = (await state(page, info.key)).flinging;
+        await page.mouse.wheel(0, 10);
+        await sleep(50);
+        const caught = await state(page, info.key);
+        await sleep(300);
+        const after = await state(page, info.key);
+        check(`${c.name}: the wheel stops a coasting list`, coasting && !caught.flinging && Math.abs(after.y - caught.y) < 0.5, `coasting ${coasting} → flinging ${caught.flinging}, ${Math.round(caught.y)} → ${Math.round(after.y)}`);
+        if (errors.length) check(`${c.name}: no page errors`, false, errors.join(" | "));
+        continue;
+      }
 
       // 1/4. slow drag: the list follows the finger
       await drag(page, x, y0, y1, 15, 16);
