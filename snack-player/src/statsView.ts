@@ -109,6 +109,7 @@ export const JOIN_FAIL_LABEL: Record<string, string> = {
   slow: "짧은 시간에 너무 많이 시도함",
   seat_taken: "다른 탭에 이미 들어와 있음",
   full: "방이 꽉 참",
+  friends_full: "친구방이 꽉 참 (30명)",
   other: "기타",
 };
 export const ASK_NO_LABEL: Record<string, string> = {

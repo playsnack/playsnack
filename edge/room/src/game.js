@@ -99,9 +99,19 @@ export function hostStale({ now, phase, away, pongAt, seenAt = null, phaseAt = n
   return now - Math.max(pongAt, seenAt ?? 0, phaseAt ?? 0) > staleMs;
 }
 
+/**
+ * #232: a friends room (`slug~CODE`, PIN and quiz rooms too) holds at most this many people —
+ * distinct devices (anonId) in the room, spectators included. A device that already has a seat
+ * (its socket still in, a seat token, a PIN pass, the organizer) always gets back in; the next new
+ * one is refused `friends_full` (close 4029). Public rooms keep only `maxSockets`.
+ */
+export const FRIENDS_ROOM_MAX = 30;
+export const FRIENDS_FULL = "friends_full";
+
 export const GAME_LIMITS = {
   ...LIMITS,
   maxSockets: 300,
+  friendsMax: FRIENDS_ROOM_MAX, // #232 (tests / e2e go lower)
   actionsPerSec: 15, // as snack-server /ws
   organizerTtlMs: 12 * 60 * 60 * 1000,
   // A device claim must be ≥ server-observed elapsed − this (RTT + render + jitter). 1 s is a
@@ -660,6 +670,13 @@ export class GameRoom {
       this.reply(sock, "moveTo", { room: nextRoomId(this.roomId) });
       return this.closeQ(sock, 4010, "moved");
     }
+    // #232: a friends room is full for a NEW device at friendsMax (distinct devices, spectators too).
+    if (!holder && this.roomId.includes("~") && !this.hasSeat(g, st, anonId) && this.devicesIn(sock) >= this.L.friendsMax) {
+      this.stats.friendsFull = (this.stats.friendsFull ?? 0) + 1;
+      this.meter.count("refusedJoins");
+      this.reply(sock, "denied", { reason: FRIENDS_FULL, max: this.L.friendsMax });
+      return this.closeQ(sock, 4029, FRIENDS_FULL);
+    }
     if (holder) {
       const reconnect = g.claims?.a === anonId || (g.claims?.o === 1 && holder.state.org);
       if (!reconnect) {
@@ -687,6 +704,16 @@ export class GameRoom {
     // replaces a socket the room still holds): the person never leaves the roster, and a room
     // with only them in it keeps its game instead of being torn down and made anew.
     if (holder) this.engine.leave(holder.state.peer);
+  }
+
+  /** Distinct devices (anonId) with a seat in the room now, `sock` aside (#232). */
+  devicesIn(sock) {
+    return new Set(this.sockets().filter((s) => s !== sock && s.state?.joined).map((s) => s.state.anonId)).size;
+  }
+
+  /** This hello comes back to a seat it already had (#232): seat token, the organizer, a PIN pass. */
+  hasSeat(g, st, anonId) {
+    return g.claims?.a === anonId || g.claims?.o === 1 || (st.adm?.v === "pass" && st.adm.a === anonId);
   }
 
   onClose(sock) {

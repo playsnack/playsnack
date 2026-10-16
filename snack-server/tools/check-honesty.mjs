@@ -49,9 +49,10 @@ const ALLOW = [
     why: "★ is the rating INPUT (the user's own tap), not a displayed score",
   },
   {
-    file: /^snack-player\/src\/Screens\.tsx$/,
-    re: /<>👥 \{people\}명<\/>/,
-    why: "RoomChip count = the room's real participant count from the transport (LiveApp participants), shown only once connected",
+    // #232: the RoomChip label moved to roomType.ts peopleChip (Screens.tsx RoomChip renders it once connected).
+    file: /^snack-player\/src\/roomType\.ts$/,
+    re: /return \{ text: `👥 \$\{people\}(\/\$\{FRIENDS_ROOM_MAX\})?명`/,
+    why: "RoomChip count = the room's real participant count from the transport (LiveApp participants), shown only once connected; /30 = the room server's real friends-room cap (game.js FRIENDS_ROOM_MAX)",
   },
   {
     file: /^snack-player\/src\/NicknameGate\.tsx$/,

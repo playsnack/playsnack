@@ -143,6 +143,7 @@ test("failCopy: one row per reason; expired / closed never offer 다시 시도; 
     slow: ["잠시 후 다시 시도해 주세요", "짧은 시간에 너무 많이 시도했어요", true, false],
     seat_taken: ["이 기기에서 이미 들어와 있어요", "다른 탭이나 창에 이 방이 열려 있는지 확인해 주세요", true, false],
     full: ["방이 꽉 찼어요", "이 방은 최대 300명까지 들어올 수 있어요", false, false],
+    friends_full: ["친구방이 꽉 찼어요 (30명)", "친구방은 30명까지 들어올 수 있어요. 공개방에서는 누구나 같이 할 수 있어요", false, true],
     room_full_today: ["오늘 준비한 방이 다 찼어요", "한국 시간 오전 9시에 다시 열려요", false, false],
     timeout: ["같이 하는 방에 못 들어갔어요", "인터넷이 불안정하거나 방 연결이 잠시 막혔을 수 있어요.", true, false],
   };
@@ -151,8 +152,11 @@ test("failCopy: one row per reason; expired / closed never offer 다시 시도; 
     assert.deepEqual([c.title, c.body, c.retry, c.home], [title, body, retry, home], reason);
   }
   assert.deepEqual(failCopy(undefined), failCopy("timeout"));
+  // #232: the full friends room sends you to the public room (primary) or home — no retry loop, no 혼자 하기
+  assert.equal(failCopy("friends_full").toPublic, true);
+  for (const r of Object.keys(rows).filter((r) => r !== "friends_full")) assert.ok(!failCopy(r).toPublic, r);
   // public copy: no operator words (money, limits by vendor, "free tier"), no emoji in the new rows
-  for (const r of ["expired", "closed", "slow", "seat_taken", "full"]) {
+  for (const r of ["expired", "closed", "slow", "seat_taken", "full", "friends_full"]) {
     const c = failCopy(r);
     assert.equal(c.icon, undefined, r);
     assert.doesNotMatch(c.title + c.body, /무료|한도|Cloudflare|요금|서버/, r);
@@ -170,7 +174,7 @@ test("PIN screen lines: wrong (with tries left), locked (counting m분 s초); th
 });
 
 test("telemetry: room server refusals keep their reason; the PIN asked counts as pin", () => {
-  for (const r of ["pin", "locked", "closed", "expired", "slow", "seat_taken", "full"]) assert.equal(joinFailReason(r), r);
+  for (const r of ["pin", "locked", "closed", "expired", "slow", "seat_taken", "full", "friends_full"]) assert.equal(joinFailReason(r), r);
   assert.equal(joinFailReason("pin-required"), "pin");
 });
 
@@ -318,8 +322,8 @@ test("locked: failed 'locked' with retryIn (the PIN screen counts down); pin-req
   b.t.close();
 });
 
-test("final refusals: expired / closed / slow / full are reported with their reason, never retried; 4003 / 4004 alone too", () => {
-  for (const [reason, extra] of [["expired", {}], ["closed", {}], ["slow", { retryIn: 30000 }], ["full", {}], ["origin", {}]] as const) {
+test("final refusals: expired / closed / slow / full / friends_full are reported with their reason, never retried; 4003 / 4004 alone too", () => {
+  for (const [reason, extra] of [["expired", {}], ["closed", {}], ["slow", { retryIn: 30000 }], ["full", {}], ["friends_full", {}], ["origin", {}]] as const) {
     const x = transport(`tpl-a~${OPEN}`);
     x.start();
     x.last().open();
@@ -329,7 +333,7 @@ test("final refusals: expired / closed / slow / full are reported with their rea
     x.t.close();
   }
   // the frame lost, only the close code: still final, with the reason the code means
-  for (const [code, why, want] of [[4004, "", "expired"], [4003, "", "pin-required"], [4003, "closed", "closed"], [4029, "slow", "slow"]] as const) {
+  for (const [code, why, want] of [[4004, "", "expired"], [4003, "", "pin-required"], [4003, "closed", "closed"], [4029, "slow", "slow"], [4029, "friends_full", "friends_full"]] as const) {
     const x = transport(ROOM);
     x.start();
     x.last().open();

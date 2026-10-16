@@ -6,6 +6,7 @@ import { hrefTo } from "./backend";
 import { BLOCK_CSS, pill, primaryBtn, secondaryBtn } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 import { HOST_NOTICE_BOX, PIN_LENGTH, failCopy, isPin, pinDigits, pinErrorText, waitText } from "./roomAdmission";
+import { peopleChip, type RoomKind } from "./roomType";
 
 type Btn = { label: string; onClick: () => void };
 
@@ -57,16 +58,21 @@ export function HomeButton() {
 }
 
 /** Top-right room status: joining… → 👥 N명 (→ "다시 연결 중…" while getting back in after a drop, #115). */
-export function RoomChip({ state, people, reconnecting = false }: { state: "connecting" | "connected"; people: number; reconnecting?: boolean }) {
+export function RoomChip({ state, people, reconnecting = false, kind = "public" }: { state: "connecting" | "connected"; people: number; reconnecting?: boolean; kind?: RoomKind }) {
+  // #232: a friends room shows its cap ("👥 12/30명"); from 25 the chip is outlined (nearly full).
+  const label = peopleChip(kind, people);
+  const busy = state === "connecting" || reconnecting;
+  const near = !busy && label.near;
   return (
-    <div style={{ ...pill, ...chipPos }} aria-live="polite">
+    <div style={{ ...pill, ...chipPos, ...(kind === "friends" && !busy ? { padding: "0 10px" } : {}), ...(near ? nearFull : {}) }}
+      aria-live="polite" data-testid="people-chip" data-near={near ? "1" : undefined} title={!busy ? label.aria : undefined}>
       {state === "connecting" || reconnecting ? (
         <>
           <span style={{ width: 8, height: 8, background: C.accent, animation: "snackBlink 0.9s infinite" }} />
           {state === "connecting" ? "방에 들어가는 중" : "다시 연결 중…"}
         </>
       ) : (
-        <>👥 {people}명</>
+        <>{label.text}</>
       )}
     </div>
   );
@@ -114,7 +120,7 @@ function useCountdown(until: number | null): number {
  * (roomAdmission.ts failCopy, design §7): an expired / forged link has no "다시 시도"; a rate
  * limit's "다시 시도" waits `retryIn` ms (counting down); "홈으로" where the copy offers it.
  */
-export function RoomFailedSheet({ onRetry, solo, reason, retryIn }: { onRetry: () => void; solo: Btn; reason?: string; retryIn?: number }) {
+export function RoomFailedSheet({ onRetry, solo, reason, retryIn, onPublic }: { onRetry: () => void; solo: Btn; reason?: string; retryIn?: number; onPublic?: () => void }) {
   const copy = failCopy(reason);
   const [until] = useState(() => (retryIn && retryIn > 0 ? Date.now() + retryIn : null));
   const wait = useCountdown(until);
@@ -125,12 +131,14 @@ export function RoomFailedSheet({ onRetry, solo, reason, retryIn }: { onRetry: (
         <h2 style={{ ...titleStyle, margin: `${copy.icon ? S.s3 : 0}px 0 ${S.s2}px` }}>{copy.title}</h2>
         <p style={bodyStyle}>{copy.body}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: S.s3, marginTop: S.s5 }}>
+          {/* #232 friends room full: the same game's public room first, then 홈으로 (no 혼자 하기). */}
+          {copy.toPublic && onPublic && <button className="blk" style={primaryBtn} onClick={onPublic}>공개방으로 가기</button>}
           {copy.retry && (
             <button className="blk" style={{ ...primaryBtn, opacity: wait > 0 ? 0.5 : 1 }} disabled={wait > 0} onClick={onRetry}>
               {wait > 0 ? `다시 시도 · ${waitText(wait)}` : "다시 시도"}
             </button>
           )}
-          <button className="blk" style={secondaryBtn} onClick={solo.onClick}>{solo.label}</button>
+          {!(copy.toPublic && onPublic) && <button className="blk" style={secondaryBtn} onClick={solo.onClick}>{solo.label}</button>}
           {copy.home && <button className="blk" style={secondaryBtn} onClick={goHome}>홈으로</button>}
         </div>
       </div>
@@ -298,6 +306,8 @@ const bodyStyle: React.CSSProperties = { color: C.inkMuted, fontSize: TOKENS.siz
 // Offset by the notch inset like the canvas (BitePlayer), so the pills sit over
 // the same part of the app on every phone.
 const homePos: React.CSSProperties = { position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", left: 12, zIndex: 40 };
+// Nearly full (#232): a lime outline + text on the dark chip — a quiet "곧 꽉 차요", no new color.
+const nearFull: React.CSSProperties = { border: `${TOKENS.border.block}px solid ${C.accent}`, color: C.accent };
 const chipPos: React.CSSProperties = { position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", right: 12, zIndex: 20, pointerEvents: "none" };
 // Under the top row (홈 · invite pill · people chip), like LiveApp's topDock.
 const slowDock: React.CSSProperties = {

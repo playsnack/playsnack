@@ -177,6 +177,8 @@ export type FailCopy = {
   retry: boolean;
   /** "홈으로" offered next to "혼자 하기". */
   home: boolean;
+  /** #232: the primary button is "공개방으로 가기" (the same game's public room) — no "혼자 하기". */
+  toPublic?: boolean;
   /** Only the old sheets keep their picture; the new refusals have none (no emoji in new copy). */
   icon?: string;
 };
@@ -185,6 +187,7 @@ const COPY: Record<string, FailCopy> = {
   expired: { title: "링크가 만료됐어요", body: "방이 끝났거나 링크가 바뀌었어요. 친구에게 새 링크를 받아 주세요", retry: false, home: true },
   slow: { title: "잠시 후 다시 시도해 주세요", body: "짧은 시간에 너무 많이 시도했어요", retry: true, home: false },
   seat_taken: { title: "이 기기에서 이미 들어와 있어요", body: "다른 탭이나 창에 이 방이 열려 있는지 확인해 주세요", retry: true, home: false },
+  friends_full: { title: "친구방이 꽉 찼어요 (30명)", body: "친구방은 30명까지 들어올 수 있어요. 공개방에서는 누구나 같이 할 수 있어요", retry: false, home: true, toPublic: true },
   full: { title: "방이 꽉 찼어요", body: "이 방은 최대 300명까지 들어올 수 있어요", retry: false, home: false },
   room_full_today: { title: "오늘 준비한 방이 다 찼어요", body: "한국 시간 오전 9시에 다시 열려요", retry: false, home: false, icon: "🌙" },
 };

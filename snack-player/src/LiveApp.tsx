@@ -701,7 +701,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     <>
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} onArea={(w, h) => setArea([w, h])} />
       <HomeButton />
-      {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} reconnecting={reconnecting && reconnectNotice} />}
+      {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} reconnecting={reconnecting && reconnectNotice} kind={EDGE_ROOM_SERVER ? kind : "public"} />}
       {quizInvite && (
         <div style={{ ...quizInviteBand, top: `calc(var(--snack-safe-top) + ${band.y}px)`, left: band.x, width: band.w, height: band.h }}>
           <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: band.h, flex: 1, minWidth: 0 } : { ...pill, height: band.h }}
@@ -772,7 +772,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         </Suspense>
       )}
       {withRoom && conn === "failed" && !pinGate && (
-        <RoomFailedSheet key={`${connReason}:${connRetryIn ?? ""}`} reason={connReason} retryIn={connRetryIn} onRetry={() => retryRef.current()} solo={soloBtn} />
+        <RoomFailedSheet key={`${connReason}:${connRetryIn ?? ""}`} reason={connReason} retryIn={connRetryIn} onRetry={() => retryRef.current()} solo={soloBtn} onPublic={toPublicRoom} />
       )}
       {withRoom && conn === "connected" && hostPin && (
         <HostPinNotice kind={hostPin} busy={moving} onMove={() => void moveToNewLink()} onClose={hostPin === "alert" ? () => setHostPin(null) : undefined} />
