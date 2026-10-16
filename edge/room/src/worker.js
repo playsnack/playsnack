@@ -264,6 +264,9 @@ export class Game extends DurableObject {
     await this.webSocketClose(ws);
   }
   async alarm() {
+    // Occupied: the alarm is a player's away deadline (#213, game.js sweepAway) — the room of its sockets.
+    const live = this.socks.all().find((s) => s.state?.room);
+    if (live) return void (await this.core(live.state.room).onAlarm());
     if (this.ctx.getWebSockets().length) return;
     if (this.room) await this.room.onAlarm();
     else await roomAlarm({ store: this.ctx.storage, setAlarm: (at) => this.ctx.storage.setAlarm(at) }); // keeps a saved result (7 days)

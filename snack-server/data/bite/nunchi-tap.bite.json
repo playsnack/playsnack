@@ -630,11 +630,11 @@
             "id": "againBtn",
             "use": "PrimaryButton",
             "props": {
-              "label": "다시 하기 🔁"
+              "label": "{roomMode == 'auto' ? '한 판 더 🔁' : '다시 하기 🔁'}"
             },
             "onTap": [
               {
-                "if": "phase == 'result' && (roomMode == '' || (roomMode == 'host' && iAmHost))",
+                "if": "phase == 'result' && (roomMode == '' || roomMode == 'auto' || (roomMode == 'host' && iAmHost))",
                 "then": [
                   {
                     "set": "iAmOut",
@@ -649,7 +649,7 @@
                 ]
               }
             ],
-            "show": "(roomMode == '' || (roomMode == 'host' && iAmHost))"
+            "show": "(roomMode == '' || roomMode == 'auto' || (roomMode == 'host' && iAmHost))"
           },
           {
             "id": "againWait",
@@ -664,11 +664,11 @@
               "color": "#2a2d33",
               "width": 1
             },
-            "show": "!(roomMode == '' || (roomMode == 'host' && iAmHost))",
+            "show": "!(roomMode == '' || roomMode == 'auto' || (roomMode == 'host' && iAmHost))",
             "children": [
               {
                 "id": "againWaitMain",
-                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 다음 판을 시작해요' : '잠시 뒤 다음 판이 자동으로 시작돼요') : '방장이 다시 시작하길 기다리는 중'}",
+                "text": "방장이 다시 시작하길 기다리는 중",
                 "size": 16,
                 "weight": 700,
                 "color": "#d9ff00",
@@ -677,7 +677,7 @@
               },
               {
                 "id": "againWaitSub",
-                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '링크를 친구에게 보내도 돼요' : '그대로 있으면 같이 해요') : ('방장 · ' + hostNick)}",
+                "text": "{'방장 · ' + hostNick}",
                 "size": 13,
                 "weight": 600,
                 "color": "#9aa3af",

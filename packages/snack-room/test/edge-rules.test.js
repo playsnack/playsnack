@@ -221,7 +221,7 @@ test("public room (#141): moved alone to .g2, the first room's game ends — a f
   [c3, d].forEach((x) => x.close());
 });
 
-test("public room after a game: the result holds, then the lobby — and the countdown again", { timeout: 30000 }, async () => {
+test("public room after a game (#212): the result stays, no timer pending; 한 판 더 (start) → the lobby counts down again", { timeout: 30000 }, async () => {
   const room = `tpl-coop-${RUN}`;
   const a = player(hub.url, room, "qa");
   await a.hello({ autoStart: { start: { duration: 3000 }, ms: 3000 } });
@@ -231,9 +231,16 @@ test("public room after a game: the result holds, then the lobby — and the cou
   await a.act("taps", { count: 4 });
   assert.ok(await a.until(() => a.vars.sessionPhase === "result", 5000));
   const n = a.frames.filter((m) => m.t === "autoStart").length;
-  assert.ok(await a.until(() => a.vars.sessionPhase === "lobby", 10000), "back to the lobby after RESULT_HOLD_MS");
+  await sleep(3500); // past the late-tap grace; nothing is scheduled any more
+  assert.equal(hub.room(room).core.engine._state.session.timers.length, 0, "no engine timer: the DO may hibernate");
+  await sleep(6000); // past the old 8 s hold
+  assert.equal(a.vars.sessionPhase, "result", "the result stays");
+  assert.equal(a.frames.filter((m) => m.t === "autoStart").length, n, "no countdown");
+  await b.act("start", { duration: 3000 }); // 한 판 더
+  assert.ok(await a.until(() => a.vars.sessionPhase === "lobby", 3000));
   assert.ok(await a.until(() => a.frames.filter((m) => m.t === "autoStart").length === n + 1));
-  assert.ok(a.frames.filter((m) => m.t === "autoStart").at(-1).d.endsIn > 0, "counting again: two here and someone played");
+  assert.ok(a.frames.filter((m) => m.t === "autoStart").at(-1).d.endsIn > 0, "counting again: two here");
+  assert.ok(await a.until(() => a.vars.sessionPhase === "countdown", 6000), "and it starts");
   [a, b].forEach((x) => x.close());
 });
 

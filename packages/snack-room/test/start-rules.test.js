@@ -3,7 +3,7 @@
 // countdown, back to the lobby after the result, late arrivals told they would only watch).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRoom, HOST_GRACE_MS, AUTO_START_MS, AUTO_START_MIN, RESULT_HOLD_MS } from "../src/room.js";
+import { createRoom, HOST_GRACE_MS, AUTO_START_MS, AUTO_START_MIN } from "../src/room.js";
 
 function harness({ startRule = "any", pack = null, autoStartMs, autoStartMin, getPack } = {}) {
   let t = 0;
@@ -272,7 +272,7 @@ test("auto room: everyone leaves during the countdown → it stops", async () =>
   assert.equal(h.room._state.session.timers.some((x) => x.step === "autoStart"), false);
 });
 
-test("auto room: after the result the lobby comes back (RESULT_HOLD_MS) and counts down again — only if someone played", async () => {
+test("auto room (#212): the result stays — no next game, no timer — until someone taps 한 판 더 → lobby + countdown", async () => {
   const h = harness({ startRule: "auto", autoStartMs: 3000 });
   h.join(1);
   h.join(2);
@@ -282,29 +282,34 @@ test("auto room: after the result the lobby comes back (RESULT_HOLD_MS) and coun
   h.act(1, "taps", { count: 3 });
   await h.advance(3000);
   assert.equal(h.v("sessionPhase"), "result");
+  assert.deepEqual(h.room._state.session.timers, [], "no engine timer pending after the result (the DO may hibernate)");
+  assert.equal(h.timers.size, 0, "no timer at all");
   h.act(1, "lobby");
   assert.equal(h.ackOf(1).reason, "auto_start");
-  await h.advance(RESULT_HOLD_MS);
-  assert.equal(h.v("sessionPhase"), "lobby");
-  assert.equal(h.autoMsgs().at(-1).d.endsIn, 3000, "re-armed: someone played");
-  // a game nobody played: the lobby idles (two phones left open do not loop games)
-  await h.advance(3000 + 3000 + 3000);
-  assert.equal(h.v("sessionPhase"), "result");
   const n = h.autoMsgs().length;
-  await h.advance(RESULT_HOLD_MS);
-  assert.equal(h.v("sessionPhase"), "lobby");
-  assert.equal(h.autoMsgs().length, n, "idle: no countdown");
+  await h.advance(10 * 60000);
+  assert.equal(h.v("sessionPhase"), "result", "nobody tapped: the result stays");
+  assert.equal(h.autoMsgs().length, n, "no countdown");
+  h.join(3); // someone arriving at the result does not restart anything either
   await h.advance(60000);
+  assert.equal(h.v("sessionPhase"), "result");
+  assert.equal(h.room._state.session.timers.length, 0);
+  // 한 판 더: any player (here the one who just arrived)
+  h.act(3, "start", { duration: 3000 });
+  assert.equal(h.ackOf(3).accepted, true);
   assert.equal(h.v("sessionPhase"), "lobby");
-  h.act(1, "start", {}); // a tap wakes it
-  assert.notEqual(h.ackOf(1).accepted, false);
-  assert.equal(h.autoMsgs().length, n + 1);
-  h.join(3); // already counting: told, not re-armed
-  assert.equal(h.autoMsgs().length, n + 2);
-  assert.equal(h.autoMsgs().at(-1).to, "p3");
+  assert.equal(h.autoMsgs().at(-1).d.endsIn, 3000, "the countdown runs (3 here)");
+  h.join(4); // joining during it: told, plays along
+  assert.equal(h.autoMsgs().at(-1).to, "p4");
+  await h.advance(3000 + 10);
+  assert.equal(h.v("sessionPhase"), "countdown");
+  assert.deepEqual([...h.room._state.session.members].sort(), ["a1", "a2", "a3", "a4"]);
+  await h.advance(3000 + 3000);
+  assert.equal(h.v("sessionPhase"), "result");
+  assert.equal(h.room._state.session.timers.length, 0);
 });
 
-test("auto room: someone played but only one is left when the result returns to the lobby → waits; a 2nd arrival arms it", async () => {
+test("auto room (#212): 한 판 더 alone → the lobby waits for a 2nd person (no countdown); a 2nd arrival arms it", async () => {
   const h = harness({ startRule: "auto", autoStartMs: 3000 });
   h.join(1);
   h.join(2);
@@ -316,17 +321,37 @@ test("auto room: someone played but only one is left when the result returns to 
   assert.equal(h.v("sessionPhase"), "result");
   h.room.leave("p2");
   const n = h.autoMsgs().length;
-  await h.advance(RESULT_HOLD_MS);
-  assert.equal(h.v("sessionPhase"), "lobby");
-  assert.equal(h.autoMsgs().length, n, "alone after the result: no countdown");
   h.act(1, "start", {});
-  assert.equal(h.ackOf(1).reason, "need_players");
+  assert.deepEqual([h.ackOf(1).accepted, h.ackOf(1).waiting], [true, "need_players"]);
+  assert.equal(h.v("sessionPhase"), "lobby");
+  assert.equal(h.autoMsgs().length, n, "alone: no countdown");
+  assert.equal(h.room._state.session.timers.length, 0);
   await h.advance(60000);
   assert.equal(h.v("sessionPhase"), "lobby", "a lone phone does not loop games");
+  h.act(1, "start", {});
+  assert.equal(h.ackOf(1).reason, "need_players");
   h.join(4);
-  assert.equal(h.autoMsgs().at(-1).d.endsIn, 3000, "the 2nd person: counting again");
+  assert.equal(h.autoMsgs().at(-1).d.endsIn, 3000, "the 2nd person: counting");
   await h.advance(3000 + 10);
   assert.equal(h.v("sessionPhase"), "countdown");
+});
+
+test("auto room (#212): a snapshot from before still holding the old autoLobby timer → the result stays", async () => {
+  const h = harness({ startRule: "auto", autoStartMs: 3000 });
+  h.join(1);
+  h.join(2);
+  h.room.configureAuto({ duration: 3000 }, 3000);
+  await h.advance(3000 + 10 + 3000 + 3000);
+  assert.equal(h.v("sessionPhase"), "result");
+  const snap = h.room.snapshot();
+  snap.timers.push({ step: "autoLobby", arg: null, remaining: 8000 });
+  const h2 = harness({ startRule: "auto", autoStartMs: 3000 });
+  h2.room.restore(snap);
+  h2.room.rejoin("p1", { anonId: "a1", nick: "닉1" });
+  h2.room.rejoin("p2", { anonId: "a2", nick: "닉2" });
+  await h2.advance(60000);
+  assert.equal(h2.room._state.session.phase, "result");
+  assert.equal(h2.autoMsgs().length, 0);
 });
 
 test("auto room: snapshot mid-countdown → restored engine starts on time; too few back → it waits (hibernation / hand-over)", async () => {

@@ -346,3 +346,90 @@ test("onPageBack: says how long the page was hidden", () => {
   page.setHidden(false);
   assert.deepEqual(got, [["visible", 7000], ["online", 0]]);
 });
+
+// ── #213: leave signals (edge rooms) — one frame per event, nothing periodic ──
+const kinds = (ws: FakeWS) => ws.sent.map((m) => m.t).filter((k) => k !== "hello");
+
+test("#213 away / here: the page hides → `away` once; back within STALE_AFTER_HIDDEN_MS on the same socket → `here`", () => {
+  const { page, last } = joined();
+  const ws = last();
+  page.setHidden(true);
+  page.setHidden(true); // a second hidden event: still one away
+  assert.deepEqual(kinds(ws), ["away"]);
+  page.advance(STALE_AFTER_HIDDEN_MS - 1000);
+  page.setHidden(false);
+  assert.equal(FakeWS.all.length, 1, "the same socket");
+  assert.deepEqual(kinds(ws), ["away", "here"]);
+  page.advance(10 * 60_000);
+  assert.deepEqual(kinds(ws), ["away", "here"], "nothing periodic");
+});
+
+test("#213 away, then back after a long background: a new socket (its hello says it), no `here` on the old one", () => {
+  const { page, last } = joined();
+  const old = last();
+  page.setHidden(true);
+  page.advance(40_000, { frozen: true });
+  page.setHidden(false);
+  assert.equal(FakeWS.all.length, 2);
+  assert.deepEqual(kinds(old), ["away"]);
+  last().admit("seat-2");
+  assert.deepEqual(kinds(last()), []);
+});
+
+test("#213 the room let the away socket go (4011): back on screen → in again", () => {
+  const { t, page, last, states } = joined();
+  page.setHidden(true);
+  last().drop(4011);
+  assert.equal(t.connState, "reconnecting");
+  page.setHidden(false);
+  assert.equal(FakeWS.all.length, 2);
+  last().admit("seat-2");
+  assert.equal(t.connState, "connected");
+  assert.ok(!states.includes("failed"));
+});
+
+test("#213 bye: pagehide (tab closed, ← 홈, reload) sends `bye` and closes the socket; a page kept in the back/forward cache comes back in", () => {
+  const { t, page, last } = joined();
+  const ws = last();
+  page.fire("pagehide", { persisted: true });
+  assert.deepEqual(kinds(ws), ["bye"]);
+  assert.ok(ws.closedByClient);
+  page.fire("pageshow", { persisted: true });
+  assert.equal(FakeWS.all.length, 2, "back from the cache: a new socket");
+  last().admit("seat-2");
+  assert.equal(t.connState, "connected");
+});
+
+test("#213 close() (the room screen goes away) says `bye` first; a hide after close sends nothing", () => {
+  const { t, page, last } = joined();
+  const ws = last();
+  t.close();
+  assert.deepEqual(kinds(ws), ["bye"]);
+  page.setHidden(true);
+  assert.deepEqual(kinds(ws), ["bye"]);
+});
+
+test("#213 a join finished while hidden → `away` right after the state", () => {
+  const page = fakePage();
+  FakeWS.all = [];
+  const t = new EdgeRoomTransport("wss://room.test", { slug: "tpl-tap-battle~K7MNP2QRS4", anonId: "dev-anon-2", nick: "다라" });
+  t.env = page.env;
+  t.connect();
+  page.setHidden(true);
+  FakeWS.all[0].admit();
+  assert.deepEqual(kinds(FakeWS.all[0]), ["away"]);
+  t.close();
+});
+
+test("#213 the snack-server /ws transport sends no leave signals (it would not know them)", () => {
+  const page = fakePage();
+  FakeWS.all = [];
+  const t = new ServerTransport("wss://server.test/ws", { slug: "tpl-tap-battle", anonId: "dev-anon-3", nick: "마바" });
+  t.env = page.env;
+  t.connect();
+  FakeWS.all[0].admit();
+  page.setHidden(true);
+  page.setHidden(false);
+  t.close();
+  assert.deepEqual(kinds(FakeWS.all[0]), []);
+});
