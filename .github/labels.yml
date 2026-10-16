@@ -63,7 +63,7 @@
   description: Express/WebSocket server and AI builder.
 - name: "engine-request"
   color: "5319E7"
-  description: PlaySnack needs a change in the Bite engine; attach a failing harness (template, scene fixture or gate).
+  description: PlaySnack needs a Bite engine change; attach a failing harness.
 - name: "area: bite-engine"
   color: "0052CC"
   description: Bite runtime package.
