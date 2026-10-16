@@ -392,6 +392,22 @@ test("speed-trivia: a pack still on its way → '<title> · 준비 중…', no s
   assert.equal(T.v(1, "quizInfo.about"), "A");
 });
 
+// One template, two games (#210): the built-in questions are 스피드 퀴즈 (its own catalog entry
+// `speed-quiz`); a made pack is that quiz — its lobby is named by the quiz's own title.
+test("speed-trivia: lobby title — 스피드 퀴즈 for the built-in questions, the quiz's title for a made pack", async () => {
+  const T = table("speed-trivia-score", ["A", "B"]);
+  await T.advance(100);
+  for (const i of [0, 1]) {
+    assert.equal(T.prop(i, "navL", "props.title"), "스피드 퀴즈");
+    assert.equal(T.prop(i, "lobbyTitle"), "스피드 퀴즈");
+  }
+  T.room.action("p0", { name: "quizPack", payload: { title: "우리 MT 퀴즈", questions: QS2 }, clientMsgId: "pack" });
+  await T.advance(50);
+  for (const i of [0, 1]) assert.equal(T.prop(i, "navL", "props.title"), "우리 MT 퀴즈");
+  assert.equal(T.prop(0, "lobbyTitle"), "우리 MT 퀴즈 · 2문제");
+  assert.equal(T.prop(1, "lobbyTitle"), "우리 MT 퀴즈 · 2문제 · 곧 시작해요");
+});
+
 test("speed-trivia: 나도 만들기 from a default-quiz result — while the pack is on its way no 다시 하기", async () => {
   const T = table("speed-trivia-score", ["A", "B"]);
   T.tap(0, "startBtn"); // the cold default quiz

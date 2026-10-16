@@ -82,7 +82,8 @@ test("clear of the top-row pills, 😀 and 🪲 at 360 and 390 wide", () => {
 
 const DIR = new URL("../../snack-server/data/bite/", import.meta.url);
 const index = JSON.parse(readFileSync(new URL("index.json", DIR), "utf8")) as { id: string; mode: string; hidden?: boolean }[];
-const TOGETHER = index.filter((t) => t.mode === "multi" && !t.hidden).map((t) => t.id);
+// One file per game: an entry that plays another entry's file (`template`, #210) is covered by it.
+const TOGETHER = index.filter((t) => t.mode === "multi" && !t.hidden && !(t as { template?: string }).template).map((t) => t.id);
 type Inst = { key: string; node: Record<string, unknown>; tap?: unknown; children: Inst[] };
 function* walk(i: Inst): Generator<Inst> { yield i; for (const c of i.children) yield* walk(c); }
 const ready = initLayout();

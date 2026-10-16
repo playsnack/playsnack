@@ -15,6 +15,9 @@ export const SITE_NAME = 'PlaySnack';
 export const DEFAULT_TITLE = 'PlaySnack · 친구랑 바로 한 판';
 export const DEFAULT_DESCRIPTION = '설치·가입 없이 링크만 열면 바로 시작하는 월드컵·퀴즈·게임. 친구한테 링크 하나 보내고 같이 한 판!';
 export const QUIZ_APP_ID = 'speed-trivia-score'; // = snack-player/src/quiz.ts QUIZ_APP_ID
+/** 스피드 퀴즈: the quiz template with its built-in questions, its own app (#210; = snack-player catalog.ts SPEED_QUIZ_ID). */
+export const SPEED_QUIZ_ID = 'speed-quiz';
+const QUIZ_TAGLINE = '나를 얼마나 알까?';
 export const ROOM_LOOKUP_MS = 300;
 const ROOM_CACHE_MS = 60_000;
 const ROOM_CACHE_MAX = 200;
@@ -110,11 +113,14 @@ export function ogMeta({ url, catalog, manifest = {}, about = null }) {
     url: canonical,
     app: null,
   };
-  const e = slug ? entryFor(slug, catalog) : null;
+  let e = slug ? entryFor(slug, catalog) : null;
+  // A bare 나 맞히기 link (no room code) opens 스피드 퀴즈 (snack-player catalog.ts isBareQuizLink), so it
+  // previews that game; with a code it is someone's quiz and stays 나 맞히기.
+  if (e && e.id === QUIZ_APP_ID && !code) e = catalog.find((t) => t && t.id === SPEED_QUIZ_ID) ?? e;
   if (!e) return base;
   const name = cleanName(e.title) || SITE_NAME;
   const multi = e.mode === 'multi';
-  const tagline = TAGLINE[e.category] ?? '친구랑 바로 한 판';
+  const tagline = e.id === QUIZ_APP_ID ? QUIZ_TAGLINE : TAGLINE[e.category] ?? '친구랑 바로 한 판';
   const v = manifest.apps?.[e.id];
   const meta = {
     ...base,

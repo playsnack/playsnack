@@ -18,6 +18,17 @@ test("path link: /p/<slug>?room=&host= → live route, params kept, nothing to r
   assert.equal(canonical, null);
 });
 
+test("스피드 퀴즈 and 나 맞히기 (one template, #210): two links, two public rooms, friends codes per app", () => {
+  const speed = parseRoute(loc("/p/tpl-speed-quiz")).route;
+  const quiz = parseRoute(loc("/p/tpl-speed-trivia-score", "?room=ABCDEFGH23")).route;
+  assert.equal(speed.name, "live");
+  assert.equal(speed.slug, "tpl-speed-quiz");
+  assert.equal(roomIdFor(speed.slug!, speed.params), "tpl-speed-quiz");
+  assert.equal(roomIdFor(quiz.slug!, quiz.params), "tpl-speed-trivia-score~ABCDEFGH23");
+  assert.equal(roomIdFor("tpl-speed-quiz", new URLSearchParams("room=ABCDEFGH23")), "tpl-speed-quiz~ABCDEFGH23");
+  assert.equal(friendLink("https://x", "tpl-speed-quiz", new URLSearchParams(), "ABCDEFGH23"), "https://x/p/tpl-speed-quiz?room=ABCDEFGH23");
+});
+
 test("old hash link #/p/<slug>?… → same route + the path form to replace it with", () => {
   const { route, canonical } = parseRoute(loc("/", "", "#/p/tpl-tap-battle?room=ABCDEFGH23&host=1"));
   assert.equal(route.name, "live");
