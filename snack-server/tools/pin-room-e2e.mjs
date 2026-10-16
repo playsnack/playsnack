@@ -349,7 +349,7 @@ try {
   await go(D, `${BASE}/p/${QUIZ}`);
   await scene(D);
   await D.getByRole("button", { name: "친구끼리 하는 방 만들기" }).click();
-  await waitFor(async () => codeOf(D.url()).length === 15 && (await vars(D)).iAmHost === true, 15000, "D hosts a friends quiz room");
+  await waitFor(async () => codeOf(D.url()).length === 15 && (await vars(D)).iAmHost === true, 15000, "D hosts a friends room (a bare quiz link → 스피드 퀴즈 since #210: the top-row 🔗 친구 초대 pill)");
   const dInvite = D.getByRole("button", { name: "친구 초대 링크 보내기" });
   await dInvite.waitFor({ state: "visible", timeout: 8000 });
   await dInvite.click();
