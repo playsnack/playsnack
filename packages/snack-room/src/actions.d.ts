@@ -13,6 +13,8 @@ export interface HostAction {
   /** A bare number is also accepted (start: duration in ms). */
   number?: boolean;
   fields?: Record<string, HostField>;
+  /** A payload the room takes (the contract drift test sends it instead of a generated one). */
+  sample?: Record<string, unknown>;
   description?: string;
 }
 

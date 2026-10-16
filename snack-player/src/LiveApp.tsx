@@ -22,6 +22,8 @@ import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
 import { joinTracker, slowJoinText } from "./roomJoin";
 import { visibleTimeout, type VisibleTimer } from "./visibleTimer";
 import { autoStartTicker } from "./autoStart";
+import { SCHEDULE_OPEN_EVENT, SCHEDULE_REFUSALS, scheduleTicker, type ScheduleVars } from "./schedule";
+import ScheduleSheet from "./ScheduleSheet";
 import { noteDeviceUsage, trackRoomCreate, trackShare } from "./telemetry";
 import {
   MAKE_EVENT, MAKE_HOST_EVENT, MAKE_PARAM, PACK_REFUSALS, QUIZ_SLUG, deviceQuizStore, openQuizMaker, packAction, packFailureMessage, packPending,
@@ -68,6 +70,16 @@ const inviteOnOpen = new Set<string>();
 const sendOnOpen = new Set<string>();
 /** Rooms whose "비밀번호를 걸까요?" was answered on this device (#217). */
 const pinAsked = invitePinAsked();
+
+/** Tests only (#218 e2e): `localStorage.snack_sched_test_s` adds a short preset to the time sheet (the room still checks its own minimum). */
+const scheduleTestSec = () => {
+  try {
+    const n = Number(localStorage.getItem("snack_sched_test_s"));
+    return Number.isInteger(n) && n > 0 && n < 60 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 type LoadError = "notFound" | "network";
 const isNetworkError = (e: unknown) =>
@@ -133,6 +145,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const [hostPin, setHostPin] = useState<"alert" | "closed" | null>(null);
   const [moving, setMoving] = useState(false);
   const [mintFail, setMintFail] = useState(false);
+  // 시작 시간 예약 (#218, schedule.ts): the room's scheduled start as this device runs it, and the
+  // host's sheet (busy = a schedule / unschedule sent, waiting for the room's answer).
+  const schedVarsRef = useRef<ScheduleVars>({ startAt: 0, startIn: 0, startAtText: "" }); // (for onReady)
+  const [sched, setSched] = useState<ScheduleVars>({ startAt: 0, startIn: 0, startAtText: "" });
+  const [schedSheet, setSchedSheet] = useState<{ busy: boolean; error: string | null } | null>(null);
 
   // Floating emoji reactions over the canvas (ReactionLayer.tsx, #121).
   const sendReaction = (emoji: string) => {
@@ -194,6 +211,12 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     const auto = autoStartTicker((n) => {
       if (doc.vars && Object.prototype.hasOwnProperty.call(doc.vars, "autoStartIn")) runtimeRef.current?.setVar("autoStartIn", n);
     });
+    // "m:ss 뒤 시작!" (#218): the scheduled start on this device's clock, into startAt / startIn / startAtText.
+    const schedule = scheduleTicker((v) => {
+      for (const [k, x] of Object.entries(v)) if (declaresVar(doc, k)) runtimeRef.current?.setVar(k, x);
+      schedVarsRef.current = { ...schedVarsRef.current, ...v };
+      if ("startAt" in v || "startAtText" in v) setSched(schedVarsRef.current); // (not every second)
+    });
     const join = joinTracker({ slug, room: roomIdFor(slug, params), via: room.via }); // room_join telemetry + ?debug=1 log
     // The backstop for a transport that never reports: like the transport's own deadline,
     // it counts only time with the page on screen (visibleTimer.ts, #115).
@@ -247,6 +270,12 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       if (m.t === "moved") return;
       heard(); // any room traffic means we're in
       if (m.t === "autoStart") return auto.message(m.d.endsIn);
+      if (m.t === "schedule") {
+        schedule.message(m.d as Record<string, unknown>);
+        // the host's sheet: the room took it (a new time, or the cancel) — done
+        setSchedSheet((x) => (x?.busy ? null : x));
+        return;
+      }
       if (m.t === "state") {
         quizRef.current.live = true;
         sharedRef.current = m.d.sharedState as Record<string, unknown>;
@@ -263,7 +292,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         setSpectator({ me: sh.iAmSpectator, phase: String(sh.sessionPhase ?? "lobby") });
       } else if (m.t === "setVar") {
         if (m.d.id === "sessionPhase") last.phase(m.d.value); // a game started here: the old result steps aside
-        if (m.d.id === "sessionPhase" && m.d.value !== "lobby") auto.clear(); // the countdown is over
+        if (m.d.id === "sessionPhase" && m.d.value !== "lobby") {
+          auto.clear(); // the countdown is over
+          schedule.clear(); // a start ends the schedule (#218)
+          setSchedSheet(null);
+        }
         if (forTemplate(doc, m.d.id as string)) runtimeRef.current?.setVar(m.d.id as string, m.d.value);
         onQuizVar(m.d.id as string, m.d.value);
         if (m.d.id === "iAmSpectator") setSpectator((x) => ({ ...x, me: m.d.value }));
@@ -271,6 +304,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       } else if (m.t === "actionAck") {
         // Only quizPack is refused this way ("not_in_lobby" = sent mid-game: packAction waits for the result).
         if (m.d.accepted === false && PACK_REFUSALS.has(m.d.reason as string)) onPackRefused(m.d.reason as string);
+        // the host's schedule / unschedule refused (#218): the sheet says why
+        else if (m.d.accepted === false) setSchedSheet((x) => (x?.busy ? { busy: false, error: SCHEDULE_REFUSALS[m.d.reason as string] ?? "예약하지 못했어요. 다시 해 주세요" } : x));
       } else if (m.t === "participants") {
         last.participants(m.d.count);
         setParticipants(m.d.count as number);
@@ -298,6 +333,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     return () => {
       silence?.cancel();
       auto.stop();
+      schedule.clear();
       setReconnecting(false);
       last.close();
       join.end();
@@ -461,6 +497,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     applyShared(sharedRef.current); // seed from cold-load / latest authoritative state
     // A shell variable (#143): this friends room has a PIN — the lobby subtitle adds 🔒.
     if (doc && declaresVar(doc, "roomPin")) rt.setVar("roomPin", pinRoom);
+    // A shell variable (#218): the lobby's "under a minute" pulse stays still with reduced motion.
+    if (doc && declaresVar(doc, "reduceMotion")) rt.setVar("reduceMotion", globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true);
+    // …and the scheduled start, when the room said it before the app was ready
+    if (doc) for (const [k, x] of Object.entries(schedVarsRef.current)) if (declaresVar(doc, k)) rt.setVar(k, x);
     extras.attach(rt as Parameters<typeof extras.attach>[0]);
     quizTick(); // a pack made for this room shows "준비 중…" from the first frame
     // Dev only (dropped from builds): the screenshot harness feeds fixture vars.
@@ -474,6 +514,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     if (extras.handleEvent(e)) return; // a result-screen button: handled here, not a room action
     // "나도 만들기" from a template button: handled on this device, never sent to the room.
     if (isQuiz && e.name === MAKE_HOST_EVENT) return openQuizMaker();
+    // "⏰ 시작 시간 정하기" (#218): the host's sheet, on this device (the room hears the chosen time).
+    if (e.name === SCHEDULE_OPEN_EVENT) return setSchedSheet({ busy: false, error: null });
     roomRef.current?.sendAction(e.name, e.payload);
   };
 
@@ -628,7 +670,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // steps aside while something else holds the top of the screen.
   const nameCard = showNameCard({
     auto: nickAuto, chosen: nameChosen, live: withRoom && conn === "connected", phase: spectator.phase,
-    covered: makerOpen || Boolean(lastResult) || inResult || Boolean(invite) || qrOpen || showPackFail || Boolean(pinGate) || Boolean(pinSet) || Boolean(hostPin) || mintFail || inviteAsk || sendReady || leaveAsk,
+    covered: makerOpen || Boolean(lastResult) || inResult || Boolean(invite) || qrOpen || showPackFail || Boolean(pinGate) || Boolean(pinSet) || Boolean(hostPin) || mintFail || inviteAsk || sendReady || leaveAsk || Boolean(schedSheet),
   });
   // "비밀번호 걸기" only while nobody else is in (a PIN means a new link, owner decision #157).
   const canSetPin = canOfferPin({ edge: Boolean(EDGE_ROOM_SERVER), code: Boolean(code), connected: conn === "connected", people });
@@ -707,6 +749,21 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       )}
       {withRoom && conn !== "failed" && inResult && <div style={resultNoteDock}>{inviteFeedback}</div>}
       {nameCard && <NameCard nick={getNick() ?? meRef.current?.nick ?? ""} onKeep={keepName} onChange={changeName} />}
+      {schedSheet && withRoom && conn === "connected" && spectator.phase !== "countdown" && spectator.phase !== "play" && (
+        <ScheduleSheet
+          current={sched.startAt > Date.now() ? { startAt: sched.startAt, startAtText: sched.startAtText } : null}
+          busy={schedSheet.busy} error={schedSheet.error} testSec={scheduleTestSec()}
+          onPick={(ms) => {
+            setSchedSheet({ busy: true, error: null });
+            // the app's own start payload (its template's `room.start` — the lobby button's)
+            roomRef.current?.sendAction("schedule", { in: Math.round(ms), start: doc.room?.start ?? {} });
+          }}
+          onCancel={() => {
+            setSchedSheet({ busy: true, error: null });
+            roomRef.current?.sendAction("unschedule");
+          }}
+          onClose={() => setSchedSheet(null)} />
+      )}
       {makerOpen && (
         <Suspense fallback={<LoadingScreen />}>
           <QuizMaker nick={getNick() ?? ""} nickAuto={isNickAuto()} doneLabel="완료 · 이 방에서 하기" closeLabel="✕ 닫기"

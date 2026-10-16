@@ -21,6 +21,9 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
   let t = 0;
   // The shell's "10초 뒤 시작" (snack-player autoStart.ts): device → when the room said the game starts.
   const autoAt = new Map();
+  // …and its scheduled start (#218, snack-player schedule.ts): device → {at, due} (startAt / startIn / startAtText).
+  const schedAt = new Map();
+  const shellEvents = []; // template host events the shell keeps (scheduleOpen): {i, name}
   let seq = 0;
   const timers = new Map();
   const devices = new Map(); // peerId → app
@@ -58,6 +61,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
     startRule,
     broadcast: (type, d) => {
       if (type === "autoStart") for (const peerId of devices.keys()) autoAt.set(peerId, d.endsIn >= 0 ? t + d.endsIn : null);
+      if (type === "schedule") for (const peerId of devices.keys()) schedAt.set(peerId, d.on ? { at: t + d.endsIn, due: d.due } : null);
       if (type !== "setVar") return;
       for (const [peerId, app] of devices) toDevice(peerId, () => put(app, d.id, d.value));
     },
@@ -65,6 +69,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
       const app = devices.get(peerId);
       if (!app) return;
       if (type === "autoStart") autoAt.set(peerId, d.endsIn >= 0 ? t + d.endsIn : null);
+      if (type === "schedule") schedAt.set(peerId, d.on ? { at: t + d.endsIn, due: d.due } : null);
       if (type === "setVar") toDevice(peerId, () => put(app, d.id, d.value));
       if (type === "state") toDevice(peerId, () => Object.entries(d.sharedState).forEach(([k, v]) => put(app, k, v)));
     },
@@ -74,6 +79,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
     const app = createBite(load(id), { now: () => t + (clock[i] ?? 0), warn: (m) => assert.fail(`${nick}: ${m}`) });
     app.on("emit", (e) => {
       if (devices.get(peerId) !== app) return; // a closed tab
+      if (e.name === "scheduleOpen") return void shellEvents.push({ i, name: e.name }); // the shell's sheet (LiveApp)
       sent.push({ i, name: e.name, payload: e.payload, at: t, phase: app.phase }); // what this phone sent (message counts)
       const act = () => room.action(peerId, { name: e.name, payload: e.payload, clientMsgId: `${peerId}-${++seq}` });
       if (up[i]) later(up[i], act);
@@ -112,6 +118,11 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
           const left = at == null || app.vars.sessionPhase !== "lobby" ? 0 : Math.max(0, Math.ceil((at - t) / 1000));
           if (app.vars.autoStartIn !== left) app.setVar("autoStartIn", left);
         }
+        if (Object.hasOwn(app.vars, "startIn") && schedAt.has(peerId)) {
+          const sc = app.vars.sessionPhase === "lobby" ? schedAt.get(peerId) : null;
+          const v = sc ? { startAt: sc.at + 1e12, startIn: sc.due ? 0 : Math.max(0, Math.ceil((sc.at - t) / 1000)), startAtText: "오후 8:30" } : { startAt: 0, startIn: 0, startAtText: "" };
+          for (const [k, x] of Object.entries(v)) if (app.vars[k] !== x) app.setVar(k, x);
+        }
         app.tick();
       }
       await flush();
@@ -130,7 +141,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
   // Is node `nid` (and every ancestor) shown on device i now?
   const pathTo = (nid, n = load(id).view) => (n?.id === nid ? [n] : (n?.children ?? []).map((c) => pathTo(nid, c)).find(Boolean)?.concat(n, []) ?? null);
   const shown = (i, nid) => pathTo(nid).every((n) => n.show == null || Boolean(app(i).eval(n.show)));
-  return { room, sent, advance, app, prop, shown, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
+  return { room, sent, shellEvents, advance, app, prop, shown, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
 }
 
 test("tap-battle: game 2 started by the OTHER device — board == 내 탭 card on the non-starter", async () => {
@@ -1028,4 +1039,62 @@ test("tapBatchMs (#179): 20 players keep 250 ms; 21 get 1 s; a room that shrank 
   assert.equal(T.phase(0), "play");
   assert.equal(T.v(0, "tapBatchMs"), 250, "20 players → back to 250 ms");
   assert.equal(T.v(7, "tapBatchMs"), 250);
+});
+
+// ── 시작 시간 예약 (#218): the host schedules, everyone's lobby counts down, the game starts by itself ──
+
+const SESSION_TEMPLATES = ["balance-game-vote", "speed-trivia-score", "worldcup-group-vote", "coop-click", "majority-guess", "tap-battle", "coop-tap-goal", "reaction-duel-score", "most-likely-roster-vote", "nunchi-tap"];
+for (const id of SESSION_TEMPLATES) {
+  test(`${id} friends room: the host's "⏰ 시작 시간 정하기" → the sheet sends schedule; both see "m:ss 뒤 시작!", it plays by itself at the time`, async () => {
+    const doc = load(id);
+    const T = table(id, ["A", "B"], { startRule: "host" });
+    await T.advance(100);
+    assert.equal(T.prop(0, "schedBtn", "props.label"), "⏰ 시작 시간 정하기");
+    assert.equal(T.shown(1, "schedBtn"), false, "a friend has no host controls");
+    assert.equal(T.tap(0, "schedBtn"), true);
+    assert.deepEqual(T.shellEvents, [{ i: 0, name: "scheduleOpen" }], "the shell's event — not sent to the room");
+    // the sheet's "1분 뒤" (LiveApp): schedule {in, start: the app's room.start}
+    T.room.action("p0", { name: "schedule", payload: { in: 60000, start: doc.room.start }, clientMsgId: "sched-1" });
+    await T.advance(1000);
+    for (const i of [0, 1]) assert.equal(T.prop(i, "schedMain"), "0:59 뒤 시작!", `device ${i}`);
+    assert.equal(T.prop(0, "schedBtn", "props.label"), "예약 취소");
+    assert.equal(T.prop(0, "startBtn", "props.label"), "지금 시작 🚀");
+    assert.equal(id === "speed-trivia-score" ? T.prop(1, "waitBtn", "props.label") : T.prop(1, "startWaitMain"), "시간이 되면 저절로 시작해요");
+    await T.advance(58000);
+    assert.equal(T.phase(1), "lobby");
+    await T.advance(1000 + 3200);
+    assert.equal(T.phase(0), "play", "started by itself");
+    assert.equal(T.phase(1), "play");
+    assert.equal(T.v(1, "startAt"), 0, "the countdown is gone");
+  });
+}
+
+test("tap-battle friends room: 예약 취소 — the countdown leaves both screens, nothing starts at the time", async () => {
+  const doc = load("tap-battle");
+  const T = table("tap-battle", ["A", "B"], { startRule: "host" });
+  await T.advance(100);
+  T.room.action("p0", { name: "schedule", payload: { in: 30000, start: doc.room.start }, clientMsgId: "s1" });
+  await T.advance(1000);
+  assert.equal(T.shown(1, "schedCard"), true);
+  assert.equal(T.tap(0, "schedBtn"), true); // 예약 취소
+  await T.advance(500);
+  assert.equal(T.shown(0, "schedCard"), false);
+  assert.equal(T.shown(1, "schedCard"), false);
+  assert.equal(T.prop(1, "startWaitMain"), "방장이 시작하길 기다리는 중");
+  await T.advance(40000);
+  assert.equal(T.phase(1), "lobby");
+});
+
+test("tap-battle friends room: alone at the time → '친구가 오면 바로 시작해요'; the friend who opens the link plays at once", async () => {
+  const doc = load("tap-battle");
+  const T = table("tap-battle", ["A"], { startRule: "host" });
+  await T.advance(100);
+  T.room.action("p0", { name: "schedule", payload: { in: 20000, start: doc.room.start }, clientMsgId: "s1" });
+  await T.advance(20500);
+  assert.equal(T.phase(0), "lobby");
+  assert.equal(T.prop(0, "schedMain"), "친구가 오면 바로 시작해요");
+  const b = T.late("B");
+  await T.advance(3300);
+  assert.equal(T.phase(0), "play");
+  assert.equal(T.phase(b), "play");
 });

@@ -9,6 +9,8 @@
 //                                    when the room server already has that room's last result
 //                                    (only `about` is read — never questions, answers or picks);
 //                                    never for a PIN room (20-symbol code): its name stays private
+//   /p/tpl-<id>?room=<code>, crawler only, the host scheduled the start (#218) → "오후 8:30 시작" in the
+//                                    title and description (Korea time; same lookup, never for a PIN room)
 //   anything else (made apps, unknown slugs) → the site defaults (index.html's own tags)
 
 export const SITE_NAME = 'PlaySnack';
@@ -54,6 +56,21 @@ export const PREVIEW_BOT_RE =
   /facebookexternalhit|facebookcatalog|kakaotalk-scrap|kakaostory|Slackbot|Slack-ImgProxy|Twitterbot|Discordbot|TelegramBot|WhatsApp|LinkedInBot|Applebot|Pinterest|Embedly|SkypeUriPreview|redditbot|Mastodon|Line\/|naver|Yeti|Daum|Googlebot|bingbot|vkShare|Iframely/i;
 export const isPreviewBot = (ua) => PREVIEW_BOT_RE.test(String(ua ?? ''));
 
+// The start time as the preview says it (#218): Korea time — a crawler has no device locale.
+const START_TZ = 'Asia/Seoul';
+const dayKey = (t) => new Intl.DateTimeFormat('en-CA', { timeZone: START_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t));
+/** "오후 8:30" ("내일 오전 9:00" when it is not today in Korea), or '' (no / past / odd time, or more than a day away). */
+export function startText(startAt, now = Date.now()) {
+  const at = Number(startAt);
+  if (!Number.isFinite(at) || at <= now || at - now > 24 * 60 * 60 * 1000 + 60_000) return '';
+  try {
+    const t = new Intl.DateTimeFormat('ko-KR', { timeZone: START_TZ, hour: 'numeric', minute: '2-digit' }).format(new Date(at));
+    return dayKey(at) === dayKey(now) ? t : `내일 ${t}`;
+  } catch {
+    return '';
+  }
+}
+
 /** A display name from someone else's input: one line, no control/bidi characters, capped. */
 export function cleanName(s) {
   if (typeof s !== 'string') return '';
@@ -93,10 +110,11 @@ const imageUrl = (origin, path, v) => `${origin}${path}${v ? `?v=${v}` : ''}`;
  * The meta for one request.
  * @param {{url: string, catalog: object[], manifest: {default?: string, square?: string, apps?: Record<string,string>}, about?: string|null}} o
  *   about = the quiz subject's name from the room's saved result (already looked up), if any.
+ *   startAt = the room's scheduled start (epoch ms, #218 — already looked up), if any; now = the clock for it.
  * @returns {{title: string, description: string, image: string, imageAlt: string, imageWidth: number, imageHeight: number,
  *   square: string|null, url: string, app: string|null}}
  */
-export function ogMeta({ url, catalog, manifest = {}, about = null }) {
+export function ogMeta({ url, catalog, manifest = {}, about = null, startAt = null, now = Date.now() }) {
   const u = new URL(url);
   const origin = u.origin;
   const slug = slugOf(u.pathname);
@@ -140,13 +158,19 @@ export function ogMeta({ url, catalog, manifest = {}, about = null }) {
       meta.title = `${who} 맞히기 · 나를 얼마나 알까?`;
       meta.description = `${who}님에 대한 퀴즈예요. 링크를 열면 같은 방으로 들어가요.`;
     }
+    // The host set the start (#218): the time is the news. Never for a PIN room (not even looked up).
+    const when = isPinCode(code) ? '' : startText(startAt, now);
+    if (when) {
+      meta.title = `${meta.title.split(' — ')[0]} · ${when} 시작`;
+      meta.description = `${when} 시작! ${meta.description}`;
+    }
   }
   return meta;
 }
 
-// ── the quiz room's subject, from the room server (crawlers only, never blocking) ──
+// ── the quiz room's subject and any room's scheduled start, from the room server (crawlers only, never blocking) ──
 
-const roomCache = new Map(); // roomId → {at, about}
+const roomCache = new Map(); // roomId → {at, about, startAt}
 
 /** Test hook. */
 export const _roomCache = roomCache;
@@ -158,10 +182,21 @@ export const _roomCache = roomCache;
  * Results (also misses) are kept `ROOM_CACHE_MS` in the isolate.
  */
 export async function lookupAbout({ roomBase, code, fetchImpl = fetch, timeoutMs = ROOM_LOOKUP_MS, now = Date.now() }) {
-  if (!roomBase || !code || !CODE_RE.test(code) || isPinCode(code)) return null;
-  const roomId = `tpl-${QUIZ_APP_ID}~${code}`;
+  return (await lookupRoom({ roomBase, app: QUIZ_APP_ID, code, fetchImpl, timeoutMs, now })).about;
+}
+
+/**
+ * One friends room's preview facts, from the same GET <roomBase>/room/tpl-<app>~<CODE>/result
+ * (at most `timeoutMs`, cached `ROOM_CACHE_MS`): `about` (the quiz app only — its last result's
+ * subject) and `startAt` (#218: the host's scheduled start, epoch ms — the room says it with or
+ * without a saved game, also on a 404). Any failure → {about: null, startAt: null}; never a PIN room.
+ */
+export async function lookupRoom({ roomBase, app, code, fetchImpl = fetch, timeoutMs = ROOM_LOOKUP_MS, now = Date.now() }) {
+  const none = { about: null, startAt: null };
+  if (!roomBase || !code || !CODE_RE.test(code) || isPinCode(code) || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(app ?? ''))) return none;
+  const roomId = `tpl-${app}~${code}`;
   const hit = roomCache.get(roomId);
-  if (hit && now - hit.at < ROOM_CACHE_MS) return hit.about;
+  if (hit && now - hit.at < ROOM_CACHE_MS) return { about: hit.about, startAt: hit.startAt };
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   let timer;
   const timeout = new Promise((resolve) => {
@@ -172,17 +207,19 @@ export async function lookupAbout({ roomBase, code, fetchImpl = fetch, timeoutMs
   });
   const get = (async () => {
     const res = await fetchImpl(`${roomBase.replace(/\/+$/, '')}/room/${roomId}/result`, { signal: ctl?.signal, headers: { accept: 'application/json' } });
-    if (!res || !res.ok) return null;
+    if (!res || (!res.ok && res.status !== 404)) return none;
     const body = await res.json();
-    const r = body && body.result;
-    return cleanName(r && typeof r.about === 'string' ? r.about : '') || null;
-  })().catch(() => null);
-  const about = await Promise.race([get, timeout]);
+    const r = res.ok && body && body.result;
+    const about = app === QUIZ_APP_ID ? cleanName(r && typeof r.about === 'string' ? r.about : '') || null : null;
+    const startAt = body && Number.isFinite(body.startAt) && body.startAt > 0 ? body.startAt : null;
+    return { about, startAt };
+  })().catch(() => none);
+  const got = await Promise.race([get, timeout]);
   clearTimeout(timer);
-  if (about === undefined) return null; // timed out: not cached, the next crawler may get it
+  if (got === undefined) return none; // timed out: not cached, the next crawler may get it
   if (roomCache.size >= ROOM_CACHE_MAX) roomCache.delete(roomCache.keys().next().value);
-  roomCache.set(roomId, { at: now, about });
-  return about;
+  roomCache.set(roomId, { at: now, ...got });
+  return got;
 }
 
 // ── applying the meta to index.html (HTMLRewriter element handlers) ──

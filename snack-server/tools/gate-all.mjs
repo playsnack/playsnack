@@ -114,6 +114,9 @@ results.push(run("slow-broker-e2e", "node", ["snack-server/tools/slow-broker-e2e
 // Signed room links + optional PIN (#157, docs/room-admission.md): the edge hub + the edge build —
 // one-tap join without a PIN, PIN set / wrong / right / reload on the pass / locked, forged → expired.
 results.push(run("pin-room-e2e", "node", ["snack-server/tools/pin-room-e2e.mjs"]));
+// 시작 시간 예약 (#218): two browsers in a friends room — the host's sheet, both count down, 예약 취소,
+// then a short (test-only) schedule starts the game by itself.
+results.push(run("schedule-e2e", "node", ["snack-server/tools/schedule-e2e.mjs"]));
 
 if (up) {
   console.log(`\nℹ  server mode at ${BASE}: the player is rebuilt below — if the oracle answers "Cannot GET", (re)start snack-server AFTER this build (it only serves a dist that existed when it started).`);

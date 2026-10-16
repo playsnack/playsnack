@@ -47,6 +47,12 @@
 // to the background, nothing periodic. A phone that loses its network while on screen sends
 // nothing: the room only learns when the socket closes (issue #142: keepalive ping).
 //
+// 시작 시간 예약 (#218): a friends room's host sets when the game starts (engine `schedule`). The
+// time is the room's storage alarm — the SAME one alarm as the away deadlines (the room's alarm is
+// always the earliest of the two; it fires, both are checked, it is set for the next) — never a
+// timer, so a room waiting for its start can hibernate; the schedule rides in the snapshot.
+// GET /room/<id>/result also says the scheduled time (`startAt`, epoch ms) for the link preview.
+//
 // Hibernation: engine state lives in memory; a pending engine timer (setTimeout) keeps the
 // DO awake through a game. Idle (lobby / result), the DO may hibernate and lose memory, so
 // the engine snapshot is kept in storage while the room is occupied and deleted when the
@@ -55,7 +61,7 @@
 // What the host phone did in mesh mode, the DO does here (results.js, #96): a friends room's
 // scored game is kept 7 days (`result`, write-once per game, GET /room/<id>/result) and the
 // engine's game stats go to the stats API server to server (StatsSender), never blocking play.
-import { createRoom } from "../../../packages/snack-room/src/room.js";
+import { createRoom, SCHEDULE_MIN_MS } from "../../../packages/snack-room/src/room.js";
 import { RoomGate, UsageReporter, PinLock, LIMITS, ROOM_FULL_TODAY } from "./core.js";
 import { signPass } from "./admit.js";
 import { resultRecord, RESULT_TTL_MS } from "./results.js";
@@ -80,6 +86,7 @@ export const GAME_LIMITS = {
   reactsPerSec: 3, // more are dropped (not spread to everyone)
   squeezePerMin: 60, // usage stage 3 (≥ 95 %): a socket above 1 frame/s over 60 s is closed
   awayGraceMs: 30000, // #213: in the background this long (no `here`, no new socket) → out of the room
+  scheduleMinMs: SCHEDULE_MIN_MS, // #218: the soonest a host may schedule the start (tests go lower)
 };
 /** Close code for a socket the room let go after AWAY_GRACE_MS in the background (the client comes back on its own). */
 export const AWAY_CLOSE = 4011;
@@ -93,6 +100,11 @@ export const nextRoomId = (roomId) => {
 };
 /** A friends room (`slug~CODE`) or an organized one hosts; a public room starts by itself. */
 export const startRuleFor = (roomId, meta) => (meta?.org || String(roomId).includes("~") ? "host" : "auto");
+/** GET /room/<id>/result's response (worker.js and the Node hub): the saved game and/or the scheduled start (#218). */
+export const roomReadBody = ({ rec, startAt }) => {
+  const at = startAt ? { startAt } : {};
+  return rec ? { status: 200, body: { ok: true, result: rec, ...at } } : { status: 404, body: { ok: false, error: "not_found", ...at } };
+};
 const COALESCED = new Set(["roster", "rosterPhotos", "quizProgress", "voteProgress"]);
 const ANON_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const rid = () => Math.random().toString(36).slice(2, 10);
@@ -143,6 +155,11 @@ export class GameRoom {
     this.meta = null;
     this.chain = Promise.resolve(); // every event of the room, in order
     this.persistTimer = null;
+    // The room's one alarm (memory): when it is set for, and the scheduled start it serves (#218).
+    this.alarmAt = null;
+    this.schedAt = null;
+    this.inAlarm = false;
+    this.restoring = false;
     this.rate = new WeakMap();
     // Accounting (memory only): frames in/out, bytes out, engine handling time.
     this.stats = { conns: 0, in: 0, out: 0, bytesOut: 0, broadcasts: 0, byType: {}, handleMs: 0, handled: 0 };
@@ -268,6 +285,9 @@ export class GameRoom {
       claimWindowMs: this.L.claimWindowMs,
       startRule: startRuleFor(this.roomId, this.meta),
       ...this.timers,
+      // #218: the scheduled start wakes the engine through the room's alarm (no timer)
+      scheduleWake: (at) => this.wakeAt(at),
+      scheduleMinMs: this.L.scheduleMinMs,
       broadcast: (t, d) => {
         // Roster-ish updates (a join storm, an answer storm: one per incoming message) are
         // coalesced into one fan-out per tick; anything else first flushes them (order kept).
@@ -287,7 +307,13 @@ export class GameRoom {
       },
     });
     if (rejoin) {
-      this.engine.restore(rejoin.snap.s, this.now() - rejoin.snap.at);
+      // The schedule restored with it (#218) already has its alarm in storage (set before the sleep).
+      this.restoring = true;
+      try {
+        this.engine.restore(rejoin.snap.s, this.now() - rejoin.snap.at);
+      } finally {
+        this.restoring = false;
+      }
       for (const s of rejoin.sockets) this.engine.rejoin(s.state.peer, s.state);
     }
     return this.engine;
@@ -310,7 +336,9 @@ export class GameRoom {
     if (!this.engine?.size || this.meter.stage >= 1) return;
     if (this.engine._state.session.timers.length) return this.schedulePersist(); // mid-game: later
     const snap = this.engine.snapshot();
-    const key = JSON.stringify(snap.session) + JSON.stringify(snap.scores) + JSON.stringify(snap.vars);
+    // (the schedule's time left changes every ms — its absolute time says whether it changed, #218)
+    const sched = snap.session.sched;
+    const key = JSON.stringify({ ...snap.session, sched: sched ? { ...sched, left: this.engine.scheduled?.at } : undefined }) + JSON.stringify(snap.scores) + JSON.stringify(snap.vars);
     if (key === this.lastSnap) return;
     this.lastSnap = key;
     this.meter.count("rows");
@@ -347,13 +375,34 @@ export class GameRoom {
    * room's result (`pin: 1`) only for a request the Worker checked a pass / seat token on (`adm`).
    */
   async readResult(adm = null) {
+    return (await this.readRoom(adm)).rec;
+  }
+
+  /**
+   * GET /room/<id>/result's answer: `rec` (readResult's) and `startAt` — the scheduled start (#218,
+   * epoch ms; null = none, or the time came) for the link preview. A PIN room's only with `adm`.
+   */
+  async readRoom(adm = null) {
     this.meter.count("conns"); // one Worker + one DO request
     if (!this.sockets().length) this.meter.flush(true);
     else this.meter.tick();
     await this.resultChain;
     const res = await this.store.get("result");
-    if (res?.pin && !(adm && (adm.v === "pass" || adm.v === "seat"))) return null;
-    return res && res.exp > this.now() ? res.rec : null;
+    const admitted = Boolean(adm && (adm.v === "pass" || adm.v === "seat"));
+    const rec = res && res.exp > this.now() && (!res.pin || admitted) ? res.rec : null;
+    this.meta ??= await this.store.get("meta");
+    return { rec, startAt: this.meta?.pin && !admitted ? null : await this.startAt() };
+  }
+
+  /** The scheduled start (#218) in epoch ms, still ahead — from the engine, or a sleeping room's snapshot. */
+  async startAt() {
+    let s = this.engine?.scheduled ?? null;
+    if (!this.engine) {
+      const snap = await this.store.get("snap");
+      const x = snap?.s?.session?.sched;
+      if (x && Number.isFinite(x.left) && Number.isFinite(snap.at)) s = { at: snap.at + x.left, due: Boolean(x.due) };
+    }
+    return s && !s.due && s.at > this.now() ? Math.round(s.at) : null;
   }
 
   /**
@@ -637,59 +686,90 @@ export class GameRoom {
       }
       this.meter.count("rows", 1 + 3); // the alarm, and its deleteAll later (meta, lock?, snap?)
       this.meter.count("alarms"); // the alarm firing (a DO request; upper bound — emptying again replaces it)
-      await this.setAlarm(this.now() + this.L.roomTtlMs);
+      this.schedAt = null; // (the schedule left with the engine)
+      this.alarmAt = this.now() + this.L.roomTtlMs;
+      await this.setAlarm(this.alarmAt);
       this.meter.flush(true);
       this.statsSender?.flush(); // the room is idle: send its games now (not awaited)
     }
   }
 
   /**
-   * `away` (#213): mark the socket, and make sure the room's alarm goes off by its deadline. One alarm
-   * for all: it is set only when this deadline is earlier than the one already set (in memory —
-   * after a hibernation it is set again, which is harmless).
+   * `away` (#213): mark the socket, and make sure the room's alarm goes off by its deadline.
    */
   markAway(sock, st) {
     if (st.awayAt == null) {
       st.awayAt = this.now();
       sock.save(st);
     }
-    const at = st.awayAt + this.L.awayGraceMs;
-    if (this.awayAlarmAt != null && this.awayAlarmAt <= at && this.awayAlarmAt > this.now()) return;
-    this.awayAlarmAt = at;
-    this.meter.count("rows"); // the alarm (a write)…
-    this.meter.count("alarms"); // …and its firing (a DO request)
-    return this.setAlarm(at);
+    return this.armAlarm();
   }
 
-  /** Let go of every socket away longer than the grace (#213); the alarm again for the next one. */
-  async sweepAway() {
-    const t = this.now();
+  /** The engine's scheduled start needs a wake-up at `at` (#218; null = no longer). */
+  wakeAt(at) {
+    this.schedAt = at ?? null;
+    if (at == null || this.inAlarm) return; // (the alarm being handled sets the next one when done)
+    if (this.restoring) this.alarmAt ??= at; // set before the sleep — still in storage
+    else return this.armAlarm();
+  }
+
+  /** The earliest away deadline of a joined socket (#213), or null. */
+  nextAway() {
     let next = null;
     for (const s of this.sockets()) {
       const st = s.state;
       if (!st?.joined || st.awayAt == null) continue;
       const due = st.awayAt + this.L.awayGraceMs;
-      if (due > t) {
-        next = next == null ? due : Math.min(next, due);
-        continue;
-      }
+      next = next == null ? due : Math.min(next, due);
+    }
+    return next;
+  }
+
+  /**
+   * An occupied room's ONE alarm: the earliest of the away deadlines (#213) and the scheduled start
+   * (#218). Set only when that is earlier than the alarm already set (in memory — after a hibernation
+   * it may be set again, which is harmless); an alarm that fires early just sets the next one.
+   */
+  armAlarm() {
+    const t = this.now();
+    const due = [this.nextAway(), this.schedAt].filter((x) => x != null);
+    if (!due.length) return;
+    const at = Math.max(t, Math.min(...due));
+    if (this.alarmAt != null && this.alarmAt <= at && this.alarmAt > t) return;
+    this.alarmAt = at;
+    this.meter.count("rows"); // the alarm (a write)…
+    this.meter.count("alarms"); // …and its firing (a DO request)
+    return this.setAlarm(at);
+  }
+
+  /** Let go of every socket away longer than the grace (#213). */
+  async sweepAway() {
+    const t = this.now();
+    for (const s of this.sockets()) {
+      const st = s.state;
+      if (!st?.joined || st.awayAt == null || st.awayAt + this.L.awayGraceMs > t) continue;
       this.stats.awayClosed = (this.stats.awayClosed ?? 0) + 1;
       this.closeQ(s, AWAY_CLOSE, "away");
       await this.closed(s);
-    }
-    this.awayAlarmAt = null;
-    if (next != null && this.sockets().some((s) => s.state?.joined)) {
-      this.awayAlarmAt = next;
-      this.meter.count("rows");
-      this.meter.count("alarms");
-      await this.setAlarm(next);
     }
   }
 
   async onAlarm() {
     if (this.sockets().some((s) => s.state?.joined)) {
-      // occupied: the alarm was an away deadline (#213); the 24 h cleanup is set again when the room empties
-      const run = this.chain.then(() => this.sweepAway());
+      // occupied: an away deadline (#213) and/or the scheduled start (#218) — both are checked, then
+      // the alarm is set for the next one (the 24 h cleanup is set again when the room empties)
+      const run = this.chain.then(async () => {
+        this.alarmAt = null;
+        this.inAlarm = true;
+        try {
+          await this.rehydrate();
+          await this.sweepAway();
+          this.engine?.wake();
+        } finally {
+          this.inAlarm = false;
+        }
+        if (this.sockets().some((s) => s.state?.joined)) await this.armAlarm();
+      });
       this.chain = run.catch((e) => console.error("[edge-room]", e));
       await run;
       return false;
@@ -710,7 +790,8 @@ export class GameRoom {
     this.engine?.destroy();
     this.engine = null;
     this.meta = null;
-    this.awayAlarmAt = null; // (the alarm itself is in storage: it still fires)
+    this.alarmAt = null; // (the alarm itself is in storage: it still fires)
+    this.schedAt = null;
     // …and its usage counts not yet reported (a woken DO starts a fresh counter).
     this.meter.stop();
     this.meter = this.newMeter();

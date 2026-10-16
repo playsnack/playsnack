@@ -3,13 +3,14 @@
 //   GET /room/<roomId>   (WebSocket) → checked here first (admit.js decideUpgrade: code tag, PIN,
 //                                      rate limits, Origin) → GameRoom DO with a signed admit claim;
 //                                      refused → a socket of the Worker's own carries `denied`, no DO woken
-//   GET /room/<roomId>/result         → that friends room's last saved game (7 days) or 404
+//   GET /room/<roomId>/result         → that friends room's last saved game (7 days) or 404; + `startAt`
+//                                      when its start is scheduled (#218, for the link preview)
 //   /relay/<roomId>                   → 410: the mesh relay is retired (the live player uses /room only)
 //   anything else        → 404 (there is no room listing)
 // One DO per room id. The logic is admit.js / game.js / core.js — the same modules the Node hub runs.
 import { DurableObject } from "cloudflare:workers";
 import { RoomRelay, UsageMeter, ROOM_ID_RE } from "./core.js";
-import { GameRoom, roomAlarm } from "./game.js";
+import { GameRoom, roomAlarm, roomReadBody } from "./game.js";
 import { StatsSender, isFriendRoom } from "./results.js";
 import { decideUpgrade, decideMint, decideResult, configFrom, limitersFrom, memoryLimiters, verifyAdmit, stripRoomHeaders, originAllowed, WorkerTally } from "./admit.js";
 
@@ -235,9 +236,10 @@ export class Game extends DurableObject {
     const adm = secret && roomId ? await verifyAdmit(secret, req.headers.get("x-room-admit"), roomId) : null;
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       // GET /room/<id>/result (worker.js result: checked there; a PIN room's carries an admit claim)
-      const rec = await this.core(roomId).readResult(adm);
+      // (+ the scheduled start, #218 — `startAt` for the link preview)
+      const { status, body } = roomReadBody(await this.core(roomId).readRoom(adm));
       const headers = { "content-type": "application/json", "cache-control": adm ? "private, max-age=10" : "public, max-age=10", "access-control-allow-origin": "*" };
-      return new Response(JSON.stringify(rec ? { ok: true, result: rec } : { ok: false, error: "not_found" }), { status: rec ? 200 : 404, headers });
+      return new Response(JSON.stringify(body), { status, headers });
     }
     // Only upgrades the Worker checked (admit.js): a signed claim for this room, ≤ 30 s old.
     if (!adm) return new Response("forbidden", { status: 403 });
@@ -264,7 +266,7 @@ export class Game extends DurableObject {
     await this.webSocketClose(ws);
   }
   async alarm() {
-    // Occupied: the alarm is a player's away deadline (#213, game.js sweepAway) — the room of its sockets.
+    // Occupied: the alarm is a player's away deadline (#213) or the scheduled start (#218, game.js onAlarm) — the room of its sockets.
     const live = this.socks.all().find((s) => s.state?.room);
     if (live) return void (await this.core(live.state.room).onAlarm());
     if (this.ctx.getWebSockets().length) return;

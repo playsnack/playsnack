@@ -47,6 +47,7 @@ node scripts/og-images.mjs --check  # 확인만
 ### 친구 방 퀴즈 제목 (crawler 전용, 막지 않음)
 - 조건: 앱 = `speed-trivia-score`, `?room=`이 유효한 코드, User-Agent가 미리보기 크롤러(`PREVIEW_BOT_RE`: facebookexternalhit·kakaotalk-scrap·Slackbot·Twitterbot·Discordbot·TelegramBot·WhatsApp…). 사람 브라우저는 조회하지 않는다(방 서버 요청을 쓰지 않음, 페이지 지연 0).
 - `GET https://snack-room.playsnack.workers.dev/room/tpl-speed-trivia-score~<CODE>/result`(docs/edge-rooms.md) — **300 ms** 안에 안 오면 포기(앱 기본 카드), isolate 메모리에 60초 캐시(없음도 캐시, 시간 초과는 캐시 안 함). 환경 변수 `ROOM_HTTP_URL`로 주소 변경 가능(로컬 시험용).
+- **시작 시간 예약**(#218): 어느 앱이든 친구 방 링크(PIN 아닌 코드)를 크롤러가 열면 같은 요청 하나(`GET …/room/tpl-<앱>~<CODE>/result`, 같은 300 ms·60초 캐시)로 방이 정한 시작 시각 `startAt`(epoch ms — 저장된 판이 없어도 404 본문에 있음)을 읽어 제목 "<앱> · 오후 8:30 시작", 설명 "오후 8:30 시작! …"(한국 시간, 오늘이 아니면 "내일 …", 지났거나 24시간 넘게 먼 시각은 무시). PIN 방은 조회도 표시도 안 한다. 비용: 크롤러 미리보기 1번 = Worker 요청 1 + DO 요청 1(캐시 히트 0).
 - 결과 본문에서 **`about`만** 읽는다. 문제·보기·정답·고른 답(quizRecap)·점수판은 메타에 절대 안 들어간다(가짜 방 서버가 `SECRET` 문제/정답을 줘도 HTML에 0건 — 아래 4).
 - 한계: 방에 **한 판이 끝난 뒤에만** 결과가 있다(엣지 방, 7일). 퀴즈를 만들고 첫 판 전에 보낸 링크는 앱 기본 카드("스피드 퀴즈 — …")다. 메시 방(`PAGES_ROOM_URL=` 빌드)의 결과(`/api/room-result`, Upstash)는 조회하지 않는다.
 - 방별 그림은 만들지 않는다(런타임 렌더링 = Workers Free CPU 10 ms 초과 위험).
