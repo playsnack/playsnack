@@ -693,7 +693,6 @@ test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2�
   await T.advance(6000 + 3200);
   assert.equal(T.phase(0), "play");
   assert.equal(T.phase(1), "play");
-  // both play (so the room re-arms after the result — #136 "someone played")
   for (let k = 0; k < 10; k++) {
     T.tap(0, "tapArea");
     T.tap(1, "tapArea");
@@ -701,15 +700,26 @@ test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2�
   }
   await T.advance(10000);
   assert.equal(T.phase(0), "result");
-  assert.ok(T.room._state.session.acted.size >= 2, "someone played this game");
-  assert.equal(T.tap(0, "againBtn"), false);
-  assert.equal(T.prop(0, "againWaitMain"), "잠시 뒤 다음 판이 자동으로 시작돼요");
-  // #141: B leaves at the result — A alone: the next game waits for a second person
+  // #212: the result stays — nothing restarts by itself; everyone has "한 판 더"
+  assert.equal(T.shown(0, "againWait"), false);
+  assert.equal(T.prop(0, "againBtn", "props.label"), "한 판 더 🔁");
+  await T.advance(60000);
+  assert.equal(T.phase(0), "result", "no automatic next game");
+  assert.equal(T.phase(1), "result");
+  // B taps 한 판 더 → both back in the lobby, counting down from 10 (2 here)
+  assert.equal(T.tap(1, "againBtn"), true);
+  await T.advance(200);
+  assert.equal(T.phase(0), "lobby");
+  assert.equal(T.prop(0, "startWaitMain"), "10초 뒤 시작 · 2명");
+  await T.advance(10000 + 3200);
+  assert.equal(T.phase(0), "play");
+  await T.advance(10500);
+  assert.equal(T.phase(0), "result");
+  // #141: B leaves at the result — A alone taps 한 판 더: the lobby waits for a second person
   T.gone(1);
   await T.advance(200);
-  assert.equal(T.prop(0, "againWaitMain"), "한 명 더 오면 다음 판을 시작해요");
-  assert.equal(T.prop(0, "againWaitSub"), "링크를 친구에게 보내도 돼요");
-  await T.advance(8000); // RESULT_HOLD_MS: back to the lobby — which does not count down alone
+  assert.equal(T.tap(0, "againBtn"), true);
+  await T.advance(200);
   await waitsAlone(T, 0, 30000);
   assert.equal(T.prop(0, "startWaitMain"), "한 명 더 오면 시작해요");
   assert.equal(T.shown(0, "startBtn"), false);

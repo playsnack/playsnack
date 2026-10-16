@@ -177,6 +177,15 @@ export class ServerTransport extends BaseTransport {
   private opened = false;
   private retryTimer: unknown = null;
   private offBack: (() => void) | null = null;
+  private offLeave: (() => void) | null = null;
+  /**
+   * Leave signals (#213, edge rooms only): `away` when the page goes to the background with the
+   * socket open, `here` when it is back on that same socket, `bye` when the page goes away for good
+   * (pagehide: tab closed, ← 홈, a reload) or the room is closed — so everyone's count goes down at
+   * once instead of when (if ever) a frozen phone's socket closes. One frame per event, nothing periodic.
+   */
+  protected leaveSignals = false;
+  private awaySent = false;
 
   constructor(protected url: string, protected me: Identity) {
     super();
@@ -219,6 +228,8 @@ export class ServerTransport extends BaseTransport {
     this.setConn("connecting");
     this.offBack?.();
     this.offBack = onPageBack((why, hiddenMs) => this.back(gen, why, hiddenMs), this.env);
+    this.offLeave?.();
+    this.offLeave = this.leaveSignals ? this.watchLeave(gen) : null;
     this.open(gen);
   }
 
@@ -246,6 +257,11 @@ export class ServerTransport extends BaseTransport {
       if (gen !== this.gen || this.ws !== ws || this.control(m)) return;
       if (m.t === "state") this.tries = 0;
       this.receive(m);
+      // In while already in the background (a join that finished behind the share sheet): away now.
+      if (m.t === "state" && this.leaveSignals && isHidden(this.env) && !this.awaySent) {
+        this.send({ t: "away", d: {} });
+        this.awaySent = true;
+      }
     };
     ws.onclose = (ev) => {
       if (gen !== this.gen || this.ws !== ws) return;
@@ -283,7 +299,12 @@ export class ServerTransport extends BaseTransport {
     // A socket that slept through a long background (or a network change) may be dead
     // without having said so: replace it. The room gives the same device its seat back.
     const stale = why !== "visible" || hiddenMs >= STALE_AFTER_HIDDEN_MS;
-    if (live && !stale) return;
+    if (live && !stale) {
+      if (this.awaySent) this.send({ t: "here", d: {} }); // the same socket: still here
+      this.awaySent = false;
+      return;
+    }
+    this.awaySent = false; // a new socket's hello says it
     dlog("conn", `page back (${why}${hiddenMs ? `, hidden ${Math.round(hiddenMs / 100) / 10} s` : ""}) → reconnect now`);
     this.tries = 0;
     if (st === "connected") this.setConn("reconnecting");
@@ -313,6 +334,9 @@ export class ServerTransport extends BaseTransport {
     this.gen++;
     this.offBack?.();
     this.offBack = null;
+    this.offLeave?.();
+    this.offLeave = null;
+    this.bye();
     this.stopTimer();
     this.stop();
   }
@@ -327,6 +351,37 @@ export class ServerTransport extends BaseTransport {
     this.send({ t: "react", d: { emoji } });
   }
 
+  /** The page hides → `away`; the page goes away (pagehide) → `bye` and the socket closes. → unsubscribe. */
+  private watchLeave(gen: number): () => void {
+    const { doc, win } = this.env;
+    const vis = () => {
+      if (gen !== this.gen || !isHidden(this.env) || this.awaySent) return;
+      if (this.ws?.readyState === 1 && this.connState === "connected") {
+        this.send({ t: "away", d: {} });
+        this.awaySent = true;
+      }
+    };
+    // Also on a page kept in the back/forward cache: it is not in the room meanwhile (pageshow
+    // brings it back — back() opens a new socket).
+    const hide = () => {
+      if (gen !== this.gen) return;
+      this.bye();
+      this.stop();
+    };
+    doc?.addEventListener("visibilitychange", vis);
+    win?.addEventListener("pagehide", hide);
+    return () => {
+      doc?.removeEventListener("visibilitychange", vis);
+      win?.removeEventListener("pagehide", hide);
+    };
+  }
+
+  /** Leaving for good: the room lets everyone know at once (edge rooms). */
+  private bye() {
+    if (this.leaveSignals && this.ws?.readyState === 1) this.send({ t: "bye", d: {} });
+    this.awaySent = false;
+  }
+
   private send(m: { t: string; d: unknown }) {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
   }
@@ -339,6 +394,7 @@ export class ServerTransport extends BaseTransport {
  */
 export class EdgeRoomTransport extends ServerTransport {
   override readonly via: RoomVia = "edge";
+  protected override leaveSignals = true;
   /** The room this transport is in now: the link's, or the next one a public room moved us to (#136). */
   roomId: string;
   /** Moved here from this room (a refused new room sends us back to watch there). */
