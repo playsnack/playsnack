@@ -62,6 +62,12 @@ const ANSWER_GRACE_MS = 500;
 // Early reveal: once every present answerer has answered, the round is revealed this long
 // later instead of at the end of the window (a beat to see "모두 골랐어요" — not a dead wait; 600 felt slow, #116).
 export const EARLY_REVEAL_MS = 300;
+// Quiz answer change (#211): after a player's first pick they may switch to another option
+// for this long — measured on the room's clock from when the room took the first pick, and
+// never past the round's answer window (less left → only what is left). Then the pick is
+// locked ("확정!"). The score uses the LAST pick's time, so a fast random tap then a switch
+// gains nothing; the early reveal waits until every answerer's change window has closed.
+export const CHANGE_WINDOW_MS = 3000;
 const RECAP_PLAYERS_MAX = 20; // answerers listed per round in quizRecap (snapshot size)
 // The subject switching apps (e.g. to share the invite in KakaoTalk) drops out of the
 // roster after ~3.5 s of silence; only this long away counts as "left" for the quiz rules.
@@ -575,6 +581,10 @@ export function createRoom(o) {
   // a join (someone new, or back without an answer) can only reopen it, back to the
   // window's own end. The reveal timer is data, so the beat survives a hand-over
   // (timers[].remaining); S.early says it was pulled in.
+  //
+  // Change windows (#211): "everyone answered" reveals only once every present answerer's
+  // pick is locked — EARLY_REVEAL_MS after the last change window closes (a window that runs
+  // to the round's end means no early reveal). A leave can only bring that earlier.
   const syncReveal = ({ mayPull = true } = {}) => {
     if (!S.quiz || S.phase !== "play" || !S.accepting) return;
     const t = S.timers.find((x) => x.step === "revealQuizRound");
@@ -582,11 +592,15 @@ export function createRoom(o) {
     const p = quizProgress();
     const allIn = p.of > 0 && p.answered >= p.of;
     const fullIn = S.roundStart + S.answerMs - now();
-    if (allIn && !S.early && mayPull && fullIn > EARLY_REVEAL_MS) {
+    const locks = S.pickLock ?? {};
+    const lastLock = Math.max(0, ...playersHere().filter((id) => !isSubject(id) && locks[id]).map((id) => locks[id].at));
+    const wait = Math.max(0, S.roundStart + lastLock - now()) + EARLY_REVEAL_MS;
+    if (allIn && (S.early || mayPull) && fullIn > wait && (!S.early || now() + wait < t.at)) {
       S.early = true;
       cancel("revealQuizRound");
-      later("revealQuizRound", S.roundIdx, EARLY_REVEAL_MS);
-    } else if (!allIn && S.early) {
+      later("revealQuizRound", S.roundIdx, wait);
+    } else if (!allIn && p.of > 0 && S.early) {
+      // someone here has not answered (nobody here yet — e.g. the subject back first after a hand-over — keeps the beat)
       S.early = false;
       cancel("revealQuizRound");
       later("revealQuizRound", S.roundIdx, Math.max(0, fullIn));
@@ -613,6 +627,20 @@ export function createRoom(o) {
     const ok = Number.isFinite(m) && m >= 0 && m <= S.answerMs + ANSWER_GRACE_MS;
     return Math.min(ok ? floorClaim(Math.min(Math.round(m), host + REACTION_TOLERANCE_MS), host) : host, S.answerMs);
   };
+  // How long this player's pick may still change (0 = locked, or no pick this round).
+  const lockLeft = (anonId) => {
+    const lock = S.pickLock?.[anonId];
+    return lock && S.quiz && S.phase === "play" && S.accepting ? Math.max(0, S.roundStart + lock.at - now()) : 0;
+  };
+  // What the room took for this player this round, back to all their connections (a reload
+  // mid-round restores it): option, the scored time, n (the device's pick count it answers)
+  // and lockMs (change time left on the room's clock when sent — the device counts it down).
+  const sendMyPick = (anonId) => {
+    const p = S.picks[S.roundIdx]?.[anonId];
+    if (!p) return;
+    const value = { sessionNo: S.round, round: S.roundIdx, option: p.option, ms: p.ms, n: S.pickLock?.[anonId]?.n ?? 1, lockMs: lockLeft(anonId) };
+    for (const [id, x] of r.peers) if (x.anonId === anonId) send(id, "setVar", { id: "myPick", value });
+  };
   const quizRecap = () => {
     const players = S.players.slice(0, RECAP_PLAYERS_MAX);
     const m = S.quizMeta ?? {};
@@ -637,6 +665,7 @@ export function createRoom(o) {
     if (i >= S.rounds.length) return toResult();
     S.roundIdx = i;
     S.answered = new Set();
+    S.pickLock = {}; // anonId → {at: ms after roundStart when the pick locks, n: last pick count seen}
     S.accepting = true;
     S.early = false;
     S.roundStart = now();
@@ -1097,9 +1126,11 @@ export function createRoom(o) {
       }
       ack(peerId, d?.clientMsgId);
     } else if (name === "answer") {
-      // One answer per player per round; the subject only watches. Scores show at the reveal.
-      // A late resend (mesh resends for up to 10 s, a new host replays) names the round it
-      // answered: another round or game is refused, so it never lands in the next one.
+      // One pick per player per round, changeable for CHANGE_WINDOW_MS (#211); the subject only
+      // watches. Scores show at the reveal. A late resend (mesh resends for up to 10 s, a new
+      // host replays) names the round it answered: another round or game is refused, so it
+      // never lands in the next one; `n` (the device's pick count this round) drops a resend
+      // of an older pick.
       const said = (k) => d?.payload?.[k] != null && d.payload[k] !== "";
       if (S.quiz && ((said("round") && Number(d.payload.round) !== S.roundIdx) || (said("sessionNo") && Number(d.payload.sessionNo) !== S.round))) {
         return ack(peerId, d?.clientMsgId, { accepted: false, reason: "stale_round" });
@@ -1107,19 +1138,39 @@ export function createRoom(o) {
       const round = S.rounds[S.roundIdx];
       const option = Number(d?.payload?.option);
       const valid = round && Number.isInteger(option) && option >= 0 && option < round.options.length;
+      const claimN = said("n") && Number.isInteger(Number(d.payload.n)) ? Number(d.payload.n) : null;
+      const score = (ms) => (option === round.answer ? Math.max(100, 1000 - Math.round((ms / S.answerMs) * 800)) : 0); // faster = more
+      const prev = S.quiz && S.answered?.has(anonId) ? S.picks[S.roundIdx]?.[anonId] : null;
+      if (prev && valid && !isSubject(anonId)) {
+        // A change: only inside this player's window, on the room's clock.
+        const lock = ((S.pickLock ??= {})[anonId] ??= { at: 0, n: 1 });
+        if (claimN !== null && claimN <= lock.n) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "duplicate" });
+        lock.n = claimN ?? lock.n + 1;
+        if (!(S.phase === "play" && S.accepting && lockLeft(anonId) > 0) || option === prev.option) {
+          sendMyPick(anonId); // what the room still holds — the device shows that again
+          return ack(peerId, d?.clientMsgId, { accepted: false, reason: option === prev.option ? "duplicate" : "locked" });
+        }
+        // Timed from the question to THIS pick, never faster than the pick it replaces.
+        const ms = Math.max(prev.ms, answerTime(d.payload.ms));
+        const points = score(ms);
+        S.picks[S.roundIdx][anonId] = { option, ms, correct: option === round.answer, points };
+        r.scores.set(anonId, (r.scores.get(anonId) ?? 0) - prev.points + points);
+        sendMyPick(anonId);
+        return ack(peerId, d?.clientMsgId);
+      }
       if (S.quiz && S.phase === "play" && S.accepting && valid && S.answered && !S.answered.has(anonId) && !isSubject(anonId)) {
         S.answered.add(anonId);
         S.answerers?.add(anonId);
         took(anonId);
         addQuizPlayer(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
         const ms = answerTime(d.payload.ms);
-        const correct = option === round.answer;
-        const points = correct ? Math.max(100, 1000 - Math.round((ms / S.answerMs) * 800)) : 0; // faster = more
-        S.picks[S.roundIdx][anonId] = { option, ms, correct, points };
-        // the device's own record of what the room took (a reload mid-round restores it)
-        send(peerId, "setVar", { id: "myPick", value: { sessionNo: S.round, round: S.roundIdx, option, ms } });
+        const points = score(ms);
+        S.picks[S.roundIdx][anonId] = { option, ms, correct: option === round.answer, points };
+        const elapsed = Math.max(0, now() - S.roundStart);
+        (S.pickLock ??= {})[anonId] = { at: Math.min(elapsed + CHANGE_WINDOW_MS, S.answerMs), n: claimN ?? 1 };
+        sendMyPick(anonId);
         r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + points);
-        onPoints(anonId, nick, correct ? 2 : 1);
+        onPoints(anonId, nick, points > 0 ? 2 : 1);
         setVar("quizProgress", quizProgress());
         syncReveal();
       }
@@ -1354,7 +1405,11 @@ export function createRoom(o) {
     /** Values sent to this player only (keyed by anonId — survives a reload). */
     playerVars(peerId) {
       const peer = r.peers.get(peerId);
-      return Object.fromEntries((peer && r.mine.get(peer.anonId)) || []);
+      const own = Object.fromEntries((peer && r.mine.get(peer.anonId)) || []);
+      // this round's pick: the change time left now, not when it was first sent (#211)
+      const p = own.myPick;
+      if (S.quiz && p && p.sessionNo === S.round && p.round === S.roundIdx && "lockMs" in p) own.myPick = { ...p, lockMs: lockLeft(peer.anonId) };
+      return own;
     },
     /** What a joining / resyncing player gets: shared state + its own values. */
     stateFor(peerId) {

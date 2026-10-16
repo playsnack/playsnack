@@ -218,6 +218,52 @@ test("fairness: answers never leave the room before the reveal; picks go only to
   [org, ...ps].forEach((p) => p.close());
 });
 
+test("answer change (#211): a switch goes back only to its player, nothing leaks before the reveal; locked 3 s after the pick on the server's clock", async () => {
+  const room = rid("change");
+  const org = player(room, "host");
+  await org.hello({ organize: true });
+  const ps = ["c1", "c2"].map((id) => player(room, id));
+  for (const p of ps) await p.hello();
+  assert.ok(await org.until(() => org.vars.participants === 3));
+  await org.act("quizPack", PACK);
+  assert.ok(await org.until(() => org.vars.quizInfo?.custom === true));
+  await org.act("start", { game: "trivia", quiz: true, revealMs: 800 });
+  assert.ok(await ps[0].until(() => ps[0].vars.sessionPhase === "play" && ps[0].vars.roundContent?.q, 6000));
+  const right = ps[0].vars.roundContent.options.indexOf(PACK.questions[0].options[1]);
+  const wrong = (right + 1) % 4;
+  const sn = ps[0].vars.sessionNo;
+  await ps[0].act("answer", { option: wrong, ms: 200, round: 0, sessionNo: sn, n: 1 });
+  await ps[1].act("answer", { option: right, ms: 250, round: 0, sessionNo: sn, n: 1 });
+  assert.ok(await ps[0].until(() => ps[0].vars.myPick?.n === 1));
+  assert.ok(ps[0].vars.myPick.lockMs > 2500 && ps[0].vars.myPick.lockMs <= 3000, `lockMs ${ps[0].vars.myPick.lockMs}`);
+  await ps[0].act("answer", { option: right, ms: 700, round: 0, sessionNo: sn, n: 2 }); // switch inside the window
+  assert.ok(await ps[0].until(() => ps[0].vars.myPick?.n === 2 && ps[0].vars.myPick.option === right));
+  assert.equal(ps[0].vars.roundAnswer, -1, "everyone answered, but the windows are open: not revealed yet");
+  const all = [org, ...ps];
+  const sizes = all.map((p) => p.frames.length);
+  await sleep(3000); // past c1's window (3 s after the room took its first pick)
+  await ps[0].act("answer", { option: wrong, ms: 3500, round: 0, sessionNo: sn, n: 3 });
+  assert.ok(await ps[0].until(() => ps[0].frames.some((m) => m.t === "actionAck" && m.d.clientMsgId === "c1-3")));
+  assert.equal(ps[0].frame((m) => m.t === "actionAck" && m.d.clientMsgId === "c1-3").d.reason, "locked");
+  assert.ok(await ps[1].until(() => ps[1].vars.roundAnswer >= 0, 3000), "revealed once both windows closed");
+  const revealAt = (p) => p.frames.findIndex((m) => m.t === "setVar" && m.d.id === "roundAnswer" && m.d.value >= 0);
+  for (const [k, p] of all.entries()) {
+    const pre = p.frames.slice(0, revealAt(p));
+    assert.ok(sizes[k] <= pre.length, "the reveal came after the switch");
+    const mine = p === org ? null : p === ps[0] ? "c1" : "c2";
+    const picks = pre.filter((m) => m.d?.id === "myPick");
+    if (!mine) assert.equal(picks.length, 0, "the organizer never answered: no pick sent to it");
+    else assert.ok(picks.length > 0 && picks.every((m) => p === ps[0] ? [wrong, right].includes(m.d.value.option) : m.d.value.option === right), `only ${mine}'s own picks reach ${mine}`);
+    assert.ok(!/"correct"|"points"/.test(JSON.stringify(pre)), "no scoring detail before the reveal");
+    assert.ok(!pre.some((m) => (m.t === "setVar" && m.d.id === "roundContent" && "answer" in (m.d.value ?? {}))), "round content without the answer");
+    assert.ok(!pre.some((m) => m.t === "setVar" && m.d.id === "raceBoard" && m.d.value.some((x) => x.score > 0)), "no scores before the reveal");
+  }
+  assert.equal(ps[1].frames.filter((m) => m.d?.id === "myPick").length, 1, "c2 never switched: one pick");
+  const board = ps[1].vars.raceBoard;
+  assert.ok(board.find((x) => x.nick === "c1").score < board.find((x) => x.nick === "c2").score, "c1 is scored from its later switch");
+  all.forEach((p) => p.close());
+});
+
 test("hidden picks (밸런스게임 #126): no frame carries another's pick or a running tally before the reveal; all picked → revealed at once", async () => {
   const room = rid("balance");
   const org = player(room, "host");
