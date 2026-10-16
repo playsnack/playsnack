@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createRoom, cleanNick, sanitizeQuizPack, EARLY_REVEAL_MS } from "../src/room.js";
+import { createRoom, cleanNick, sanitizeQuizPack, EARLY_REVEAL_MS, TALLY_MAX_DELTA, LATE_GRACE_MS } from "../src/room.js";
 // raceBoard rows carry a per-room `pid`; compare names and scores
 const rows = (b) => (b || []).map(({ pid, ...x }) => x);
 
@@ -1939,4 +1939,44 @@ test("hidden picks are opt-in: a plain round vote (우리 중 누가?) still sho
   assert.equal(h.v("revealRound"), undefined, "MP-13: no new variables for templates that never asked");
   assert.equal(h.v("myPick"), undefined);
   assert.equal(h.v("voteClock"), undefined);
+});
+
+// #190 review: batched co-op tallies — counted only in the play window (+ LATE_GRACE_MS), never
+// in the 3·2·1 or after (a slow last batch can't land in the next game), and bounded per message.
+test("tally (#190): play window + late grace only; whole taps, 0..TALLY_MAX_DELTA per message", async () => {
+  const h = harness();
+  h.join(1);
+  h.join(2);
+  h.act(1, "tally", { delta: 2 }); // before any timed game: freeform, counted
+  assert.equal(h.v("coopTotal"), 2);
+  h.act(1, "start", { duration: 5000 });
+  await h.advance(0);
+  h.act(2, "tally", { delta: 3 }); // 3·2·1
+  assert.equal(ackFor(h, 2, "tally").reason, "closed");
+  await h.advance(3000);
+  assert.equal(h.v("sessionPhase"), "play");
+  h.act(1, "tally", { delta: 4 });
+  h.act(2, "tally", {}); // no delta = 1
+  assert.equal(h.v("coopTotal"), 5);
+  h.act(2, "tally", { delta: 1e9 }); // forged: capped
+  assert.equal(h.v("coopTotal"), 5 + TALLY_MAX_DELTA);
+  h.act(2, "tally", { delta: 2.9 }); // floored
+  assert.equal(h.v("coopTotal"), 7 + TALLY_MAX_DELTA);
+  for (const delta of [-50, 0, "x", 0.5]) {
+    h.act(2, "tally", { delta });
+    assert.equal(ackFor(h, 2, "tally").reason, "invalid_delta", String(delta));
+  }
+  assert.equal(h.v("coopTotal"), 7 + TALLY_MAX_DELTA);
+  await h.advance(5000);
+  assert.equal(h.v("sessionPhase"), "result");
+  await h.advance(LATE_GRACE_MS - 100);
+  h.act(1, "tally", { delta: 3 }); // the last batch, inside the grace
+  assert.equal(h.v("coopTotal"), 10 + TALLY_MAX_DELTA);
+  await h.advance(200);
+  h.act(2, "tally", { delta: 3 }); // after the grace
+  assert.equal(ackFor(h, 2, "tally").reason, "closed");
+  h.act(1, "lobby");
+  h.act(2, "tally", { delta: 3 }); // in the lobby after a timed game
+  assert.equal(ackFor(h, 2, "tally").reason, "closed");
+  assert.equal(h.room._state.coop, 10 + TALLY_MAX_DELTA);
 });
