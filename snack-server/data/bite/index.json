@@ -306,6 +306,7 @@
     "useCount": 0,
     "order": 27,
     "featured": 1,
+    "reviewedIn": "#125",
     "createdAt": 0
   },
   {
@@ -475,6 +476,7 @@
     "useCount": 0,
     "order": 40,
     "featured": 2,
+    "reviewedIn": "#126",
     "createdAt": 0
   },
   {
@@ -491,7 +493,8 @@
     "useCount": 0,
     "order": 41,
     "createdAt": 0,
-    "usesPhoto": true
+    "usesPhoto": true,
+    "derivativeOf": "speed-trivia-score"
   },
   {
     "id": "speed-trivia-score",

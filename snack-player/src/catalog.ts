@@ -2,11 +2,17 @@
 // shipped in every build, serverless or not). These flags shape it:
 //   hidden: true        → not on the home screen, but old links still open it
 //   mergedInto: "<id>"  → old links redirect to that app instead
-//   flagship: true      → the home "대표작" card, above 추천 (exactly one app;
-//                         it is never listed again in 추천 or 검토 전)
-//   featured: n         → in the home "추천" section, rank n (1 = first). Set it
-//                         only after the owner has reviewed + fixed the game on a
-//                         real phone; everything else lists under "검토 전 게임".
+// The home has three tiers (rule: docs/template-taxonomy.md "Home tiers"):
+//   flagship: true      → 대표작 — the one lime card on top (exactly one app;
+//                         it is never listed again in 추천작 or 추천 후보)
+//   featured: n         → 추천작, rank n (1 = first) — only together with
+//   + reviewedIn: "#k"    reviewedIn, the issue/PR where the game passed a
+//                         real-phone check or its fix merged. Neither alone
+//                         promotes a game: no evidence, no 추천작.
+//   (neither)           → 추천 후보 — still playable, listed quietly below.
+//   derivativeOf: "<id>" → a follow-up candidate built on that game (e.g. on
+//                         the 나 맞히기 flagship). Data only; stays a 후보
+//                         until it is reviewed like any other game.
 import type { BiteDoc } from "@snack/bite";
 
 export type CatalogEntry = {
@@ -19,7 +25,9 @@ export type CatalogEntry = {
   hidden?: boolean;
   mergedInto?: string;
   featured?: number;
+  reviewedIn?: string;
   flagship?: boolean;
+  derivativeOf?: string;
 };
 
 let cache: Promise<CatalogEntry[]> | null = null;
@@ -33,12 +41,18 @@ export function loadCatalog(): Promise<CatalogEntry[]> {
   return cache;
 }
 
-export type HomeSections = { flagship: CatalogEntry | null; featured: CatalogEntry[]; unreviewed: CatalogEntry[] };
+export type HomeSections = { flagship: CatalogEntry | null; featured: CatalogEntry[]; candidates: CatalogEntry[] };
+
+/** 추천작 only when explicitly marked: a positive integer rank AND the review evidence. */
+export function isFeatured(t: CatalogEntry): boolean {
+  return Number.isInteger(t.featured) && t.featured! > 0 && typeof t.reviewedIn === "string" && t.reviewedIn.trim() !== "";
+}
 
 /**
  * Split the home lineup: the 대표작 (flagship — the first shown one if the data
- * ever marks more), then 추천 (featured, by rank), then the rest (검토 전) in
- * catalog order. Every shown app lands in exactly one place.
+ * ever marks more), then 추천작 (featured + reviewedIn, by rank), then every
+ * other shown game as 추천 후보, in catalog order. Hidden / merged games are
+ * never shown. Every shown app lands in exactly one place.
  */
 export function splitHome(all: CatalogEntry[]): HomeSections {
   const shown = all
@@ -47,11 +61,10 @@ export function splitHome(all: CatalogEntry[]): HomeSections {
     .sort((a, b) => a.order! - b.order!);
   const flagship = shown.find((t) => t.flagship === true) ?? null;
   const rest = shown.filter((t) => t !== flagship);
-  const isFeatured = (t: CatalogEntry) => typeof t.featured === "number" && t.featured > 0;
   return {
     flagship,
     featured: rest.filter(isFeatured).sort((a, b) => a.featured! - b.featured! || a.order! - b.order!),
-    unreviewed: rest.filter((t) => !isFeatured(t)),
+    candidates: rest.filter((t) => !isFeatured(t)),
   };
 }
 

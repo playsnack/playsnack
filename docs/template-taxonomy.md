@@ -9,8 +9,20 @@ popularity grounding comes from GameAnalytics/Sensor Tower + the format evidence
 
 ## Home catalog fields (`snack-server/data/bite/index.json`)
 - `hidden: true` → off the home screen, old links still open it · `mergedInto: "<id>"` → old links redirect there.
-- **대표작 rule:** `"flagship": true` on exactly one app (today `speed-trivia-score` = 나 맞히기 퀴즈) → its own lime "대표작" card at the top of the home, never repeated in 추천 or 검토 전 (no `featured` on it; `snack-player/test/catalog.test.ts` checks this).
-- **추천 rule:** a game goes into the home "추천" section only after the owner reviewed + fixed it on a real phone — then set `"featured": n` (rank, 1 = first) on its entry and add its id to `REVIEWED` in `snack-player/test/catalog.test.ts`; every game without `featured` lists under "검토 전 게임".
+- `derivativeOf: "<id>"` → a follow-up candidate built on that game (data only, no extra UI).
+
+## Home tiers (대표작 / 추천작 / 추천 후보, #158)
+Hidden or merged games are never shown in any tier. Every shown game is in exactly one tier.
+
+| Tier | Data | Meaning |
+|---|---|---|
+| **대표작** | `"flagship": true` on exactly one app (today `speed-trivia-score` = 나 맞히기 퀴즈) | The one lime card at the top. Never repeated below (no `featured` on it). |
+| **추천작** | `"featured": n` (rank, 1 = first) **and** `"reviewedIn": "#<issue/PR>"` | Passed a real-phone check, or its fix is merged. Cards under "⭐ 추천작". |
+| **추천 후보** | neither | Still being fixed or not checked yet (실험작). Quiet list under "추천 후보"; still playable. |
+
+**Moving up (추천 후보 → 추천작):** real-phone check passes, or the fix PR is merged → add `featured` + `reviewedIn` (that issue/PR) to the entry and add the id to `REVIEWED` in `snack-player/test/catalog.test.ts`. There is no implicit promotion: a rank without `reviewedIn` (or the reverse) stays a 추천 후보, and the test fails on it. A game that breaks again goes back down by removing both fields.
+
+**나 맞히기 파생 후보 (follow-ups only, not 추천작):** `most-likely-roster-vote` (우리 중 누가?) is marked `"derivativeOf": "speed-trivia-score"` and stays a 추천 후보. Ideas with no template yet — 여기 중에 누군지 맞히기, 모임/친구 캐릭터 퀴즈 — are backlog, not catalog entries.
 
 ## Key evidence
 - **Highest-engagement genre = "classic" (trivia/word/quiz)**: top-quartile D1 retention 31%, ~10 min sessions (beats casual 28%/7 min). → skew templates toward **quiz/trivia**.
