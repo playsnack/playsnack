@@ -32,8 +32,8 @@ test("the canvas does not move where the band was already clear", () => {
 
 // On screen at 360×640: every template, every phase it shows at start or as a
 // together session phase, plus the quiz result with real data — no text under
-// the pills (CSS px, measured at 360 wide: ← 홈 12–74, 친구 초대 + QR / 🤝 친구끼리
-// 84–244 and the people chip at the right edge, up to "방에 들어가는 중"; the 4px
+// the pills (CSS px, measured at 360 wide: ← 홈 12–70, 🤝 친구방 · 🔗 · QR (#143)
+// 76–252 and the people chip at the right edge, up to "방에 들어가는 중"; the 4px
 // shadow included). A solo app has only 홈.
 const DIR = new URL("../../snack-server/data/bite/", import.meta.url);
 // An entry that plays another entry's file (`template`, #210) is checked with that file.
@@ -46,7 +46,7 @@ const ready = initLayout();
 
 const [W, H] = [360, 640];
 const HOME: Box = { x: 12, y: 10, w: 62, h: 44 };
-const ROOM_PILLS: Box[] = [{ x: 84, y: 10, w: 160, h: 44 }, { x: W - 12 - 134, y: 10, w: 134, h: 44 }];
+const ROOM_PILLS: Box[] = [{ x: 76, y: 10, w: 176, h: 44 }, { x: W - 12 - 134, y: 10, w: 134, h: 44 }];
 async function underPills(doc: { frame: [number, number] }, vars: Record<string, unknown>, together: boolean) {
   await ready;
   let t = 0;

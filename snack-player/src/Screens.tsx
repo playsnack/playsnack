@@ -138,6 +138,41 @@ export function RoomFailedSheet({ onRetry, solo, reason, retryIn }: { onRetry: (
   );
 }
 
+/**
+ * A small two-button question over the room (#143 "친구방에서 나갈까요?", #217 "비밀번호를 걸까요?").
+ * The primary is lime (the one hero); the secondary is outlined. A tap on the dim backdrop or ✕
+ * closes it without doing anything. The buttons call straight through (a fresh tap: the share
+ * sheet needs the user's own gesture on iOS).
+ */
+export function ChoiceSheet({ title, body, primary, secondary, onClose, busy = false, testId }: {
+  title: string; body: string; primary: Btn; secondary: Btn; onClose: () => void; busy?: boolean; testId?: string;
+}) {
+  return (
+    <div style={{ ...dim, zIndex: 32 }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={sheet} role="dialog" aria-modal="true" aria-label={title} data-testid={testId}>
+        <h2 style={{ ...titleStyle, margin: `0 0 ${S.s2}px` }}>{title}</h2>
+        <p style={bodyStyle}>{body}</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: S.s3, marginTop: S.s5 }}>
+          <button className="blk" style={{ ...primaryBtn, opacity: busy ? 0.5 : 1 }} disabled={busy} onClick={primary.onClick}>{primary.label}</button>
+          <button className="blk" style={secondaryBtn} disabled={busy} onClick={secondary.onClick}>{secondary.label}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The room-type chip (#143) in the top row, right of 홈: "🌐 공개방" / "🤝 친구방". Outlined and
+ * neutral (lime stays the template's CTA); a tap switches (LiveApp decides how).
+ */
+export function RoomTypeChip({ icon, label, aria, busy = false, onClick }: { icon: string; label: string; aria: string; busy?: boolean; onClick: () => void }) {
+  return (
+    <button className="blk" style={{ ...pill, padding: "0 10px", opacity: busy ? 0.6 : 1 }} onClick={onClick} aria-label={aria} aria-busy={busy} data-testid="room-type-chip">
+      <span aria-hidden="true">{icon}</span>{label}
+    </button>
+  );
+}
+
 /** The last refusal the PIN screen shows: wrong (with tries left) or locked (with the wait). */
 export type PinError = { reason: string; left?: number; retryIn?: number };
 

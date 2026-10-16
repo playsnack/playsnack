@@ -94,13 +94,66 @@ export function copiedLines(o: { touch: boolean; pin?: string | null }): string[
 }
 
 /**
- * The quiz lobby's "비밀번호 걸기" next to 친구 초대하기 (#208): only on the room server, in a
+ * A PIN can be set (the QR sheet's row, the invite question #217): only on the room server, in a
  * friends room, connected, while this device is the only one in (a PIN means a new link —
- * owner decision #157). Same rule as the QR sheet's row.
+ * owner decision #157).
  */
 export function canOfferPin(o: { edge: boolean; code: boolean; connected: boolean; people: number }): boolean {
   return o.edge && o.code && o.connected && o.people <= 1;
 }
+
+/**
+ * "비밀번호를 걸까요?" before the first invite (#217): every invite button (the lobby's, the top
+ * row's, the result screen's) asks once — when a PIN could be set now (canOfferPin: alone in a
+ * friends room on the room server), none is set yet (on this device: the host's own PIN, e.g.
+ * chosen in the quiz maker) and this room has not asked before on this device. Later taps share.
+ */
+export function askPinFirst(o: { edge: boolean; code: boolean; connected: boolean; people: number; pin: string | null | undefined; asked: boolean }): boolean {
+  return canOfferPin(o) && !o.pin && !o.asked;
+}
+
+/**
+ * The rooms whose invite question was answered on this device (this tab: sessionStorage, so a
+ * reload does not ask again; storage refused → this page only). Never throws.
+ */
+export function invitePinAsked(store: Pick<Storage, "getItem" | "setItem"> | null = sessionStore()) {
+  const KEY = "snk-invite-asked";
+  const mem = new Set<string>();
+  const read = (): string[] => {
+    try {
+      const v = JSON.parse(store?.getItem(KEY) ?? "[]");
+      return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+  return {
+    has: (room: string) => mem.has(room) || read().includes(room),
+    add(room: string) {
+      mem.add(room);
+      try {
+        store?.setItem(KEY, JSON.stringify([...new Set([...read(), room])].slice(-50)));
+      } catch {
+        // storage full / refused: this page remembers it
+      }
+    },
+  };
+}
+function sessionStore(): Storage | null {
+  try {
+    return typeof sessionStorage === "undefined" ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** The question's words (#217): the plain send is the primary (lime) button. */
+export const INVITE_PIN_ASK = {
+  title: "비밀번호를 걸까요?",
+  body: "링크가 퍼져도 비밀번호를 아는 친구만 들어와요. 들어올 때 한 번만 물어봐요.",
+  send: "그냥 보내기",
+  withPin: "비밀번호 걸고 보내기",
+} as const;
 
 /**
  * The maker page's 완료 (#208): ONE new friends room for the quiz — with the PIN chosen in the

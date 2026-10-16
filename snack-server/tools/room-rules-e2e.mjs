@@ -1,8 +1,12 @@
 // Who starts a game, end to end (#135 / #136): the real player built for edge rooms
 // (VITE_ROOM_URL), three real browsers, the Node edge hub (the same game.js / core.js the
 // Durable Object runs) and a tiny static server.
-//   1. 친구 방: A opens a public link and presses 🤝 친구끼리 → A is the host (방장). B opens the
-//      invite link → no 시작하기, "방장이 시작하길 기다리는 중 · 방장 · A". A starts → both play.
+//   1. 친구 방: A opens a public link (chip "🌐 공개방", subtitle "🌐 누구나 함께하는 방 …", no 방장 #143)
+//      and taps the chip → a friends room ("🤝 친구방"), A is the host (방장); the top row fits at 360 / 390.
+//      B opens the
+//      invite link → A’s chip asks "친구방에서 나갈까요?" (stays); B has no 시작하기, "방장이 시작하길
+//      기다리는 중 · 방장 · A". A starts → both play; the chip is hidden in countdown / play, back on the result.
+//   1b. alone in a friends room the chip goes straight back to the public room (no sheet).
 //   2. 공개 방 (#141: 2명부터): C opens /p/<slug> alone → "한 명 더 오면 시작해요" · "링크를 친구에게
 //      보내도 돼요", nothing counts down; D comes → same room, both "<n>초 뒤 시작 · 2명"; nobody
 //      presses anything → the game starts by itself for both.
@@ -88,6 +92,29 @@ const texts = () => {
   walk(globalThis.__bite.scene.root);
   return out;
 };
+// Every text line on the canvas now (the renderer's scene).
+const allTexts = () => {
+  const out = [];
+  const walk = (inst) => {
+    if (inst.kind === "text" && inst.content != null && String(inst.content).trim()) out.push(String(inst.content));
+    inst.children.forEach(walk);
+  };
+  walk(globalThis.__bite.scene.root);
+  return out;
+};
+const chipText = async (page) => ((await page.getByTestId("room-type-chip").textContent().catch(() => "")) ?? "").trim();
+// The top row's boxes (CSS px): 홈, the room-type chip, 🔗 초대, QR, the people chip.
+const topRow = () => {
+  const r = (el) => (el ? (({ left, right, top, bottom }) => ({ left, right, top, bottom }))(el.getBoundingClientRect()) : null);
+  const people = [...document.querySelectorAll('[aria-live="polite"]')].find((e) => /명|방에|연결/.test(e.textContent ?? ""));
+  return {
+    home: r(document.querySelector('[aria-label="홈으로"]')),
+    chip: r(document.querySelector('[data-testid="room-type-chip"]')),
+    invite: r(document.querySelector('[aria-label="친구 초대 링크 보내기"]')),
+    qr: r(document.querySelector('[aria-label="QR 코드로 초대하기"]')),
+    people: r(people),
+  };
+};
 const vars = (page) => page.evaluate(() => ({ phase: globalThis.__bite?.app.phase, ...globalThis.__bite?.app.vars }));
 const hasTarget = async (page, id) => (await page.evaluate(targets)).some((t) => t.name === id);
 async function tapNode(page, id) {
@@ -119,6 +146,12 @@ const shot = async (page, name) => {
   mkdirSync(SHOTS, { recursive: true });
   await page.screenshot({ path: join(SHOTS, `rooms-${name}.png`) });
 };
+/** A screenshot under its own name (no "rooms-" prefix). */
+const shotAs = async (page, name) => {
+  if (!SHOTS) return;
+  mkdirSync(SHOTS, { recursive: true });
+  await page.screenshot({ path: join(SHOTS, `${name}.png`) });
+};
 
 const results = [];
 const logs = [];
@@ -131,14 +164,50 @@ try {
   const [b1, b2, b3] = [await launch(), await launch(), await launch()]; // (b1 also hosts C, then F)
   browsers.push(b1, b2, b3);
 
-  // ── 1. friends room: the creator hosts ──
+  // ── 1. friends room: the creator hosts (#143: made from the room-type chip) ──
   const A = await open(b1, "앨리스", `${BASE}/p/${FRIENDS_SLUG}`, logs);
-  await A.getByRole("button", { name: "친구끼리 하는 방 만들기" }).click();
+  await waitFor(async () => (await vars(A)).roomMode === "auto", 15000, "A in the public room");
+  await sleep(400);
+  const pubChip = await chipText(A);
+  const pubSub = (await A.evaluate(allTexts)).find((t) => /누구나 함께하는 방/.test(t));
+  step("#143 public room: the top-row chip says 🌐 공개방; the lobby subtitle '🌐 누구나 함께하는 방 · 2명 모이면 시작'; no 방장 anywhere",
+    /🌐\s*공개방/.test(pubChip) && pubSub === "🌐 누구나 함께하는 방 · 2명 모이면 시작" && !(await A.evaluate(allTexts)).some((t) => /방장/.test(t)) && !/방장/.test(await A.evaluate(() => document.body.innerText)),
+    { pubChip, pubSub });
+  await shotAs(A, "chip-public");
+  await A.getByTestId("room-type-chip").click();
   await waitFor(async () => /[?&]room=/.test(A.url()) && (await vars(A)).iAmHost === true, 15000, "A made a friends room and hosts it");
+  await waitFor(async () => (await vars(A)).roomMode === "host", 10000, "A's friends room says host");
+  await sleep(400);
+  const frChip = await chipText(A);
+  const frSub = (await A.evaluate(allTexts)).find((t) => /초대받은 친구만/.test(t));
+  step("#143 chip tap in the public room → a new friends room (host); chip 🤝 친구방; subtitle '🤝 초대받은 친구만 들어오는 방 · 방장이 시작'",
+    /🤝\s*친구방/.test(frChip) && frSub === "🤝 초대받은 친구만 들어오는 방 · 방장이 시작", { frChip, frSub });
+  await shotAs(A, "chip-friends");
+  // the top row fits beside the people chip at 360 and 390 px (chip · 🔗 초대 · QR | 👥 n명)
+  const rows = [];
+  for (const [w, h] of [[360, 640], [390, 844]]) {
+    await A.setViewportSize({ width: w, height: h });
+    await sleep(300);
+    rows.push({ w, ...(await A.evaluate(topRow)) });
+  }
+  await A.setViewportSize({ width: 390, height: 844 });
+  step("#143 friends lobby top row: 홈 · 🤝 친구방 · 🔗 초대 · QR · 👥 — no overlaps at 360 / 390 px",
+    rows.every((r) => r.home && r.chip && r.invite && r.qr && r.people && r.home.right <= r.chip.left && r.chip.right <= r.invite.left && r.invite.right <= r.qr.left && r.qr.right + 4 <= r.people.left),
+    { rows });
   const invite = A.url();
   const B = await open(b2, "밥", invite, logs);
   await waitFor(async () => (await Promise.all([A, B].map(vars))).every((v) => (v.roster || []).length === 2), 15000, "both in the friends room");
   await sleep(500);
+  // with a friend in: the chip asks first; "친구방에 있기" keeps everything as it was
+  await A.getByTestId("room-type-chip").click();
+  const sheet = A.getByTestId("leave-friends");
+  await sheet.waitFor({ state: "visible", timeout: 5000 });
+  const sheetText = (await sheet.textContent()) ?? "";
+  await shotAs(A, "chip-confirm");
+  await sheet.getByRole("button", { name: "친구방에 있기" }).click();
+  await sheet.waitFor({ state: "detached", timeout: 5000 });
+  step("#143 friends room with a friend: chip → '친구방에서 나갈까요?' first; '친구방에 있기' stays (same link, still 2)",
+    /친구방에서 나갈까요/.test(sheetText) && /공개방으로 가기/.test(sheetText) && A.url() === invite && (await vars(A)).roster?.length === 2, { sheetText });
   const vb = await vars(B);
   const tb = await B.evaluate(texts);
   step("friends room: B (not the host) has no 시작하기, sees the waiting label", vb.roomMode === "host" && vb.iAmHost === false && vb.hostNick === "앨리스" && !(await hasTarget(B, "startBtn")) && tb.startWaitMain === "방장이 시작하길 기다리는 중" && tb.startWaitSub === "방장 · 앨리스", { vb: { roomMode: vb.roomMode, iAmHost: vb.iAmHost, hostNick: vb.hostNick }, tb: { main: tb.startWaitMain, sub: tb.startWaitSub } });
@@ -150,10 +219,31 @@ try {
   await sleep(1500);
   step("friends room: nothing started without the host", (await vars(A)).sessionPhase !== "countdown" && (await vars(A)).sessionPhase !== "play");
   await tapNode(A, "startBtn");
+  await waitFor(async () => (await vars(A)).sessionPhase === "countdown" || (await vars(A)).sessionPhase === "play", 15000, "the countdown");
+  const chipInCountdown = await A.getByTestId("room-type-chip").count();
   await waitFor(async () => (await Promise.all([A, B].map(vars))).every((v) => v.sessionPhase === "play"), 15000, "both play after the host started");
   step("friends room: the host started → both play", true);
+  await sleep(300);
+  const chipInPlay = (await A.getByTestId("room-type-chip").count()) + (await B.getByTestId("room-type-chip").count());
+  step("#143 the room-type chip is hidden during the 3·2·1 countdown and play", chipInCountdown === 0 && chipInPlay === 0, { chipInCountdown, chipInPlay });
+  await shotAs(A, "chip-hidden-play");
+  await waitFor(async () => ["result", "lobby"].includes((await vars(A)).sessionPhase), 25000, "the result");
+  await A.getByTestId("room-type-chip").waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  step("#143 the chip is back on the result screen", (await A.getByTestId("room-type-chip").count()) === 1 && /친구방/.test(await chipText(A)));
   await A.context().close();
   await B.context().close();
+
+  // ── 1b. #143 friends room alone → the chip goes straight back to the public room (no sheet) ──
+  const Z = await open(b3, "제트", `${BASE}/p/${FRIENDS_SLUG}`, logs);
+  await waitFor(async () => (await vars(Z)).roomMode === "auto", 15000, "Z in the public room");
+  await Z.getByTestId("room-type-chip").click();
+  await waitFor(async () => /[?&]room=/.test(Z.url()) && (await vars(Z)).iAmHost === true, 15000, "Z hosts a friends room");
+  await Z.getByTestId("room-type-chip").click();
+  await waitFor(async () => !/[?&]room=/.test(Z.url()), 5000, "Z back on the public link");
+  await waitFor(async () => (await vars(Z)).roomMode === "auto", 15000, "Z in the public room again");
+  step("#143 friends room alone: chip → back to the public room at once (no sheet), chip 🌐 공개방 again",
+    (await Z.getByTestId("leave-friends").count()) === 0 && new URL(Z.url()).pathname === `/p/${FRIENDS_SLUG}` && /공개방/.test(await chipText(Z)));
+  await Z.context().close();
 
   // ── 2. public room: auto-start, only with 2+ (#141) ──
   const C = await open(b1, "캐럴", `${BASE}/p/${PUBLIC_SLUG}`, logs);

@@ -19,6 +19,7 @@
     "shownTotal": 0,
     "tapBatchMs": 250,
     "roomMode": "",
+    "roomPin": false,
     "hostNick": "",
     "iAmHost": false,
     "autoStartIn": 0
@@ -355,7 +356,7 @@
             "use": "NavBar",
             "props": {
               "title": "다 같이 게이지",
-              "subtitle": "대기실"
+              "subtitle": "{roomMode == 'auto' ? '🌐 누구나 함께하는 방 · 2명 모이면 시작' : roomMode == 'host' ? ((roomPin ? '🤝🔒' : '🤝') + ' 초대받은 친구만 들어오는 방 · 방장이 시작') : '대기실'}"
             }
           },
           {
