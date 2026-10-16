@@ -8,7 +8,7 @@
 // it. Any failure → the app's own preview. ROOM_HTTP_URL (env) overrides the room server address.
 import catalog from '../../snack-server/data/bite/index.json' with { type: 'json' };
 import manifest from '../../snack-player/public/og/manifest.json' with { type: 'json' };
-import { QUIZ_APP_ID, isPreviewBot, lookupAbout, metaHandlers, ogMeta, roomCode, slugOf } from '../../api/_lib/og.js';
+import { QUIZ_APP_ID, isPinCode, isPreviewBot, lookupAbout, metaHandlers, ogMeta, roomCode, slugOf } from '../../api/_lib/og.js';
 
 export const ROOM_HTTP_URL = 'https://snack-room.playsnack.workers.dev';
 
@@ -22,7 +22,8 @@ export async function onRequest(context) {
 
   let about = null;
   const code = roomCode(url.href);
-  if (code && slugOf(url.pathname) === `tpl-${QUIZ_APP_ID}` && isPreviewBot(request.headers.get('user-agent'))) {
+  // A PIN room (20-symbol code) is never looked up: its result needs a pass, and its name stays private.
+  if (code && !isPinCode(code) && slugOf(url.pathname) === `tpl-${QUIZ_APP_ID}` && isPreviewBot(request.headers.get('user-agent'))) {
     const roomBase = typeof env.ROOM_HTTP_URL === 'string' && env.ROOM_HTTP_URL ? env.ROOM_HTTP_URL : ROOM_HTTP_URL;
     about = await lookupAbout({ roomBase, code });
   }

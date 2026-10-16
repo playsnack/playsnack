@@ -7,7 +7,8 @@
 //   /p/tpl-<id>?room=<code>        → same, "친구가 방에 초대했어요" description
 //   /p/tpl-speed-trivia-score?room=<code>, crawler only → "<about> 맞히기 · 나를 얼마나 알까?"
 //                                    when the room server already has that room's last result
-//                                    (only `about` is read — never questions, answers or picks)
+//                                    (only `about` is read — never questions, answers or picks);
+//                                    never for a PIN room (20-symbol code): its name stays private
 //   anything else (made apps, unknown slugs) → the site defaults (index.html's own tags)
 
 export const SITE_NAME = 'PlaySnack';
@@ -19,8 +20,13 @@ const ROOM_CACHE_MS = 60_000;
 const ROOM_CACHE_MAX = 200;
 const NAME_MAX = 20;
 
-// The friends-room code (snack-player/src/links.ts; edge/room/src/results.js CODE).
+// The friends-room code (snack-player/src/links.ts; edge/room/src/results.js CODE): signed codes
+// are 15 symbols (no PIN) or 20 (a PIN room, docs/room-admission.md); 8–32 keeps the device-made
+// 10-symbol codes from before signing working while the room server still takes them.
 const CODE_RE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8,32}$/;
+/** A PIN room's code: its result is readable only with a pass, so a preview never looks it up. */
+export const PIN_CODE_LENGTH = 20;
+export const isPinCode = (code) => typeof code === 'string' && code.length === PIN_CODE_LENGTH;
 const SLUG_RE = /^tpl-([a-z0-9][a-z0-9-]{0,63})$/;
 
 // One line per category (Discover.tsx CAT), said the way a friend would.
@@ -146,7 +152,7 @@ export const _roomCache = roomCache;
  * Results (also misses) are kept `ROOM_CACHE_MS` in the isolate.
  */
 export async function lookupAbout({ roomBase, code, fetchImpl = fetch, timeoutMs = ROOM_LOOKUP_MS, now = Date.now() }) {
-  if (!roomBase || !code || !CODE_RE.test(code)) return null;
+  if (!roomBase || !code || !CODE_RE.test(code) || isPinCode(code)) return null;
   const roomId = `tpl-${QUIZ_APP_ID}~${code}`;
   const hit = roomCache.get(roomId);
   if (hit && now - hit.at < ROOM_CACHE_MS) return hit.about;

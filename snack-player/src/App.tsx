@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { currentRoute, hrefTo, markFreshRoom, navigate } from "./backend";
-import { newRoomCode, playPath, roomIdFor, ROOM_PARAM } from "./links";
+import { currentRoute, hrefTo, navigate, newFriendRoom } from "./backend";
+import { playPath, roomIdFor, ROOM_PARAM } from "./links";
 import { QUIZ_SLUG, deviceQuizStore, opensMakerPage } from "./quiz";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { validate, type BiteDoc } from "@snack/bite";
@@ -93,11 +93,14 @@ export function App() {
 function QuizMakerPage({ nick }: { nick: string }) {
   return (
     <QuizMaker nick={nick} nickAuto={isNickAuto()} doneLabel="완료 · 친구 초대하러 가기" closeLabel="← 홈" onClose={goHome}
-      onDone={(pack) => {
+      onDone={async (pack) => {
         const store = deviceQuizStore();
-        const params = new URLSearchParams({ [ROOM_PARAM]: newRoomCode() });
+        // The room server makes the code (and this device hosts it); a failure keeps the maker
+        // open with its "다시 눌러 주세요" line (QuizMaker finish).
+        const room = await newFriendRoom(QUIZ_SLUG); // marks it fresh: no host to wait for
+        if (!room.ok) throw new Error(`mint ${room.error}`);
+        const params = new URLSearchParams({ [ROOM_PARAM]: room.code });
         store.rememberRoomPack(roomIdFor(QUIZ_SLUG, params), pack);
-        markFreshRoom(roomIdFor(QUIZ_SLUG, params)); // a new code: no host to wait for
         store.clearDraft();
         navigate(playPath(QUIZ_SLUG, params), { replace: true }); // Back goes where the maker was opened from, not into an empty maker
       }} />

@@ -8,6 +8,8 @@ import { readFileSync } from "node:fs";
 import { createBite } from "../../packages/bite/src/index.js";
 import { absBoxes, computeScene, initLayout } from "../../packages/bite-layout/src/index.js";
 import { SPECTATOR_NOTICE_BOX, forTemplate, showSpectatorNotice } from "../src/spectate.ts";
+import { HOST_NOTICE_BOX } from "../src/roomAdmission.ts";
+import { nameCardRect } from "../src/nameChoice.ts";
 
 const DIR = new URL("../../snack-server/data/bite/", import.meta.url);
 const index = JSON.parse(readFileSync(new URL("index.json", DIR), "utf8")) as { id: string; mode: string; hidden?: boolean }[];
@@ -104,4 +106,17 @@ for (const id of TOGETHER) {
 test("tapBatchMs (#179): reaches only templates that declare it (no undeclared-variable warning elsewhere)", () => {
   assert.equal(forTemplate({ vars: { sessionPhase: "lobby" } }, "tapBatchMs"), false);
   assert.equal(forTemplate({ vars: { tapBatchMs: 250 } }, "tapBatchMs"), true);
+});
+
+// #157: the PIN room host's notice ("새 링크로 옮기기") sits under the top-row pills and left of 😀
+// (others are in the room when it shows) at every phone width; it would cover the name card, so
+// LiveApp hides the card while it shows (`covered`). The PIN screens are full-screen (z 35) above both.
+test("host PIN notice: clear of the top-row pills and 😀 from 320 to 430 px; overlaps the name card (so the card steps aside)", () => {
+  for (const w of [320, 360, 390, 430]) {
+    const box = { x: HOST_NOTICE_BOX.x, y: HOST_NOTICE_BOX.y, w: w - HOST_NOTICE_BOX.x - HOST_NOTICE_BOX.right, h: HOST_NOTICE_BOX.h };
+    assert.ok(box.w >= 230, `${w}: room for the text and the button`);
+    assert.ok(!hit(box, ZONES.invitePill), `${w}: over the invite pill`);
+    assert.ok(!hit(box, { ...ZONES.reactionFab, x: w - 12 - 46 }), `${w}: over 😀`);
+    assert.ok(hit(box, nameCardRect(w)), `${w}: the name card is hidden while the notice shows`);
+  }
 });

@@ -27,7 +27,9 @@ export const KINDS = [
 export const SHARE_WHATS = new Set(['invite', 'result', 'app', 'other']);
 export const ROOM_KINDS = new Set(['public', 'friend']);
 // subscribe = broker reached but the room topic subscription failed; silence = no room traffic for 47 s (LiveApp).
-export const JOIN_FAIL_REASONS = new Set(['bad_link', 'not_found', 'network', 'timeout', 'unreachable', 'disconnected', 'refused', 'subscribe', 'silence', 'other']);
+// The last seven: edge room refusals (#157, docs/room-admission.md) — the reason only, never a code or PIN.
+export const JOIN_FAIL_REASONS = new Set(['bad_link', 'not_found', 'network', 'timeout', 'unreachable', 'disconnected', 'refused', 'subscribe', 'silence', 'other',
+  'pin', 'locked', 'closed', 'expired', 'slow', 'seat_taken', 'full']);
 /** room_join `tries` (broker connect tries in one join): 1–MAX_JOIN_TRIES, kept as 4 buckets. */
 export const MAX_JOIN_TRIES = 20;
 export const JOIN_TRIES_BUCKETS = ['1', '2', '3', '4+'];
