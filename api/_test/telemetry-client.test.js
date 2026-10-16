@@ -4,6 +4,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandler } from '../ev.js';
+import { JOIN_FAIL_REASONS, normalizeEvent } from '../_lib/schema.js';
 
 const TS = new URL('../../snack-player/src/telemetry.ts', import.meta.url).href;
 let n = 0;
@@ -237,7 +238,10 @@ test('room_join carries via (the transport used) and the server keeps room-serve
 test('joinFailReason maps transport reasons onto the reported set', async () => {
   const t = await fresh();
   const cases = { timeout: 'timeout', unreachable: 'unreachable', disconnected: 'disconnected', broker: 'unreachable',
-    subscribe: 'subscribe', silence: 'silence', load: 'network', 'refused: Not authorized': 'refused', whatever: 'other', '': 'other' };
+    subscribe: 'subscribe', silence: 'silence', load: 'network', 'refused: Not authorized': 'refused', whatever: 'other', '': 'other',
+    // #157 room server refusals: the reason only ('pin-required' counts as 'pin')
+    pin: 'pin', 'pin-required': 'pin', locked: 'locked', closed: 'closed', expired: 'expired', slow: 'slow', seat_taken: 'seat_taken', full: 'full',
+    room_full_today: 'other', replaced: 'other' };
   for (const [raw, want] of Object.entries(cases)) assert.equal(t.joinFailReason(raw), want, raw);
   assert.equal(t.joinFailReason(undefined), 'other');
   assert.equal(t.appOf('quiz-ox~ABCDEFGH'), 'quiz-ox');
@@ -263,4 +267,15 @@ test('automatedBrowser: webdriver or a headless/bot user agent stops collection;
   assert.equal(automatedBrowser({ webdriver: false, userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/131.0 Mobile Safari/537.36' }), false);
   assert.equal(automatedBrowser({ webdriver: false, userAgent: 'Mozilla/5.0 (iPhone) KAKAOTALK 10.8.0' }), false);
   assert.equal(automatedBrowser(undefined), false);
+});
+
+test('#157: every reason joinFailReason reports is one the ingest keeps (room server refusals included)', async () => {
+  const t = await fresh();
+  for (const raw of ['pin', 'pin-required', 'locked', 'closed', 'expired', 'slow', 'seat_taken', 'full', 'timeout', 'silence', 'nonsense']) {
+    const reason = t.joinFailReason(raw);
+    assert.ok(JOIN_FAIL_REASONS.has(reason), `${raw} → ${reason}`);
+    const n = normalizeEvent({ k: 'room_join', ok: false, ms: 900, room: 'friend', reason, via: 'edge' });
+    assert.ok(n && n.fields.includes(`join_failed_reason:${reason}`), raw);
+  }
+  assert.equal(normalizeEvent({ k: 'room_join', ok: false, reason: 'pin-required' }), null, 'raw server words never pass');
 });

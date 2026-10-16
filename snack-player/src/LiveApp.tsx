@@ -10,11 +10,12 @@ import { getAnonId, getNick, isNickAuto, setNick } from "./identity";
 import { NameCard } from "./NameCard";
 import { ReactionLayer, type ReactionFxApi } from "./ReactionLayer";
 import { showNameCard } from "./nameChoice";
-import { CONNECT_TIMEOUT_MS, type ConnState, type RoomTransport } from "./roomTransport";
-import { createRoom, EDGE_ROOM_SERVER, hrefTo, isFreshRoom, loadRoomDoc, markFreshRoom, navigate, SERVERLESS } from "./backend";
-import { friendLink, newRoomCode, playPath, publicLink, roomCodeOf, roomIdFor, roomParamOf, shareableParams } from "./links";
+import { CONNECT_TIMEOUT_MS, hasSeatToken, type ConnState, type RoomTransport } from "./roomTransport";
+import { createRoom, EDGE_ROOM_SERVER, hrefTo, isFreshRoom, loadRoomDoc, navigate, newFriendRoom, SERVERLESS } from "./backend";
+import { friendLink, playPath, publicLink, roomCodeOf, roomIdFor, roomKindOf, roomParamOf, shareableParams } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
-import { HomeButton, LoadingScreen, MessageScreen, RoomChip, RoomFailedSheet, RoomSlowNotice, goHome } from "./Screens";
+import { HomeButton, HostPinNotice, LoadingScreen, MessageScreen, PinSheet, RoomChip, RoomFailedSheet, RoomSlowNotice, goHome, type PinError } from "./Screens";
+import { passes, PIN_REASONS } from "./roomAdmission";
 import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
 import { joinTracker, slowJoinText } from "./roomJoin";
@@ -59,6 +60,9 @@ const ROOM_SILENCE_MS = CONNECT_TIMEOUT_MS + 2_000;
  */
 export const RECONNECT_NOTICE_MS = 1_500;
 
+/** Rooms this page just moved its host into with a new PIN link: their invite sheet opens at once (#157). */
+const inviteOnOpen = new Set<string>();
+
 type LoadError = "notFound" | "network";
 const isNetworkError = (e: unknown) =>
   (typeof navigator !== "undefined" && navigator.onLine === false) ||
@@ -73,6 +77,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const [conn, setConn] = useState<Exclude<ConnState, "reconnecting">>("connecting");
   const [reconnecting, setReconnecting] = useState(false);
   const [connReason, setConnReason] = useState<string | undefined>(undefined);
+  const [connRetryIn, setConnRetryIn] = useState<number | undefined>(undefined);
   const [roomGen, setRoomGen] = useState(0);
   const [participants, setParticipants] = useState(1);
   const [solo, setSolo] = useState<CatalogEntry | null>(null);
@@ -109,6 +114,19 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // the public room: nothing loads or joins, the screen says the link is bad.
   const roomParam = roomParamOf(params);
   const invalidRoom = roomParam.kind === "invalid";
+  // ── PIN rooms (#157, docs/room-admission.md): a 20-symbol code on the room server. Without a
+  // pass or a seat on this device the PIN is asked BEFORE joining (no network needed to know);
+  // the app loads meanwhile. The PIN goes to the transport and is not kept here.
+  const pinRoom = Boolean(EDGE_ROOM_SERVER) && roomParam.kind === "code" && roomKindOf(roomParam.code) === "pin";
+  const [joinReady, setJoinReady] = useState(() => !pinRoom || Boolean(passes.get(roomId)) || hasSeatToken(roomId));
+  const [pinGate, setPinGate] = useState<{ checking: boolean; error: PinError | null } | null>(() => (joinReady ? null : { checking: false, error: null }));
+  const firstPinRef = useRef<string | null>(null);
+  const enterPinRef = useRef<(pin: string) => void>(() => {});
+  // The host's side: setting a PIN (a new link) and the PIN room's warnings.
+  const [pinSet, setPinSet] = useState<{ checking: boolean } | null>(null);
+  const [hostPin, setHostPin] = useState<"alert" | "closed" | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [mintFail, setMintFail] = useState(false);
 
   // Floating emoji reactions over the canvas (ReactionLayer.tsx, #121).
   const sendReaction = (emoji: string) => {
@@ -143,7 +161,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
 
   // Join the room — only when the app is played together.
   useEffect(() => {
-    if (!doc || !withRoom || invalidRoom) return;
+    if (!doc || !withRoom || invalidRoom || !joinReady) return;
     // The room id is the link's: the app's public room, or `slug~CODE` for a
     // friends-only link (links.ts). The transport passes it through unchanged.
     // Alone in the lobby of a friends room: its last finished game, if any (docs/room-results.md).
@@ -153,7 +171,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       roomId: roomIdFor(slug, params),
       skip: !(SERVERLESS || EDGE_ROOM_SERVER) || isFreshRoom(roomIdFor(slug, params)),
       show: setLastResult,
-      ...(EDGE_ROOM_SERVER ? { fetchResult: (id: string) => fetchRoomResult(id, undefined, EDGE_ROOM_SERVER) } : {}),
+      // A PIN room's result is read with this device's pass (the room server answers nothing without it).
+      ...(EDGE_ROOM_SERVER ? { fetchResult: (id: string) => fetchRoomResult(id, undefined, EDGE_ROOM_SERVER, pinRoom ? passes.get(id)?.token : undefined) } : {}),
     });
     // The transport keeps this object: a rename (#104) updates its nick, so a reconnect's hello
     // and a mesh heartbeat say the new name too.
@@ -161,7 +180,9 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     meRef.current = me;
     // A public edge room starts by itself with the app's own start payload (#136, doc.room).
     const roomCfg = doc.room;
-    const room: RoomTransport = createRoom(me, params, roomCfg ? { autoStart: { start: roomCfg.start, ms: roomCfg.autoStartMs } } : {});
+    const pin = firstPinRef.current ?? undefined;
+    firstPinRef.current = null; // handed to the transport (which drops it once in)
+    const room: RoomTransport = createRoom(me, params, { ...(roomCfg ? { autoStart: { start: roomCfg.start, ms: roomCfg.autoStartMs } } : {}), ...(pin ? { pin } : {}) });
     roomRef.current = room;
     // "10초 뒤 시작" (autoStart.ts): seconds left, into the template's autoStartIn when it has one.
     const auto = autoStartTicker((n) => {
@@ -195,14 +216,25 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         join.conn(state, m.d.reason as string | undefined);
         back = state === "reconnecting";
         setReconnecting(back);
+        const reason = m.d.reason as string | undefined;
+        // A PIN refusal: the PIN screen asks again (wrong → tries left, locked → the wait) — the
+        // screen is not "failed" (no failure sheet) and nothing reconnects on its own.
+        const pinAsk = state === "failed" && PIN_REASONS.has(reason ?? "");
+        if (pinAsk) setPinGate({ checking: false, error: { reason: reason!, left: m.d.left as number | undefined, retryIn: m.d.retryIn as number | undefined } });
+        else if (state === "connected") setPinGate(null);
+        else if (state === "failed") setPinGate(null);
         if (state !== "reconnecting") {
           setConn(state);
-          setConnReason(m.d.reason as string | undefined);
+          setConnReason(reason);
+          setConnRetryIn(typeof m.d.retryIn === "number" ? m.d.retryIn : undefined);
         }
         if (state === "connecting" || state === "reconnecting") waitForRoom();
         else silence?.cancel();
         return;
       }
+      // To the organizer of a PIN room: wrong PINs keep coming / it no longer lets new people in.
+      if (m.t === "alert") return setHostPin((k) => k ?? "alert");
+      if (m.t === "pinClosed") return setHostPin("closed");
       // A new broker connect try (serverless): counted for room_join, not room traffic.
       if (m.t === "connAttempt") return join.attempt(Number(m.d.n), m.d.reason as string | undefined);
       // A public room mid-game moved us to its next room (#136): still joining, the screen stays.
@@ -248,6 +280,15 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     retryRef.current = room.retry
       ? () => { back = false; setReconnecting(false); setConn("connecting"); waitForRoom(); join.start("retry"); room.retry!(); }
       : () => setRoomGen((g) => g + 1);
+    // Another PIN typed on the PIN screen: the same join, with it.
+    enterPinRef.current = (p: string) => {
+      back = false;
+      setReconnecting(false);
+      setConn("connecting");
+      waitForRoom();
+      join.start("retry");
+      room.enterPin?.(p);
+    };
     return () => {
       silence?.cancel();
       auto.stop();
@@ -257,7 +298,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       room.close();
       if (roomRef.current === room) roomRef.current = null;
     };
-  }, [doc, slug, withRoom, roomGen]);
+  }, [doc, slug, withRoom, roomGen, joinReady]);
 
   // A slow join (a public broker can take ~20 s): from SLOW_JOIN_MS on, the connecting UI
   // says so with the seconds and already offers "혼자 하기"; the failed sheet comes only at
@@ -265,12 +306,12 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const [connectingFor, setConnectingFor] = useState(0);
   useEffect(() => {
     setConnectingFor(0);
-    if (!withRoom || conn !== "connecting") return;
+    if (!withRoom || conn !== "connecting" || !joinReady || pinGate) return;
     const t0 = performance.now();
     const id = setInterval(() => setConnectingFor(performance.now() - t0), 1000);
     return () => clearInterval(id);
-  }, [conn, withRoom, roomGen]);
-  const slowText = withRoom && conn === "connecting" ? slowJoinText(connectingFor) : null;
+  }, [conn, withRoom, roomGen, joinReady, Boolean(pinGate)]);
+  const slowText = withRoom && conn === "connecting" && joinReady && !pinGate ? slowJoinText(connectingFor) : null;
   // Back in the room after a drop: quiet at first, then a small "다시 연결 중…" in the room chip.
   const [reconnectNotice, setReconnectNotice] = useState(false);
   useEffect(() => {
@@ -436,13 +477,58 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const code = roomParam.kind === "code" ? roomParam.code : null;
   const [invite, setInvite] = useState<"copied" | "show" | null>(null);
   const [area, setArea] = useState<[number, number]>([0, 0]); // the play area (BitePlayer), for the quiz invite band
-  const [qrOpen, setQrOpen] = useState(false); // the same link as a QR, for friends right here
-  const openFriendRoom = () => {
+  const [qrOpen, setQrOpen] = useState(() => inviteOnOpen.delete(roomId)); // the same link as a QR, for friends right here
+  const failMint = () => {
+    setMintFail(true);
+    setTimeout(() => setMintFail(false), 3000);
+  };
+  // The room server makes the code (/mint, ~0.1 s, no room woken yet); this device hosts it.
+  // `pin`: a PIN room (a new link). `replace`: the old link was only this device's (nobody came).
+  const goToNewRoom = async (o: { pin?: string; replace?: boolean; openInvite?: boolean } = {}) => {
+    const r = await newFriendRoom(slug, o.pin ? { pin: o.pin, anonId: getAnonId() } : {});
+    if (!r.ok) return false;
     const p = shareableParams(params);
-    p.set("room", newRoomCode());
+    p.set("room", r.code);
+    const next = roomIdFor(slug, p);
     trackRoomCreate(slug); // the code itself is never sent
-    markFreshRoom(roomIdFor(slug, p));
-    navigate(playPath(slug, p));
+    // A quiz made for this room goes along to the new one (nobody else has seen it yet).
+    const store = deviceQuizStore();
+    const pack = isQuiz ? store.roomPack(roomId) : null;
+    if (pack) store.rememberRoomPack(next, pack);
+    if (o.openInvite) inviteOnOpen.add(next);
+    navigate(playPath(slug, p), { replace: Boolean(o.replace) });
+    return true;
+  };
+  const [minting, setMinting] = useState(false);
+  const openFriendRoom = async () => {
+    if (minting) return;
+    setMinting(true);
+    const ok = await goToNewRoom();
+    setMinting(false);
+    if (!ok) failMint();
+  };
+  // "비밀번호 걸기" (host, alone): 4 digits → a new PIN link; the invite sheet opens there with the PIN.
+  const submitPinSet = async (pin: string) => {
+    setPinSet({ checking: true });
+    const ok = await goToNewRoom({ pin, replace: true, openInvite: true });
+    if (!ok) {
+      setPinSet(null);
+      failMint();
+    }
+  };
+  // The host's one tap after PIN warnings: a new link (same PIN if this device chose it).
+  const moveToNewLink = async () => {
+    if (moving) return;
+    setMoving(true);
+    const ok = await goToNewRoom({ pin: passes.pin(roomId) ?? undefined, openInvite: true });
+    setMoving(false);
+    if (!ok) failMint();
+  };
+  const submitPin = (pin: string) => {
+    setPinGate({ checking: true, error: null });
+    if (joinReady) return enterPinRef.current(pin);
+    firstPinRef.current = pin;
+    setJoinReady(true);
   };
   // The result screen's "친구 초대" can run in the public room too: there it hands out the
   // maker link ("나도 만들어 보기"), not the busy public room.
@@ -489,11 +575,16 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
         primary={{ label: "다시 시도", onClick: () => setLoadGen((g) => g + 1) }} />
     );
   }
-  if (!doc) return <LoadingScreen />;
+  if (!doc) {
+    // A PIN room asks right away; the app keeps loading behind the PIN screen.
+    if (pinGate) return <PinSheet mode="enter" checking={pinGate.checking} error={pinGate.error} onSubmit={submitPin} solo={soloBtn} />;
+    return <LoadingScreen />;
+  }
   // What happened to the invite link (only what really happened is said).
   const inviteFeedback = (
     <>
       <Toast shown={invite === "copied"} style={inviteNote} role="status">초대 링크를 복사했어요</Toast>
+      <Toast shown={mintFail} style={inviteNote} role="status">방을 만들지 못했어요. 잠시 후 다시 눌러 주세요</Toast>
       {invite === "show" && (code || inResult) && (
         <div style={inviteNote} role="status">
           <span style={{ userSelect: "all", wordBreak: "break-all" }}>{inviteUrl()}</span>
@@ -518,8 +609,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // steps aside while something else holds the top of the screen.
   const nameCard = showNameCard({
     auto: nickAuto, chosen: nameChosen, live: withRoom && conn === "connected", phase: spectator.phase,
-    covered: makerOpen || Boolean(lastResult) || inResult || Boolean(invite) || qrOpen || showPackFail,
+    covered: makerOpen || Boolean(lastResult) || inResult || Boolean(invite) || qrOpen || showPackFail || Boolean(pinGate) || Boolean(pinSet) || Boolean(hostPin) || mintFail,
   });
+  // "비밀번호 걸기" only while nobody else is in (a PIN means a new link, owner decision #157).
+  const canSetPin = Boolean(EDGE_ROOM_SERVER) && Boolean(code) && conn === "connected" && people <= 1;
+  const invitePin = EDGE_ROOM_SERVER && code ? { value: passes.pin(roomId), canSet: canSetPin, onSet: () => { setQrOpen(false); setPinSet({ checking: false }); } } : undefined;
   return (
     <>
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} onArea={(w, h) => setArea([w, h])} />
@@ -536,7 +630,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       )}
       {/* Quiz notices (top, under the home row): the invite result while the
           lobby's bottom band holds the button, and a quiz that did not reach the room. */}
-      {isQuiz && withRoom && conn === "connected" && ((quizInvite && invite) || showPackFail) && (
+      {isQuiz && withRoom && conn === "connected" && ((quizInvite && (invite || mintFail)) || showPackFail) && (
         <div style={topDock}>
           {quizInvite && inviteFeedback}
           {showPackFail && (
@@ -561,7 +655,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
               QR once connected: the wide "방에 들어가는 중" chip needs the room on a 360 px screen. */}
           {inResult ? null : code
             ? <div style={{ display: "flex", gap: 6 }}><button className="blk" style={pill} onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">🔗 친구 초대</button>{conn === "connected" && <QrButton onClick={() => setQrOpen(true)} />}</div>
-            : <button className="blk" style={pill} onClick={openFriendRoom} aria-label="친구끼리 하는 방 만들기">🤝 친구끼리</button>}
+            : <button className="blk" style={{ ...pill, opacity: minting ? 0.6 : 1 }} onClick={() => void openFriendRoom()} aria-label="친구끼리 하는 방 만들기" aria-busy={minting}>🤝 친구끼리</button>}
         </div>
       )}
       {nameCard && <NameCard nick={getNick() ?? meRef.current?.nick ?? ""} onKeep={keepName} onChange={changeName} />}
@@ -572,8 +666,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
             onClose={() => setMakerOpen(false)} onDone={finishMaker} />
         </Suspense>
       )}
-      {withRoom && conn === "failed" && (
-        <RoomFailedSheet reason={connReason} onRetry={() => retryRef.current()} solo={soloBtn} />
+      {withRoom && conn === "failed" && !pinGate && (
+        <RoomFailedSheet key={`${connReason}:${connRetryIn ?? ""}`} reason={connReason} retryIn={connRetryIn} onRetry={() => retryRef.current()} solo={soloBtn} />
+      )}
+      {withRoom && conn === "connected" && hostPin && (
+        <HostPinNotice kind={hostPin} busy={moving} onMove={() => void moveToNewLink()} onClose={hostPin === "alert" ? () => setHostPin(null) : undefined} />
       )}
       {slowText && <RoomSlowNotice text={slowText} solo={soloBtn} />}
       {withRoom && conn === "connected" && showSpectatorNotice(doc, spectator.me, spectator.phase) && (
@@ -583,12 +680,14 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       {extras.overlay}
       {/* The result screen's own "친구 초대" is the template's; its QR sits in the top row. */}
       {withRoom && conn !== "failed" && inResult && <div style={inviteDockTop}><QrButton onClick={() => setQrOpen(true)} /></div>}
-      {qrOpen && <InviteQrSheet url={inviteUrl()} onClose={() => setQrOpen(false)} onCopied={() => trackShare("copy", code ? "invite" : "app", slug)} />}
+      {qrOpen && <InviteQrSheet url={inviteUrl()} pin={invitePin} onClose={() => setQrOpen(false)} onCopied={() => trackShare("copy", code ? "invite" : "app", slug)} />}
       {lastResult && (
         <Suspense fallback={null}>
           <LastResult saved={lastResult} slug={slug} myNick={getNick()} onAgain={() => setLastResult(null)} />
         </Suspense>
       )}
+      {pinGate && <PinSheet mode="enter" checking={pinGate.checking} error={pinGate.error} onSubmit={submitPin} solo={soloBtn} />}
+      {pinSet && <PinSheet mode="set" checking={pinSet.checking} onSubmit={(p) => void submitPinSet(p)} onCancel={() => setPinSet(null)} />}
       {/* Reactions are a "someone else is watching" feature, so the button only
           appears once another person is in the room. Solo play never shows it,
           so it can't cover the app's own bottom content. */}

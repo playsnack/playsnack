@@ -102,6 +102,13 @@ export const JOIN_FAIL_LABEL: Record<string, string> = {
   refused: "입장이 거절됨",
   subscribe: "방 신호를 받지 못함",
   silence: "15초 동안 방 소식이 없음",
+  pin: "비밀번호가 다름",
+  locked: "비밀번호 입력이 잠시 막힘",
+  closed: "비밀번호 시도가 많아 닫힌 방",
+  expired: "만료됐거나 바뀐 링크",
+  slow: "짧은 시간에 너무 많이 시도함",
+  seat_taken: "다른 탭에 이미 들어와 있음",
+  full: "방이 꽉 참",
   other: "기타",
 };
 export const ASK_NO_LABEL: Record<string, string> = {

@@ -22,7 +22,10 @@ export type RoomKind = 'public' | 'friend';
 export type RoomVia = 'edge' | 'mesh' | 'server';
 export type JoinFailReason =
   | 'bad_link' | 'not_found' | 'network' | 'timeout' | 'unreachable' | 'disconnected' | 'refused'
-  | 'subscribe' | 'silence' | 'other';
+  | 'subscribe' | 'silence'
+  // Edge room refusals (#157, docs/room-admission.md): never the code or the PIN, only the reason.
+  | 'pin' | 'locked' | 'closed' | 'expired' | 'slow' | 'seat_taken' | 'full'
+  | 'other';
 export type GameSource = 'editor' | 'remake';
 export type AskAnswer = 'yes' | 'no' | 'skip';
 export type AskReason = 'boring' | 'hard' | 'laggy' | 'few' | 'other';
@@ -248,6 +251,9 @@ export function joinFailReason(raw: string | undefined): JoinFailReason {
   // subscribe: connected to the broker but the room topic subscription failed (mqttBus);
   // silence: LiveApp heard nothing from the room for ROOM_SILENCE_MS (47 s).
   if (raw === 'timeout' || raw === 'unreachable' || raw === 'disconnected' || raw === 'subscribe' || raw === 'silence') return raw;
+  // The room server's `denied` reasons (edge/room admit.js / game.js); a PIN that is needed counts as `pin`.
+  if (raw === 'pin' || raw === 'locked' || raw === 'closed' || raw === 'expired' || raw === 'slow' || raw === 'seat_taken' || raw === 'full') return raw;
+  if (raw === 'pin-required') return 'pin';
   if (raw === 'broker') return 'unreachable';
   if (raw === 'load') return 'network';
   if (raw.startsWith('refused')) return 'refused';

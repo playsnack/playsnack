@@ -75,7 +75,8 @@ test("room ids: friends / organized rooms host, public rooms start by themselves
 });
 
 test("friends room (#135): the organizer hosts; a friend's start / lobby are refused by the room (not_host); the host starts", async () => {
-  const room = `tpl-tap-battle~${RUN.toUpperCase().replace(/[^A-Z2-9]/g, "Q").padEnd(8, "Q")}`;
+  // Only code symbols (no I / O / 0 / 1): a run id with an "i" or "o" made a non-code id → refused (time-dependent).
+  const room = `tpl-tap-battle~${RUN.toUpperCase().replace(/[^ABCDEFGHJKLMNPQRSTUVWXYZ23456789]/g, "Q").padEnd(8, "Q")}`;
   const host = player(hub.url, room, "host1", { nick: "방장님" });
   await host.hello({ organize: true });
   assert.ok(await host.until(() => host.frame((m) => m.t === "organizer")));

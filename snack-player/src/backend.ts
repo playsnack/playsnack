@@ -6,8 +6,9 @@
 //    the server serves this build itself (what the oracle gate plays).
 import type { BiteDoc } from "@snack/bite";
 import { contentFor, parseContentUrl, type ContentData } from "@snack/content";
-import { EdgeRoomTransport, MeshTransport, RelayTransport, ServerTransport, type EdgeRoomOptions, type Identity, type RoomTransport } from "./roomTransport";
-import { appApiPath, parseRoute, playPath, type Route } from "./links";
+import { EdgeRoomTransport, MeshTransport, RelayTransport, ServerTransport, rememberOrganizerTicket, type EdgeRoomOptions, type Identity, type RoomTransport } from "./roomTransport";
+import { appApiPath, newRoomCode, parseRoute, playPath, type Route } from "./links";
+import { mintRoom, passes } from "./roomAdmission";
 
 const SERVER_ENV = (import.meta.env.VITE_SERVER_URL as string | undefined) || "";
 export const SERVERLESS = !SERVER_ENV;
@@ -164,8 +165,33 @@ const freshRooms = new Set<string>();
 export const markFreshRoom = (roomId: string) => void freshRooms.add(roomId);
 /** Whether this page made the room a moment ago (read before createRoom, which uses it up). */
 export const isFreshRoom = (roomId: string) => freshRooms.has(roomId);
+/**
+ * A new friends room for `slug` (🤝 친구끼리, the quiz maker, a PIN): with the room server, the
+ * server makes the code (/mint, roomAdmission.ts) — this device keeps the organizer ticket (it
+ * hosts, #135) and, with a PIN, its pass and the PIN (shown again in its invite sheet). Without
+ * one (dev / mesh), a code made here. Never throws; `error` = mint's reason.
+ */
+export async function newFriendRoom(slug: string, o: { pin?: string; anonId?: string } = {}): Promise<{ ok: true; code: string } | { ok: false; error: string }> {
+  if (!EDGE_ROOM_SERVER) {
+    const code = newRoomCode();
+    markFreshRoom(`${slug}~${code}`);
+    return { ok: true, code };
+  }
+  const r = await mintRoom(EDGE_ROOM_SERVER, slug, o);
+  if (!r.ok) return r;
+  const roomId = `${slug}~${r.code}`;
+  rememberOrganizerTicket(roomId, r.org);
+  if (r.pass) passes.set(roomId, r.pass, o.pin);
+  markFreshRoom(roomId);
+  return { ok: true, code: r.code };
+}
+
+/** `edge.pin`: the PIN just typed for a PIN room (edge rooms only; the transport wipes it once in). */
 export function createRoom(me: Identity, params: URLSearchParams, edge: EdgeRoomOptions = {}): RoomTransport {
-  if (EDGE_ROOM_SERVER) return new EdgeRoomTransport(EDGE_ROOM_SERVER, me, { ...edge, organize: freshRooms.delete(me.slug) || undefined });
+  if (EDGE_ROOM_SERVER) {
+    freshRooms.delete(me.slug);
+    return new EdgeRoomTransport(EDGE_ROOM_SERVER, me, edge);
+  }
   if (SERVERLESS) return new MeshTransport(me, BROKER_URL, (game, opts) => getPack(game, opts), freshRooms.delete(me.slug), ROOM_MODE === "relay" ? ROOM_URL : undefined);
   const ws = (SERVER_URL || location.origin).replace(/^http/, "ws");
   return params.has("host") ? new RelayTransport(`${ws}/relay`, me, `${SERVER_URL}/api/pack`, `${SERVER_URL}/api/events`) : new ServerTransport(`${ws}/ws`, me);

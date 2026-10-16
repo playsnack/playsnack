@@ -4,8 +4,8 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  DEFAULT_DESCRIPTION, DEFAULT_TITLE, QUIZ_APP_ID, ROOM_LOOKUP_MS, _roomCache, cleanName, entryFor, isPreviewBot,
-  lookupAbout, metaHandlers, ogMeta,
+  DEFAULT_DESCRIPTION, DEFAULT_TITLE, QUIZ_APP_ID, ROOM_LOOKUP_MS, _roomCache, cleanName, entryFor, isPinCode, isPreviewBot,
+  lookupAbout, metaHandlers, ogMeta, roomCode,
 } from '../_lib/og.js';
 
 const catalog = JSON.parse(readFileSync(new URL('../../snack-server/data/bite/index.json', import.meta.url), 'utf8'));
@@ -126,6 +126,28 @@ test('lookupAbout: timeout, network error, odd bodies and bad codes → null, ne
   let called = false;
   assert.equal(await lookupAbout({ roomBase: 'https://r', code: 'bad', fetchImpl: async () => { called = true; } }), null);
   assert.equal(called, false);
+});
+
+// #157: signed room codes — 15 symbols (no PIN), 20 (a PIN room); old 10-symbol codes still read.
+const OPEN15 = 'K7MNP2QRS4ABCDE';
+const PIN20 = 'K7MNP2QRS4ABCDEFGH23';
+test('CODE_RE: 15- and 20-symbol codes are room codes (and the old 10); others are not', () => {
+  for (const c of [OPEN15, PIN20, CODE]) assert.equal(roomCode(`${O}/p/tpl-tap-battle?room=${c}`), c, c);
+  for (const c of ['K7MNP2QRS4ABCD0', 'K7MNP2QRS4ABCDEFGH2I', 'SHORT', 'A'.repeat(33)]) assert.equal(roomCode(`${O}/p/tpl-tap-battle?room=${c}`), null, c);
+  assert.equal(isPinCode(PIN20), true);
+  assert.equal(isPinCode(OPEN15), false);
+  assert.equal(isPinCode(CODE), false);
+  const m = ogMeta({ url: `${O}/p/tpl-tap-battle?room=${PIN20}`, catalog, manifest });
+  assert.equal(m.url, `${O}/p/tpl-tap-battle?room=${PIN20}`, 'a PIN room link previews like any friends link');
+});
+test('lookupAbout: a 15-symbol code is looked up; a PIN room (20) never is (its result needs a pass)', async () => {
+  let asked = null;
+  const fetchImpl = async (u) => ((asked = u), new Response(JSON.stringify({ ok: true, result: { about: '민수' } }), { status: 200 }));
+  assert.equal(await lookupAbout({ roomBase: 'https://r', code: OPEN15, fetchImpl }), '민수');
+  assert.equal(asked, `https://r/room/tpl-${QUIZ_APP_ID}~${OPEN15}/result`);
+  asked = null;
+  assert.equal(await lookupAbout({ roomBase: 'https://r', code: PIN20, fetchImpl }), null);
+  assert.equal(asked, null, 'no request for a PIN room');
 });
 
 test('preview crawlers are told apart from browsers', () => {

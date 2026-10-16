@@ -6,7 +6,12 @@ import { lazy, Suspense } from "react";
 import { pill, secondaryBtn } from "./ui";
 import { C, S, TOKENS } from "./tokens.gen";
 
-type SheetProps = { url: string; onClose: () => void; onCopied?: () => void };
+/**
+ * `pin` (edge rooms, #157): the room's PIN as this device chose it (host only; null = none known)
+ * and the "비밀번호 걸기" row — offered only while this device is alone in the room (`canSet`).
+ */
+export type InvitePin = { value: string | null; canSet: boolean; onSet: () => void };
+type SheetProps = { url: string; onClose: () => void; onCopied?: () => void; pin?: InvitePin };
 
 const sheetBase: React.CSSProperties = {
   position: "fixed", inset: 0, zIndex: 50, background: C.bg, color: C.ink,

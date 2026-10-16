@@ -1,9 +1,10 @@
 # 방 입장 확인 — 서명된 방 링크와 선택형 PIN (#157)
 
-> 2026-10-16 · 상태: **PR 1(서버) 구현** — `edge/room/src/admit.js` · `core.js` · `game.js` · `worker.js` ·
-> `wrangler.jsonc` · `packages/snack-room/tools/edgeHub.js`. 플레이어(PR 2)는 아직 옛 방식(10글자 코드,
-> `organize: true`)으로 보내고, 서버는 그것을 그대로 받는다(legacy 기한 2개가 비어 있음 = 오늘 동작).
-> 관련: `docs/edge-rooms.md`(방 서버 전체), `docs/room-results.md`(결과 보관).
+> 2026-10-16 · 상태: **PR 1(서버, #204) + PR 2(플레이어 · API · 문서) 구현** — 서버 `edge/room/src/admit.js` · `core.js` ·
+> `game.js` · `worker.js` · `wrangler.jsonc` · `packages/snack-room/tools/edgeHub.js`; 플레이어 `snack-player/src/roomAdmission.ts` ·
+> `roomTransport.ts` · `LiveApp.tsx` · `Screens.tsx`. 플레이어는 `/mint`로 15·20글자 코드를 받고 `organize`를 더 보내지 않는다.
+> legacy 기한 2개는 아직 비어 있음(옛 10글자 링크 = 오늘 동작) — 3단계(설정만)에서 켠다.
+> 관련: `docs/edge-rooms.md` §3(플레이어 화면 흐름 · 실패 문구 · 비용 표 · 비밀 교체), `docs/room-results.md`(결과 보관).
 
 ## 사장님용 요약 (쉬운 말)
 
@@ -198,7 +199,7 @@ and the 70 % alert issue).
 |---|---|---|
 | PR 1 (server) | admit.js, RoomGate / PinLock / UsageMeter, game.js, worker.js (`/mint`, upgrade check, refusal socket, header strip, `/result`, `/relay` 410, meter tally), results `pin: 1`, wrangler, edgeHub, tests | **this PR** — backward compatible, legacy deadlines empty |
 | 0 (verify) | `ratelimits` on the free plan | on the develop deploy (dev env only) |
-| PR 2 (player, API, docs) | `/mint` from "친구랑 하기", PIN sheets, pass storage, `denied` reasons in the UI, telemetry reasons, `CODE_RE` 15/20 in og / functions, `docs/edge-rooms.md` | next |
+| PR 2 (player, API, docs) | `/mint` from "🤝 친구끼리" / the quiz maker, PIN sheets (set / enter), pass storage, `denied` reasons in the UI, host PIN notice, telemetry reasons, `CODE_RE` 15/20 in og / functions (no lookup for 20), `docs/edge-rooms.md` | **done** (this doc's companion PR) |
 | 3 (config only) | `LEGACY_CREATE_UNTIL` = PR 2 live + 24 h, `LEGACY_JOIN_UNTIL` = PR 2 live + 7 days | after PR 2 is live |
 | PR 4 (cleanup) | drop legacy branches, PBKDF2 path, `RoomRelay`, then the `Room` class migration | after `LEGACY_JOIN_UNTIL` |
 
@@ -221,6 +222,18 @@ and the 70 % alert issue).
   binding 429, right PIN while locked = wrong-PIN frame.
 - Unchanged player end to end against the new hub: `room-rules-e2e`, `silent-rejoin-e2e`.
 
+## 9b. Tests (PR 2, player)
+
+- `snack-player/test/roomAdmission.test.ts` — `roomKindOf`; `/mint` (text/plain, anonId only with a PIN, refusals / odd answers /
+  network / timeout never throw); pass store (expiry, cap 20, host PIN kept, blocked storage → memory); the failure copy table and the
+  PIN screen lines; the transport: `?pin=` only in the URL (never the hello), pass kept, PIN wiped after the first state, reload on
+  `?k=pass` / seat, open and legacy rooms carry nothing, wrong / locked / pin-required (no reconnect loop, a stale pass dropped, a typed
+  PIN not shadowed by an old seat), final reasons and 4003 / 4004 closes, `alert` / `pinClosed` to the screen, `/result?k=`.
+- `snack-player/test/shellDocks.test.ts` — the host PIN notice clear of the top-row pills and 😀 at 320–430 px.
+- `api/_test/og.test.js` (15 / 20 symbols, no lookup for a PIN room), `api/_test/telemetry-client.test.js` (reasons kept by the ingest).
+- `snack-server/tools/pin-room-e2e.mjs` (in gate-all): one-tap join (15), PIN set while alone (20), PIN screen before any socket,
+  wrong → tries left, right → in, reload on the pass, locked countdown, host alert, forged → expired, public room unchanged.
+
 ## 10. Residual risks
 
 - Workers Rate Limiting on the free plan: unverified until the develop deploy.
@@ -228,4 +241,6 @@ and the 70 % alert issue).
 - A link holder can close a PIN room to newcomers with 50 wrong tries; the host recovers with a new link (PR 2).
 - Tokens in the query string: move them before enabling observability.
 - Old tabs (not reloaded) cannot open PIN links; a reload fixes it.
-- `IP_RL` 120/min may trip when 200 people on one Wi-Fi join at once — watch `slow` in telemetry (PR 2).
+- `IP_RL` 120/min may trip when 200 people on one Wi-Fi join at once — watch `slow` in telemetry (`join_failed_reason:slow`, PR 2).
+- The host's PIN sits in its own browser's localStorage (with the pass, 12 h) so the invite sheet can show it again; a shared
+  device could reveal it. Accepted for a 4-digit room PIN; it never leaves the device.
