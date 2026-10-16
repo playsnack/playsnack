@@ -9,6 +9,7 @@ import { contentFor, parseContentUrl, type ContentData } from "@snack/content";
 import { EdgeRoomTransport, MeshTransport, RelayTransport, ServerTransport, rememberOrganizerTicket, type EdgeRoomOptions, type Identity, type RoomTransport } from "./roomTransport";
 import { appApiPath, newRoomCode, parseRoute, playPath, type Route } from "./links";
 import { mintRoom, passes } from "./roomAdmission";
+import { templateFileFor } from "./catalog";
 
 const SERVER_ENV = (import.meta.env.VITE_SERVER_URL as string | undefined) || "";
 export const SERVERLESS = !SERVER_ENV;
@@ -113,7 +114,8 @@ export async function shareApp(doc: BiteDoc): Promise<string> {
     Server mode names the room (`?room=`), so the state that comes back is that room's. */
 export async function loadRoomDoc(slug: string, params: URLSearchParams): Promise<{ doc: BiteDoc; sharedState?: Record<string, unknown> }> {
   if (!SERVERLESS) return json(`${SERVER_URL}${appApiPath(slug, params)}`);
-  if (slug.startsWith("tpl-")) return { doc: await getTemplateDoc(slug.slice(4)) };
+  // An entry may play another entry's file (catalog `template`, e.g. 스피드 퀴즈 → the quiz template).
+  if (slug.startsWith("tpl-")) return { doc: await getTemplateDoc(await templateFileFor(slug.slice(4))) };
   const d = params.get("d");
   if (slug.startsWith("app-") && d) return { doc: await decodeDoc(d) };
   throw new Error("이 링크로는 앱을 찾을 수 없어요");

@@ -56,7 +56,7 @@ test('valid batch is counted, invalid events dropped, unknown fields ignored', a
   const a = await g.json();
   assert.equal(a.day, kstDay());
   assert.equal(a.total, 12, '8 accepted + 4 known-kind events dropped by validation');
-  assert.equal(a.appsKnown, 44);
+  assert.equal(a.appsKnown, 45); // index.json entries (44 templates + 스피드 퀴즈, #210)
   // Stored as readable names (docs/telemetry.md §3), returned flat and sorted.
   assert.deepEqual(a.counters, {
     'errors_by_build:a1b2c3d': 1,

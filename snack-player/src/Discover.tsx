@@ -2,10 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SERVERLESS, hrefTo, navigate } from "./backend";
 import { StatsLink } from "./StatsLink";
 import { Brand } from "./Brand";
-import { homeSections, type HomeSections } from "./catalog";
+import { cardPath, flagshipActions, homeSections, type HomeSections } from "./catalog";
 import { MessageScreen } from "./Screens";
-import { playPath } from "./links";
-import { MAKE_PARAM, QUIZ_APP_ID, QUIZ_SLUG } from "./quiz";
+import { QUIZ_APP_ID } from "./quiz";
 import { BLOCK_CSS } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
@@ -53,9 +52,7 @@ export function Discover() {
     } catch {}
     location.href = hrefTo(path);
   };
-  const open = (id: string) => go(`/p/tpl-${id}`);
-  // "나 맞히기 만들기": the quiz link with ?make=1 and no room → App → QuizMaker.
-  const makeQuiz = () => go(playPath(QUIZ_SLUG, new URLSearchParams({ [MAKE_PARAM]: "1" })));
+  const open = (id: string) => go(cardPath({ id }));
 
   if (failed) return <MessageScreen icon="📡" title="목록을 불러오지 못했어요" body="인터넷 연결을 확인하고 다시 시도해 주세요." primary={{ label: "다시 시도", onClick: load }} />;
 
@@ -69,24 +66,22 @@ export function Discover() {
           탭하면 바로 시작해요 · <span style={tagInline}>같이</span> 표시는 친구랑 함께 해요
         </p>
 
-        {/* 대표작: one lime card. For the 나 맞히기 quiz: 만들기 (→ QuizMaker) first;
-            the second link opens the quiz app's public room, which plays the
-            built-in 스피드 퀴즈 questions with whoever is there — so it names
-            that game and says "같이" (one player alone may wait, #141). */}
+        {/* 대표작: one lime card, its own title and emoji (index.json). For the
+            나 맞히기 quiz: one button, 내 퀴즈 만들기 (→ QuizMaker). 스피드 퀴즈 —
+            the same template with its built-in questions — is a game of its own
+            with its own row under 추천 후보 (#210). A non-quiz flagship gets
+            바로 하기, so moving `flagship` never drops that game from the home. */}
         {apps?.flagship && (() => {
           const f = apps.flagship;
           const quiz = f.id === QUIZ_APP_ID;
-          // A non-quiz flagship gets a plain card (its own title + 바로 하기), so
-          // moving `flagship` in index.json never drops that game from the home.
           return (
-            <section style={hero} data-section="flagship" data-app={f.id} aria-label={`대표작 ${quiz ? "나 맞히기 퀴즈" : f.title}`}>
+            <section style={hero} data-section="flagship" data-app={f.id} aria-label={`대표작 ${f.title}`}>
               <span style={heroKicker}>대표작</span>
-              <div style={heroTitle}><span aria-hidden="true">{quiz ? "🙋" : f.emoji} </span>{quiz ? "나 맞히기 퀴즈" : f.title}</div>
+              <div style={heroTitle}><span aria-hidden="true">{f.emoji} </span>{f.title}</div>
               {quiz && <p style={heroBody}>내가 낸 문제를 친구들이 맞혀요</p>}
-              <button className="blk" style={heroPrimary} data-action={quiz ? "make" : "play"} onClick={quiz ? makeQuiz : () => open(f.id)}>
-                {quiz ? "내 퀴즈 만들기" : "바로 하기"}
-              </button>
-              {quiz && <button style={heroSecondary} data-action="play" onClick={() => open(f.id)}>스피드 퀴즈로 같이 하기 →</button>}
+              {flagshipActions(f).map((a) => (
+                <button key={a.action} className="blk" style={heroPrimary} data-action={a.action} onClick={() => go(a.path)}>{a.label}</button>
+              ))}
             </section>
           );
         })()}
@@ -186,11 +181,6 @@ const heroPrimary: React.CSSProperties = {
   marginTop: S.s4, minHeight: TOKENS.layout.btnH, padding: `0 ${S.s4}px`, borderRadius: R.block,
   border: `${TOKENS.border.block}px solid ${C.accentInk}`, background: C.accentInk, color: C.accent, boxShadow: blockShadow,
   fontFamily: TOKENS.font.heading, fontWeight: 800, fontSize: TOKENS.size.bodyLg, cursor: "pointer",
-};
-const heroSecondary: React.CSSProperties = {
-  marginTop: S.s3, minHeight: TOKENS.layout.tap, background: "transparent", border: "none", color: C.accentInk,
-  fontFamily: TOKENS.font.heading, fontWeight: 700, fontSize: TOKENS.size.bodyMd, textDecoration: "underline",
-  textUnderlineOffset: 3, cursor: "pointer",
 };
 // A secondary block (dark surface, not lime) so the 대표작 stays the only lime hero.
 const makeCta: React.CSSProperties = {

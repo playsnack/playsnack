@@ -47,21 +47,22 @@ export function App() {
   // code, LiveApp shows the bad-link screen (never the maker).
   const isMaker = route.name === "live" && opensMakerPage(route.slug, route.params);
   const isLive = route.name === "live" && !isMaker;
-  // A merged template's old link moves to the app it became — decided here,
+  // A merged template's old link (or a bare 나 맞히기 link → 스피드 퀴즈, #210) moves to the app it became — decided here,
   // before the player mounts, so the old app never loads or joins a room.
   // (index.json is preloaded with the page, see index.html.)
-  const [checkedSlug, setCheckedSlug] = useState<string | null>(null);
+  const [checkedLink, setCheckedLink] = useState<string | null>(null); // `slug?params`: the redirect depends on both
   useEffect(() => {
     if (!isLive) return;
     const slug = route.slug!;
+    const link = `${slug}?${route.params}`;
     let on = true;
-    redirectFor(slug).then((to) => {
+    redirectFor(slug, route.params).then((to) => {
       if (!on) return;
-      if (!to) return setCheckedSlug(slug);
+      if (!to) return setCheckedLink(link);
       location.replace(playPath(to, route.params));
     });
     return () => { on = false; };
-  }, [isLive, route.slug]);
+  }, [isLive, route.slug, String(route.params)]);
   // First-visit nickname onboarding (per-browser). Gate only the HOME / Create
   // entry — a direct share link auto-assigns a guest nick so play is never
   // blocked (frictionless virality; each browser still gets a name, editable
@@ -80,7 +81,7 @@ export function App() {
   if (isMaker) return <Suspense fallback={<LoadingScreen />}><QuizMakerPage nick={nick!} /></Suspense>;
   if (route.name === "create" && CreateApp) return <Suspense fallback={<LoadingScreen />}><CreateApp /></Suspense>;
   if (route.name === "live") {
-    if (checkedSlug !== route.slug) return <LoadingScreen />;
+    if (checkedLink !== `${route.slug}?${route.params}`) return <LoadingScreen />;
     // Keyed by the whole link: a different app or room (e.g. a friends-only
     // code) remounts the player and joins that room.
     return <LiveApp key={`${route.slug}?${route.params}`} slug={route.slug!} params={route.params} />;
