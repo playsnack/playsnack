@@ -12,13 +12,16 @@
    ◀── state / setVar / participants / actionAck ─────────────  createRoom() = @snack/room 엔진
                                                                  │ 30초마다(묶어서) 사용량 보고
  GET /usage ──▶ Worker ──(60초 캐시)──────────────────────────▶ Meter DO (계정에 1개)
- (옛 메시 방식) 폰 ──/relay/<방 id>──▶ Room DO (중계만, VITE_ROOM_MODE=relay)
+ (옛 메시 방식) /relay/<방 id> → Worker가 410 (#157 — 라이브 빌드는 /room만 씀; Node 허브에는 로컬 시뮬용으로 남음)
 ```
+
+입장 확인(서명된 방 코드 · 선택 PIN · 속도 제한 · Worker 단계 거절)은 `docs/room-admission.md`(#157).
 
 | 파일 | 역할 |
 |---|---|
 | `edge/room/src/game.js` | **GameRoom** — 서버 권한 방. 엔진 실행, hello 인증, 주최자, 좌석, 팬아웃 큐, 스냅샷 |
 | `edge/room/src/core.js` | RoomGate(방 만들기·PIN·잠금·토큰) · UsageMeter/UsageReporter(무료 한도) · RoomRelay(메시 중계) |
+| `edge/room/src/admit.js` | 입장 확인(#157): 방 코드 v2 · PIN 태그 · admit/pass/orgt 토큰 · `decideUpgrade`/`decideMint`/`decideResult` · 속도 제한 대체 |
 | `edge/room/src/worker.js` | Worker + DO 클래스 3개(Game · Room · Meter). 플랫폼 코드만 |
 | `packages/snack-room/tools/edgeHub.js` | 같은 game.js/core.js를 `ws`로 돌리는 Node 허브 — 테스트·시뮬레이션용 |
 | `packages/snack-room/src/room.js` | 엔진: `claimWindowMs`(서버 시계 판정) · `rejoin()`(동면 후 복구) 추가 |

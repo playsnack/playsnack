@@ -84,7 +84,7 @@ test("meter: estimates, % of each free limit and the stage", async () => {
 test("meter: a new UTC day starts from zero", async () => {
   let t = Date.parse("2026-10-14T14:59:00Z"); // 23:59 KST
   const m = new UsageMeter({ store: memoryStore(), free: FREE, now: () => t });
-  await m.add({ rows: 950 });
+  await m.add({ rows: 920 }); // 92 %: stage 2 (95 % = stage 3, #157)
   assert.equal((await m.report()).stage, 2);
   t = Date.parse("2026-10-15T00:00:01Z"); // 09:00 KST
   assert.equal((await m.report()).stage, 0);

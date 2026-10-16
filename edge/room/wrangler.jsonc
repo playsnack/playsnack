@@ -17,7 +17,20 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Game", "Room", "Meter"] }],
   // Round content: the player's static data/multi-content/<game>.json (same files the mesh host uses).
   // STATS_URL: where the rooms' game stats go (the site's /api/ev; "" = none).
-  "vars": { "PACK_BASE_URL": "https://playsnack.pages.dev/data/multi-content", "STATS_URL": "https://playsnack.pages.dev/api/ev" },
+  // Room admission (#157, docs/room-admission.md): ALLOWED_ORIGINS = browser Origins that may open
+  // rooms / mint codes (no Origin header = not a browser = allowed; "" = all). LEGACY_CREATE_UNTIL /
+  // LEGACY_JOIN_UNTIL = until when codes from before v2 (10 symbols) may create / join a room
+  // (ISO date or epoch ms; "" = no limit — today's behaviour). Set after the player's PR 2 is live.
+  "vars": {
+    "PACK_BASE_URL": "https://playsnack.pages.dev/data/multi-content",
+    "STATS_URL": "https://playsnack.pages.dev/api/ev",
+    "ALLOWED_ORIGINS": "https://playsnack.pages.dev,https://*.playsnack.pages.dev",
+    "LEGACY_CREATE_UNTIL": "",
+    "LEGACY_JOIN_UNTIL": ""
+  },
+  // Rate limits (Workers Rate Limiting): only on the test server until a develop deploy shows the
+  // binding works on the free plan (#157 step 0). Without them the Worker counts in its own
+  // isolate (admit.js MemoryLimiter) and the PIN lock in the room still caps guesses at 50.
   "observability": { "enabled": false },
   // Test room server for the develop branch (docs/git-as-jira.md "Branch strategy"):
   // `wrangler deploy --env dev` → https://snack-room-dev.playsnack.workers.dev, its own Durable
@@ -34,7 +47,20 @@
           { "name": "METER", "class_name": "Meter" }
         ]
       },
-      "vars": { "PACK_BASE_URL": "https://develop.playsnack.pages.dev/data/multi-content", "STATS_URL": "" }
+      "vars": {
+        "PACK_BASE_URL": "https://develop.playsnack.pages.dev/data/multi-content",
+        "STATS_URL": "",
+        "ALLOWED_ORIGINS": "https://playsnack.pages.dev,https://*.playsnack.pages.dev,http://localhost:*,http://127.0.0.1:*",
+        "LEGACY_CREATE_UNTIL": "",
+        "LEGACY_JOIN_UNTIL": ""
+      },
+      // admit.js RATE; namespace ids are this account's own numbers (the live server gets others).
+      "ratelimits": [
+        { "name": "IP_RL", "namespace_id": "15701", "simple": { "limit": 120, "period": 60 } },
+        { "name": "PIN_RL", "namespace_id": "15702", "simple": { "limit": 10, "period": 60 } },
+        { "name": "PINIP_RL", "namespace_id": "15703", "simple": { "limit": 20, "period": 60 } },
+        { "name": "MINT_RL", "namespace_id": "15704", "simple": { "limit": 10, "period": 60 } }
+      ]
     }
   }
 }
