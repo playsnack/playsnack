@@ -263,7 +263,7 @@ async function unsplashUrl(q, w, h) {
 // niche terms (e.g. "tteokbokki" → unrelated photo). Uses the REST page summary
 // thumbnail; only returns when the query resolves to a real article.
 async function wikipediaUrl(q) {
-  const UA = { "User-Agent": "snackapp/0.1 (alpha)" };
+  const UA = { "User-Agent": "playsnack/0.1 (alpha)" };
   // Use the NATIVE thumbnail size wikimedia returns. Forcing /640px- 400s when the
   // source image is narrower than 640 (e.g. idol portraits) → we'd lose the photo.
   const fix = (u) => (typeof u === "string" ? u.replace(/^\/\//, "https://") : null);
@@ -363,7 +363,7 @@ app.get("/api/img", async (req, res) => {
   if (strict && sources.length === 0) return res.status(404).end(); // no trustworthy image → client placeholder
   for (const src of sources) {
     try {
-      const r = await fetchR(src, { headers: { "User-Agent": "snackapp/0.1 (alpha)" }, timeoutMs: 8000 });
+      const r = await fetchR(src, { headers: { "User-Agent": "playsnack/0.1 (alpha)" }, timeoutMs: 8000 });
       const buf = Buffer.from(await r.arrayBuffer());
       const type = r.headers.get("content-type") || "image/jpeg";
       if (imgCache.size < 200) imgCache.set(key, { buf, type });
@@ -387,7 +387,7 @@ async function prewarmImage(q) {
   try {
     const wiki = await resolveStrictWiki(qq);
     if (!wiki) return;
-    const r = await fetchR(wiki, { headers: { "User-Agent": "snackapp/0.1 (alpha)" }, timeoutMs: 8000 });
+    const r = await fetchR(wiki, { headers: { "User-Agent": "playsnack/0.1 (alpha)" }, timeoutMs: 8000 });
     const buf = Buffer.from(await r.arrayBuffer());
     const type = r.headers.get("content-type") || "image/jpeg";
     if (imgCache.size < 200) imgCache.set(key, { buf, type });

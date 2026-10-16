@@ -1,8 +1,8 @@
 {
-  "name": "snackapp",
+  "name": "playsnack",
   "version": "0.0.0",
   "private": true,
-  "description": "snackapp — make interactive snack apps by chat and share them live (Bite engine).",
+  "description": "PlaySnack — make interactive snack apps by chat and share them live (Bite engine).",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -19,7 +19,8 @@
     "server:test": "pnpm --filter @snack/server test",
     "server:dev": "pnpm --filter @snack/server dev",
     "bite:test": "pnpm -r --filter \"./packages/*\" --if-present test",
-    "bite:check": "node snack-server/tools/bite-browser-check.mjs"
+    "bite:check": "node snack-server/tools/bite-browser-check.mjs",
+    "github:project": "node scripts/setup-github-project.mjs"
   },
   "devDependencies": {
     "playwright": "^1.61.0",

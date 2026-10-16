@@ -1,6 +1,6 @@
 # Bite 포맷 스펙 v1
 
-> snackapp의 자체 엔진 **Bite**가 읽는 앱 문서 포맷. 파일 = `*.bite.json`.
+> PlaySnack의 자체 엔진 **Bite**가 읽는 앱 문서 포맷. 파일 = `*.bite.json`.
 > 엔진 = 런타임(`@snack/bite`) · 레이아웃(`@snack/bite-layout`) · 렌더링(`@snack/bite-pixi`). 셋이 같은 **노드** 트리를 공유한다.
 
 ## 0. 설계 원칙
