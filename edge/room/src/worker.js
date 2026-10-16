@@ -10,7 +10,7 @@
 // One DO per room id. The logic is admit.js / game.js / core.js — the same modules the Node hub runs.
 import { DurableObject } from "cloudflare:workers";
 import { RoomRelay, UsageMeter, ROOM_ID_RE } from "./core.js";
-import { GameRoom, roomAlarm, roomReadBody } from "./game.js";
+import { GameRoom, roomAlarm, roomReadBody, PING, PONG } from "./game.js";
 import { StatsSender, isFriendRoom } from "./results.js";
 import { decideUpgrade, decideMint, decideResult, configFrom, limitersFrom, memoryLimiters, verifyAdmit, stripRoomHeaders, originAllowed, WorkerTally } from "./admit.js";
 
@@ -151,6 +151,7 @@ class Sockets {
   of(ws) {
     let a = this.cache.get(ws);
     if (a) return a;
+    const ctx = this.ctx;
     let state;
     a = {
       ws,
@@ -174,6 +175,14 @@ class Sockets {
           ws.close(code, reason);
         } catch {
           /* closed */
+        }
+      },
+      /** When the auto-response last answered this socket's "ping" (#142; ms, null = never). Reading it wakes nothing. */
+      pongAt() {
+        try {
+          return ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null;
+        } catch {
+          return null;
         }
       },
     };
@@ -203,6 +212,10 @@ export class Game extends DurableObject {
     super(ctx, env);
     this.socks = new Sockets(ctx);
     this.room = null;
+    // #142 host keepalive: the exact text "ping" is answered "pong" by the runtime WITHOUT waking this
+    // object (no GB-s, no webSocketMessage); the time is kept per socket (Sockets pongAt). Any other
+    // text — "Ping", "ping\n", JSON — wakes it (game.js counts those as pingMiss).
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
   }
   core(roomId) {
     const base = this.env.PACK_BASE_URL;

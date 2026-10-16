@@ -45,7 +45,17 @@
 // (4011) and the person leaves — everyone's count goes down. The deadline is the room's storage
 // alarm (not a timer: the room can still hibernate meanwhile); one `away` (+ one `here`) per trip
 // to the background, nothing periodic. A phone that loses its network while on screen sends
-// nothing: the room only learns when the socket closes (issue #142: keepalive ping).
+// nothing — for the host (방장) that matters (#142): see "Host keepalive" below.
+//
+// Host keepalive (#142): only the host's page, on screen, in the lobby / result, sends the exact
+// text "ping" every 20 s (snack-player roomTransport.ts). The DO answers it itself without waking
+// (worker.js setWebSocketAutoResponse "ping" → "pong") and keeps the time. No timer / alarm here
+// ever polls it: the room reads it (sock.pongAt()) only inside an event that already woke it — a
+// hello, a frame, a close, the away alarm. Host in the lobby / result, not away, its last pong,
+// frame and the phase change all older than HOST_STALE_MS → the host is gone: closed 4012 and out of
+// the roster as a leave whose grace began then (#213), so HOST_GRACE_MS has run — handed over at
+// once. No pong yet (null) = unknown, never "dead". A frame that looks like a ping but reached the
+// room (wrong text: it woke the DO) is counted in `pingMiss` (/usage; should stay 0).
 //
 // 시작 시간 예약 (#218): a friends room's host sets when the game starts (engine `schedule`). The
 // time is the room's storage alarm — the SAME one alarm as the away deadlines (the room's alarm is
@@ -65,6 +75,29 @@ import { createRoom, SCHEDULE_MIN_MS } from "../../../packages/snack-room/src/ro
 import { RoomGate, UsageReporter, PinLock, LIMITS, ROOM_FULL_TODAY } from "./core.js";
 import { signPass } from "./admit.js";
 import { resultRecord, RESULT_TTL_MS } from "./results.js";
+
+/** Close code for a host socket the room called gone (#142: no keepalive for HOST_STALE_MS; the client comes back on its own). */
+export const LOST_CLOSE = 4012;
+/** The host keepalive frame and its auto-response (#142) — byte for byte (worker.js, snack-player PING_TEXT). */
+export const PING = "ping";
+export const PONG = "pong";
+/** The host's page pings this often (snack-player PING_EVERY_MS) — the meter's estimate of the pings it never sees. */
+export const PING_EVERY_MS = 20000;
+/** No keepalive / frame from the host this long (two pings missed + slack) → gone. */
+export const HOST_STALE_MS = 45000;
+/** Something like a ping (wrong case, quotes, spaces, JSON) that reached the room instead of the auto-response. */
+const PINGISH = /^\W{0,4}ping\W{0,4}$/i;
+
+/**
+ * #142: is the host gone? `pongAt` = the last auto-response to its "ping" (null = it never pinged:
+ * unknown → no); `seenAt` = its last frame; `phaseAt` = when the room last changed phase (a ping
+ * may only begin then). Only in the lobby / result (no pings in a game) and not while away (#213's
+ * alarm handles that).
+ */
+export function hostStale({ now, phase, away, pongAt, seenAt = null, phaseAt = null, staleMs = HOST_STALE_MS }) {
+  if (away || pongAt == null || (phase !== "lobby" && phase !== "result")) return false;
+  return now - Math.max(pongAt, seenAt ?? 0, phaseAt ?? 0) > staleMs;
+}
 
 export const GAME_LIMITS = {
   ...LIMITS,
@@ -86,6 +119,8 @@ export const GAME_LIMITS = {
   reactsPerSec: 3, // more are dropped (not spread to everyone)
   squeezePerMin: 60, // usage stage 3 (≥ 95 %): a socket above 1 frame/s over 60 s is closed
   awayGraceMs: 30000, // #213: in the background this long (no `here`, no new socket) → out of the room
+  hostStaleMs: HOST_STALE_MS, // #142
+  pingEveryMs: PING_EVERY_MS, // #142: the meter's estimate of the host's auto-answered pings
   scheduleMinMs: SCHEDULE_MIN_MS, // #218: the soonest a host may schedule the start (tests go lower)
 };
 /** Close code for a socket the room let go after AWAY_GRACE_MS in the background (the client comes back on its own). */
@@ -289,6 +324,7 @@ export class GameRoom {
       scheduleWake: (at) => this.wakeAt(at),
       scheduleMinMs: this.L.scheduleMinMs,
       broadcast: (t, d) => {
+        if (t === "setVar" && d?.id === "sessionPhase") this.phaseAt = this.now(); // #142 hostStale
         // Roster-ish updates (a join storm, an answer storm: one per incoming message) are
         // coalesced into one fan-out per tick; anything else first flushes them (order kept).
         const key = t === "participants" ? t : t === "setVar" && COALESCED.has(d?.id) ? d.id : null;
@@ -531,9 +567,11 @@ export class GameRoom {
     try {
       m = JSON.parse(raw);
     } catch {
+      if (raw.length <= 16 && PINGISH.test(raw)) this.pingMiss();
       return;
     }
     const t = typeof m?.t === "string" ? m.t : "?";
+    if (t === "ping" || (typeof m === "string" && PINGISH.test(m))) return this.pingMiss();
     this.stats.in += 1;
     this.stats.byType[t] = (this.stats.byType[t] ?? 0) + 1;
     if (!st.joined) {
@@ -541,8 +579,9 @@ export class GameRoom {
       return this.hello(sock, m.d ?? {});
     }
     await this.rehydrate();
+    await this.hostCheck(sock);
     // Away (#213): anything but `away` from this socket says it is alive and on screen.
-    if (t === "away") return this.markAway(sock, st);
+    if (t === "away") return this.markAway(sock, st); // (its pings were tallied just above: they stop now)
     if (st.awayAt != null) {
       delete st.awayAt;
       sock.save(st);
@@ -610,6 +649,7 @@ export class GameRoom {
     }
     this.meta = g.meta;
     await this.rehydrate();
+    await this.hostCheck(sock, anonId); // (the host itself back on a new socket: not gone)
     // One seat per device: a second socket for this anonId only with the seat's token.
     const holder = this.sockets().find((s) => s !== sock && s.state?.joined && s.state.anonId === anonId);
     // A public room mid-game (#136): someone new would only watch — the next room plays soon.
@@ -650,7 +690,11 @@ export class GameRoom {
   }
 
   onClose(sock) {
-    const run = this.chain.then(() => this.closed(sock));
+    const run = this.chain.then(async () => {
+      this.pingTally(sock);
+      await this.closed(sock);
+      await this.hostCheck(sock);
+    });
     this.chain = run.catch((e) => console.error("[edge-room]", e));
     return run;
   }
@@ -752,6 +796,66 @@ export class GameRoom {
       this.closeQ(s, AWAY_CLOSE, "away");
       await this.closed(s);
     }
+    await this.hostCheck(null); // #142 (the alarm then is set for what is next: onAlarm)
+  }
+
+  /** The host's socket now (null: no host room, nobody hosting, or not here). */
+  hostSock() {
+    const host = this.engine?.startRule === "host" ? this.engine._state.session.host : "";
+    if (!host) return null;
+    for (const s of this.peerMap().values()) if (s.state?.anonId === host) return s;
+    return null;
+  }
+
+  /**
+   * #142, inside an event that already woke the room (`by` = its socket, null for the alarm): a host
+   * phone gone without a word (no keepalive for hostStaleMs) leaves now — its grace counted from its
+   * last sign of life, so the role is handed over at once. Never on a timer of its own.
+   */
+  async hostCheck(by, anonId = null) {
+    const s = this.hostSock();
+    if (!s) return;
+    this.pingTally(s);
+    if (s === by || (anonId && s.state?.anonId === anonId)) return; // its own frame / hello: alive
+    const st = s.state;
+    const pongAt = s.pongAt?.() ?? null;
+    const seenAt = this.budgets.get(s)?.at ?? null;
+    const now = this.now();
+    if (!hostStale({ now, phase: this.engine._state.session.phase, away: st.awayAt != null, pongAt, seenAt, phaseAt: this.phaseAt ?? null, staleMs: this.L.hostStaleMs })) return;
+    this.stats.hostLost = (this.stats.hostLost ?? 0) + 1;
+    st.awayAt = Math.max(pongAt, seenAt ?? 0, this.phaseAt ?? 0); // the grace began at its last sign of life
+    s.save(st);
+    this.closeQ(s, LOST_CLOSE, "lost");
+    await this.closed(s);
+  }
+
+  /**
+   * #142 meter: the host's pings are answered without reaching the room, so they are estimated —
+   * one per pingEveryMs since the last tally (run on every event and the close) (kept in the socket's attachment: a hibernation forgets
+   * nothing), counted 1:1 as DO requests (whether CF counts them is not documented: the guard stays
+   * conservative). Over-counts a game's time (no pings then) rather than under-count; away time skipped.
+   */
+  pingTally(s) {
+    const st = s?.state;
+    if (!st?.joined || s.pongAt?.() == null || this.hostSock() !== s) return; // never pinged on this socket: nothing to count
+    const now = this.now();
+    if (st.awayAt != null) {
+      st.pingAt = now; // hidden: no pings meanwhile
+      return s.save(st);
+    }
+    const from = st.pingAt ?? st.openedAt ?? now; // (first tally: from the socket's open — rather too many than too few)
+    const n = Math.floor((now - from) / this.L.pingEveryMs);
+    if (n <= 0) return;
+    st.pingAt = from + n * this.L.pingEveryMs;
+    s.save(st);
+    this.meter.count("pings", n);
+    this.stats.pingsEst = (this.stats.pingsEst ?? 0) + n;
+  }
+
+  /** A ping-like frame the auto-response did not match: it woke the room (GB-s). Should stay 0. */
+  pingMiss() {
+    this.meter.count("pingMiss");
+    this.stats.pingMiss = (this.stats.pingMiss ?? 0) + 1;
   }
 
   async onAlarm() {

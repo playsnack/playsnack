@@ -7,13 +7,17 @@
 //   /relay/<id>  dumb relay for the serverless mesh (edge/room/src/core.js RoomRelay) — kept here for
 //                the local mesh sims (`relay: false` → 410 as the Worker answers)
 // The client's address: `cf-connecting-ip` when a test sends one (as Cloudflare sets it), else the socket's.
+// /room sockets emulate the Durable Object's WebSocket auto-response (#142, worker.js): the exact text
+// "ping" is answered "pong" here and never reaches the room — only its time is kept (sock.pongAt(),
+// as getWebSocketAutoResponseTimestamp); anything else goes to the room as before. `autoResponse:
+// false` turns it off (tests: a ping then reaches the room like any frame).
 // Accounting for docs/edge-rooms.md: every room keeps its counters after it empties
 // (`history`), so a sim can report messages per player per game.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { WebSocketServer } from "ws";
 import { RoomRelay, UsageMeter, memoryStore, ROOM_ID_RE } from "../../../edge/room/src/core.js";
-import { GameRoom, roomReadBody } from "../../../edge/room/src/game.js";
+import { GameRoom, roomReadBody, PING, PONG } from "../../../edge/room/src/game.js";
 import { StatsSender, isFriendRoom } from "../../../edge/room/src/results.js";
 import { decideUpgrade, decideMint, decideResult, configFrom, memoryLimiters, verifyAdmit, WorkerTally } from "../../../edge/room/src/admit.js";
 
@@ -35,15 +39,15 @@ const ROUTE = /^\/(room|relay)\/([^/]+)$/;
  * `env`: the Worker's vars (ALLOWED_ORIGINS, LEGACY_CREATE_UNTIL, LEGACY_JOIN_UNTIL); `relay`: serve
  * /relay (local mesh sims; the Worker answers 410). `tallyEvery`: Worker refusals per meter call (1 =
  * at once, so tests can read them; the Worker batches 200).
- * @param {{port?: number, host?: string, secret?: string, limits?: object, now?: () => number, stages?: object, free?: object, getPack?: Function, stats?: object, env?: object, relay?: boolean, tallyEvery?: number}} [o]
+ * @param {{port?: number, host?: string, secret?: string, limits?: object, now?: () => number, stages?: object, free?: object, getPack?: Function, stats?: object, env?: object, relay?: boolean, tallyEvery?: number, autoResponse?: boolean}} [o]
  */
-export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "hub-test-secret", limits = {}, now = Date.now, stages, free, getPack = filePack, stats = null, env = {}, relay = true, tallyEvery = 1 } = {}) {
+export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "hub-test-secret", limits = {}, now = Date.now, stages, free, getPack = filePack, stats = null, env = {}, relay = true, tallyEvery = 1, autoResponse = true } = {}) {
   const meterStore = memoryStore();
   const meter = new UsageMeter({ store: meterStore, now, ...(stages ? { stages } : {}), ...(free ? { free } : {}) });
   const cfg = configFrom(env);
   const limiters = memoryLimiters(now);
   const tally = new WorkerTally({ every: tallyEvery, now });
-  const counts = { workerDenied: 0, pinRpc: 0 }; // tests: what the Worker answered itself
+  const counts = { workerDenied: 0, pinRpc: 0, pongs: 0 }; // tests: what the Worker answered itself (+ auto-responses)
   const counted = (d) => {
     const due = tally.count(d);
     if (due) return meter.add(due);
@@ -187,8 +191,12 @@ export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "
     const r = roomFor(kind, id);
     const key = `${kind}:${id}`;
     let state = {};
+    let pongAt = null;
     const sock = {
       ws,
+      /** The auto-response's last answer to this socket (#142; ms, null = never) — tests may set it. */
+      pongAt: () => pongAt,
+      setPongAt: (t) => (pongAt = t),
       get state() {
         return state;
       },
@@ -209,7 +217,15 @@ export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "
     r.sockets.add(sock);
     if (kind === "room") {
       r.core.onOpen(sock, adm);
-      ws.on("message", (data, isBinary) => r.core.onMessage(sock, isBinary ? data : data.toString()).catch(() => {}));
+      ws.on("message", (data, isBinary) => {
+        const msg = isBinary ? data : data.toString();
+        if (autoResponse && !isBinary && msg === PING) {
+          pongAt = now(); // answered by "the runtime": the room never sees it
+          counts.pongs += 1;
+          return void (ws.readyState === 1 && ws.send(PONG));
+        }
+        r.core.onMessage(sock, msg).catch(() => {});
+      });
       ws.on("close", () => {
         r.core.onClose(sock).finally(() => {
           r.sockets.delete(sock);
