@@ -17,7 +17,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { WebSocketServer } from "ws";
 import { RoomRelay, UsageMeter, memoryStore, ROOM_ID_RE } from "../../../edge/room/src/core.js";
-import { GameRoom, PING, PONG } from "../../../edge/room/src/game.js";
+import { GameRoom, roomReadBody, PING, PONG } from "../../../edge/room/src/game.js";
 import { StatsSender, isFriendRoom } from "../../../edge/room/src/results.js";
 import { decideUpgrade, decideMint, decideResult, configFrom, memoryLimiters, verifyAdmit, WorkerTally } from "../../../edge/room/src/admit.js";
 
@@ -124,16 +124,17 @@ export async function startEdgeHub({ port = 4550, host = "127.0.0.1", secret = "
     const rr = /^\/room\/([^/]+)\/result$/.exec(path);
     if (rr && req.method === "GET") {
       const d = isFriendRoom(rr[1]) ? await decideResult({ secret, roomId: rr[1], params: new URL(req.url, "http://x").searchParams, now: now(), cfg }) : { notFound: true };
-      let rec = null;
+      let read = { rec: null, startAt: null };
       if (d.notFound) {
         counts.workerDenied += 1;
         await counted({ workerExtra: 1 });
       } else {
         const adm = d.forward.admit ? await verifyAdmit(secret, d.forward.admit, rr[1], now()) : null;
-        rec = await roomFor("room", rr[1]).core.readResult(adm);
+        read = await roomFor("room", rr[1]).core.readRoom(adm);
       }
-      res.writeHead(rec ? 200 : 404, { "content-type": "application/json", "cache-control": "public, max-age=10", "access-control-allow-origin": "*" });
-      res.end(JSON.stringify(rec ? { ok: true, result: rec } : { ok: false, error: "not_found" }));
+      const { status, body } = roomReadBody(read);
+      res.writeHead(status, { "content-type": "application/json", "cache-control": "public, max-age=10", "access-control-allow-origin": "*" });
+      res.end(JSON.stringify(body));
       return;
     }
     const m = ROUTE.exec(path);

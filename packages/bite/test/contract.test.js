@@ -164,6 +164,7 @@ test("all shipped templates pass the contract (except the known T-01 apps)", () 
 function roomHarness() {
   const out = [];
   const room = createRoom({
+    startRule: "host", // a friends room (p1, the first in, hosts): every action incl. schedule (#218) is open to p1
     broadcast: (type, d) => out.push({ to: "*", type, d }),
     send: (to, type, d) => out.push({ to, type, d }),
     setTimer: () => 0, // the session never advances — only acknowledgement matters
@@ -183,6 +184,7 @@ function roomHarness() {
 const SAMPLE = { string: "o0", number: 1, boolean: true, array: [{ q: "1+1?", options: ["1", "2"], answer: 1 }], object: {} };
 const samplePayload = (spec) => {
   if (spec.payload === "none") return undefined;
+  if (spec.sample) return { ...spec.sample };
   const p = {};
   for (const [k, f] of Object.entries(spec.fields ?? {})) {
     if (!f.required && k !== "mode") continue;

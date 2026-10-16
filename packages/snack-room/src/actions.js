@@ -122,4 +122,18 @@ export const HOST_ACTIONS = Object.freeze({
   },
   // payload unused: back to the lobby
   lobby: { payload: "none", description: "end the session and return to the lobby" },
+  // 시작 시간 예약 (#218, docs/bite-format.md §6.2): friends rooms only ("host" rule — a public room
+  // says "auto_start", any other "not_friends_room"), lobby only ("not_in_lobby"), only the host
+  // (a stored 나 맞히기 quiz: its subject — "not_host" / "not_subject"). in = ms from now on the
+  // room's clock, SCHEDULE_MIN_MS (10 s) … SCHEDULE_MAX_MS (24 h), else "invalid_time"; start = the
+  // app's start payload (≤ 1 KB JSON, else "invalid_start"). Replaces any earlier schedule. Sent by
+  // the shell's time sheet (the template's button opens it with the shell event `scheduleOpen`).
+  schedule: {
+    payload: "object",
+    fields: { in: { type: "number", required: true }, start: { type: ["object", "number"], required: true } },
+    sample: { in: 60000, start: { duration: 10000 } },
+    description: "host: start the game by itself `in` ms from now (with `start`'s payload)",
+  },
+  // payload unused: the schedule is dropped (same rules as schedule; nothing scheduled is fine)
+  unschedule: { payload: "none", description: "host: cancel the scheduled start (예약 취소)" },
 });
