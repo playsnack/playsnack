@@ -39,12 +39,20 @@ const SORTERS = {
   recent:  (a, b) => (b.createdAt||0) - (a.createdAt||0) || (b.order||0) - (a.order||0),
 };
 
+// An entry with `template: "<id>"` plays that entry's file as a game of its own (its own
+// live room tpl-<entry id>; index.json, docs/template-taxonomy.md) — e.g. 스피드 퀴즈 plays
+// the 나 맞히기 quiz template with its built-in questions (#210). The starter gallery /
+// builder list each document once, so they skip these.
+const fileOf = (t) => t.template ?? t.id;
+const ownFile = (t) => !t.template;
+
 export function listTemplates({ sort = "rank", category } = {}) {
-  let list = templates.slice();
+  const own = templates.filter(ownFile);
+  let list = own.slice();
   if (category && category !== "all") list = list.filter((t) => t.category === category);
   list.sort(SORTERS[sort] || SORTERS.rank);
-  const categories = [...new Set(templates.map((t) => t.category))];
-  return { templates: list.map(publicView), categories, total: templates.length };
+  const categories = [...new Set(own.map((t) => t.category))];
+  return { templates: list.map(publicView), categories, total: own.length };
 }
 
 // All templates as { id, doc } — for registering each as a canonical live room.
@@ -63,8 +71,9 @@ export function templateMeta(id) {
 }
 
 export function getTemplateDoc(id) {
-  if (!templates.some((t) => t.id === id)) return null;
-  const p = resolve(DIR, `${id}.bite.json`);
+  const t = templates.find((x) => x.id === id);
+  if (!t) return null;
+  const p = resolve(DIR, `${fileOf(t)}.bite.json`);
   if (!existsSync(p)) return null;
   try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; }
 }

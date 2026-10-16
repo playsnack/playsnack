@@ -13,7 +13,8 @@ import { nameCardRect } from "../src/nameChoice.ts";
 
 const DIR = new URL("../../snack-server/data/bite/", import.meta.url);
 const index = JSON.parse(readFileSync(new URL("index.json", DIR), "utf8")) as { id: string; mode: string; hidden?: boolean }[];
-const TOGETHER = index.filter((t) => t.mode === "multi" && !t.hidden).map((t) => t.id);
+// One file per game: an entry that plays another entry's file (`template`, #210) is covered by it.
+const TOGETHER = index.filter((t) => t.mode === "multi" && !t.hidden && !(t as { template?: string }).template).map((t) => t.id);
 
 type Box = { x: number; y: number; w: number; h: number };
 // Frame coordinates (390 wide): pills are 44 tall from y 10; 😀 is 46×46 at right 12, top 62.

@@ -402,7 +402,7 @@
             "id": "navL",
             "use": "NavBar",
             "props": {
-              "title": "{packPending != '' ? packPending : (quizInfo.custom ? (quizInfo.about + ' 맞히기') : '스피드 퀴즈')}",
+              "title": "{packPending != '' ? packPending : (quizInfo.custom ? (quizInfo.title || (quizInfo.about + ' 맞히기')) : '스피드 퀴즈')}",
               "subtitle": "대기실"
             }
           },
@@ -425,7 +425,7 @@
               },
               {
                 "id": "lobbyTitle",
-                "text": "{packPending != '' ? (packPending + ' · 준비 중…') : (quizInfo.custom ? (quizInfo.about + ' 맞히기 · ' + quizInfo.count + '문제' + (iAmSubject ? '' : ' · 곧 시작해요')) : '스피드 퀴즈')}",
+                "text": "{packPending != '' ? (packPending + ' · 준비 중…') : (quizInfo.custom ? ((quizInfo.title || (quizInfo.about + ' 맞히기')) + ' · ' + quizInfo.count + '문제' + (iAmSubject ? '' : ' · 곧 시작해요')) : '스피드 퀴즈')}",
                 "width": 320,
                 "size": 22,
                 "weight": 700,

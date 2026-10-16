@@ -13,7 +13,14 @@
 //   derivativeOf: "<id>" → a follow-up candidate built on that game (e.g. on
 //                         the 나 맞히기 flagship). Data only; stays a 후보
 //                         until it is reviewed like any other game.
+//   template: "<id>"    → this entry plays another entry's document (data/bite/<id>.bite.json)
+//                         as a game of its own: its own card, link (/p/tpl-<this id>),
+//                         public room, preview and counts. Today: 스피드 퀴즈 (`speed-quiz`)
+//                         = the 나 맞히기 template with its built-in questions (#210,
+//                         docs/template-taxonomy.md). Without it, the file is `<id>`.
 import type { BiteDoc } from "@snack/bite";
+import { MAKE_PARAM, QUIZ_APP_ID, QUIZ_SLUG } from "./quiz";
+import { playPath, roomParamOf } from "./links";
 
 export type CatalogEntry = {
   id: string;
@@ -28,7 +35,35 @@ export type CatalogEntry = {
   reviewedIn?: string;
   flagship?: boolean;
   derivativeOf?: string;
+  template?: string;
 };
+
+/** 스피드 퀴즈: the quiz template with its built-in questions, as its own game (#210). */
+export const SPEED_QUIZ_ID = "speed-quiz";
+
+/** The template file (data/bite/<file>.bite.json) an entry plays. */
+export const templateFileOf = (t: Pick<CatalogEntry, "id" | "template">): string => t.template ?? t.id;
+
+/** The template file a `tpl-<id>` link's app plays (its own id when the catalog has no other). */
+export async function templateFileFor(id: string): Promise<string> {
+  const all = await loadCatalog().catch(() => [] as CatalogEntry[]);
+  const t = all.find((x) => x.id === id);
+  return t ? templateFileOf(t) : id;
+}
+
+/** Where a home card / row goes: the app's own link. */
+export const cardPath = (t: Pick<CatalogEntry, "id">): string => `/p/tpl-${t.id}`;
+
+/**
+ * The 대표작 card's buttons. The 나 맞히기 quiz has exactly one: 내 퀴즈 만들기 (the quiz
+ * link with ?make=1 and no room → App → QuizMaker). 스피드 퀴즈 is not here — it is its own
+ * card (SPEED_QUIZ_ID, #210). Any other flagship gets a plain 바로 하기 on its own link.
+ */
+export type HeroAction = { action: "make" | "play"; label: string; path: string };
+export function flagshipActions(f: Pick<CatalogEntry, "id">): HeroAction[] {
+  if (f.id === QUIZ_APP_ID) return [{ action: "make", label: "내 퀴즈 만들기", path: playPath(QUIZ_SLUG, new URLSearchParams({ [MAKE_PARAM]: "1" })) }];
+  return [{ action: "play", label: "바로 하기", path: cardPath(f) }];
+}
 
 let cache: Promise<CatalogEntry[]> | null = null;
 
@@ -72,8 +107,21 @@ export async function homeSections(): Promise<HomeSections> {
   return splitHome(await loadCatalog());
 }
 
-/** For a template link (`tpl-<id>`): the template it now lives in, if it was merged. */
-export async function redirectFor(slug: string): Promise<string | null> {
+/**
+ * A bare 나 맞히기 link — no room code, not the maker (`?make=1`) — has no quiz of anyone's in
+ * it: it is the built-in questions, i.e. 스피드 퀴즈 (old links from the 대표작 card's former
+ * "스피드 퀴즈로 같이 하기", #210). It opens 스피드 퀴즈's own link, so that game has one public
+ * room. A cut/invalid code is left alone (LiveApp says the link is bad).
+ */
+export function isBareQuizLink(slug: string, params: URLSearchParams): boolean {
+  if (slug !== QUIZ_SLUG || params.has(MAKE_PARAM)) return false;
+  const kind = roomParamOf(params).kind;
+  return kind === "none" || kind === "legacy";
+}
+
+/** For a template link (`tpl-<id>`): the app it now lives in, if it was merged (or a bare quiz link). */
+export async function redirectFor(slug: string, params: URLSearchParams = new URLSearchParams()): Promise<string | null> {
+  if (isBareQuizLink(slug, params)) return `tpl-${SPEED_QUIZ_ID}`;
   if (!slug.startsWith("tpl-")) return null;
   const all = await loadCatalog().catch(() => [] as CatalogEntry[]);
   const target = all.find((t) => t.id === slug.slice(4))?.mergedInto;
@@ -86,6 +134,7 @@ const SOLO_ALTERNATIVE: Record<string, string> = {
   "coop-tap-goal": "game-tap-target",
   "coop-click": "game-tap-target",
   "speed-trivia-score": "quiz-ox",
+  "speed-quiz": "quiz-ox",
   "reaction-duel-score": "game-reaction",
   "nunchi-tap": "game-reaction",
   "worldcup-group-vote": "worldcup-food",
