@@ -55,6 +55,8 @@
     "seenRound": -1,
     "seenAt": 0,
     "myMs": -1,
+    "myLockAt": 0,
+    "myPickN": 0,
     "myPid": "",
     "sessionNo": 0,
     "resultView": {
@@ -80,7 +82,9 @@
       "sessionNo": 0,
       "round": -1,
       "option": -1,
-      "ms": -1
+      "ms": -1,
+      "n": 0,
+      "lockMs": 0
     },
     "iAmSpectator": false,
     "spectators": 0,
@@ -282,6 +286,14 @@
         {
           "set": "myMs",
           "to": "-1"
+        },
+        {
+          "set": "myLockAt",
+          "to": "0"
+        },
+        {
+          "set": "myPickN",
+          "to": "0"
         }
       ],
       "tick": [
@@ -295,6 +307,14 @@
             {
               "set": "seenAt",
               "to": "now"
+            },
+            {
+              "set": "myLockAt",
+              "to": "0"
+            },
+            {
+              "set": "myPickN",
+              "to": "0"
             }
           ]
         },
@@ -312,6 +332,31 @@
             {
               "set": "myMs",
               "to": "myPick.ms"
+            },
+            {
+              "set": "myPickN",
+              "to": "myPick.n || 1"
+            },
+            {
+              "set": "myLockAt",
+              "to": "now + (myPick.lockMs || 0)"
+            }
+          ]
+        },
+        {
+          "if": "myPick.sessionNo === sessionNo && myPick.round === roundIdx && roundIdx >= 0 && myAnswerRound === roundIdx && (myPick.n || 1) >= myPickN && myPick.option !== myAnswer",
+          "then": [
+            {
+              "set": "myAnswer",
+              "to": "myPick.option"
+            },
+            {
+              "set": "myMs",
+              "to": "myPick.ms"
+            },
+            {
+              "set": "myPickN",
+              "to": "myPick.n || 1"
             }
           ]
         },
@@ -615,6 +660,17 @@
                 "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
+              },
+              {
+                "id": "cdHint",
+                "text": "{phase == 'countdown' ? '한 번 고르면 3초 뒤 확정돼요 · 빠를수록 점수 UP' : ''}",
+                "show": "!iAmSubject && !iAmSpectator",
+                "width": 320,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center",
+                "lines": 2
               }
             ]
           }
@@ -725,11 +781,11 @@
           },
           {
             "id": "statusText",
-            "text": "{phase == 'play' ? (roundAnswer >= 0 ? ((iAmSubject || iAmSpectator) ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : ((iAmSubject || iAmSpectator) || myAnswerRound === roundIdx ? ((quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('다 골랐어요! 곧 공개 (' + quizProgress.answered + '/' + quizProgress.of + ')') : ((iAmSubject || iAmSpectator) ? ('친구들이 고르는 중… (' + quizProgress.answered + '/' + quizProgress.of + ')') : '선택 완료! 공개를 기다려요')) : ((seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!'))))) : ''}",
+            "text": "{phase == 'play' ? (roundAnswer >= 0 ? ((iAmSubject || iAmSpectator) ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : ((iAmSubject || iAmSpectator) ? ((quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('다 골랐어요! 곧 공개' + ' (' + quizProgress.answered + '/' + quizProgress.of + ')') : ('친구들이 고르는 중…' + ' (' + quizProgress.answered + '/' + quizProgress.of + ')')) : (myAnswerRound === roundIdx ? (now < myLockAt ? (ceil((myLockAt - now) / 1000) + '초 안에 바꿀 수 있어요') : ((quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('확정! 곧 공개' + ' (' + quizProgress.answered + '/' + quizProgress.of + ')') : '확정! 공개를 기다려요')) : (seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (roundIdx === 0 ? '고르고 3초 뒤 확정 · 빠를수록 점수 UP' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!')))))) : ''}",
             "width": "fill",
             "size": 15,
             "weight": 700,
-            "color": "{phase == 'play' ? (roundAnswer >= 0 ? ((iAmSubject || iAmSpectator) ? '#ffffff' : (myAnswerRound === roundIdx && myAnswer === roundAnswer ? '#22c55e' : '#ff5a5f')) : ((iAmSubject || iAmSpectator) || myAnswerRound === roundIdx ? '#9aa3af' : '#d9ff00')) : '#d9ff00'}",
+            "color": "{phase == 'play' ? (roundAnswer >= 0 ? ((iAmSubject || iAmSpectator) ? '#ffffff' : (myAnswerRound === roundIdx && myAnswer === roundAnswer ? '#22c55e' : '#ff5a5f')) : ((iAmSubject || iAmSpectator) ? '#9aa3af' : (myAnswerRound === roundIdx ? (now < myLockAt ? '#d9ff00' : '#ffffff') : '#d9ff00'))) : '#d9ff00'}",
             "align": "center"
           },
           {
@@ -747,13 +803,22 @@
             "justify": "center",
             "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (0 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 0 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 0 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
             "stroke": {
-              "color": "{phase == 'play' && roundAnswer >= 0 && 0 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "color": "{phase == 'play' && roundAnswer >= 0 && 0 === roundAnswer ? '#22c55e' : (phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 0 && now < myLockAt ? '#ffffff' : '#2a2d33')}",
               "width": 2
             },
             "onTap": [
               {
-                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
+                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000) && (myAnswerRound !== roundIdx || (myAnswer !== 0 && now < myLockAt))",
                 "then": [
+                  {
+                    "if": "myAnswerRound !== roundIdx",
+                    "then": [
+                      {
+                        "set": "myLockAt",
+                        "to": "now + min(3000, (quizInfo.answerMs || 9000) - (now - seenAt))"
+                      }
+                    ]
+                  },
                   {
                     "set": "myAnswer",
                     "to": "0"
@@ -767,12 +832,17 @@
                     "to": "now - seenAt"
                   },
                   {
+                    "set": "myPickN",
+                    "to": "myPickN + 1"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
                       "option": 0,
                       "ms": "{myMs}",
                       "round": "{roundIdx}",
-                      "sessionNo": "{sessionNo}"
+                      "sessionNo": "{sessionNo}",
+                      "n": "{myPickN}"
                     }
                   }
                 ]
@@ -806,13 +876,22 @@
             "justify": "center",
             "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (1 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 1 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 1 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
             "stroke": {
-              "color": "{phase == 'play' && roundAnswer >= 0 && 1 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "color": "{phase == 'play' && roundAnswer >= 0 && 1 === roundAnswer ? '#22c55e' : (phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 1 && now < myLockAt ? '#ffffff' : '#2a2d33')}",
               "width": 2
             },
             "onTap": [
               {
-                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
+                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000) && (myAnswerRound !== roundIdx || (myAnswer !== 1 && now < myLockAt))",
                 "then": [
+                  {
+                    "if": "myAnswerRound !== roundIdx",
+                    "then": [
+                      {
+                        "set": "myLockAt",
+                        "to": "now + min(3000, (quizInfo.answerMs || 9000) - (now - seenAt))"
+                      }
+                    ]
+                  },
                   {
                     "set": "myAnswer",
                     "to": "1"
@@ -826,12 +905,17 @@
                     "to": "now - seenAt"
                   },
                   {
+                    "set": "myPickN",
+                    "to": "myPickN + 1"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
                       "option": 1,
                       "ms": "{myMs}",
                       "round": "{roundIdx}",
-                      "sessionNo": "{sessionNo}"
+                      "sessionNo": "{sessionNo}",
+                      "n": "{myPickN}"
                     }
                   }
                 ]
@@ -866,13 +950,22 @@
             "show": "phase == 'play' ? (roundContent.options && roundContent.options.length > 2) : true",
             "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (2 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 2 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 2 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
             "stroke": {
-              "color": "{phase == 'play' && roundAnswer >= 0 && 2 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "color": "{phase == 'play' && roundAnswer >= 0 && 2 === roundAnswer ? '#22c55e' : (phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 2 && now < myLockAt ? '#ffffff' : '#2a2d33')}",
               "width": 2
             },
             "onTap": [
               {
-                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
+                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000) && (myAnswerRound !== roundIdx || (myAnswer !== 2 && now < myLockAt))",
                 "then": [
+                  {
+                    "if": "myAnswerRound !== roundIdx",
+                    "then": [
+                      {
+                        "set": "myLockAt",
+                        "to": "now + min(3000, (quizInfo.answerMs || 9000) - (now - seenAt))"
+                      }
+                    ]
+                  },
                   {
                     "set": "myAnswer",
                     "to": "2"
@@ -886,12 +979,17 @@
                     "to": "now - seenAt"
                   },
                   {
+                    "set": "myPickN",
+                    "to": "myPickN + 1"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
                       "option": 2,
                       "ms": "{myMs}",
                       "round": "{roundIdx}",
-                      "sessionNo": "{sessionNo}"
+                      "sessionNo": "{sessionNo}",
+                      "n": "{myPickN}"
                     }
                   }
                 ]
@@ -926,13 +1024,22 @@
             "show": "phase == 'play' ? (roundContent.options && roundContent.options.length > 3) : true",
             "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (3 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 3 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 3 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
             "stroke": {
-              "color": "{phase == 'play' && roundAnswer >= 0 && 3 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "color": "{phase == 'play' && roundAnswer >= 0 && 3 === roundAnswer ? '#22c55e' : (phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 3 && now < myLockAt ? '#ffffff' : '#2a2d33')}",
               "width": 2
             },
             "onTap": [
               {
-                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
+                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000) && (myAnswerRound !== roundIdx || (myAnswer !== 3 && now < myLockAt))",
                 "then": [
+                  {
+                    "if": "myAnswerRound !== roundIdx",
+                    "then": [
+                      {
+                        "set": "myLockAt",
+                        "to": "now + min(3000, (quizInfo.answerMs || 9000) - (now - seenAt))"
+                      }
+                    ]
+                  },
                   {
                     "set": "myAnswer",
                     "to": "3"
@@ -946,12 +1053,17 @@
                     "to": "now - seenAt"
                   },
                   {
+                    "set": "myPickN",
+                    "to": "myPickN + 1"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
                       "option": 3,
                       "ms": "{myMs}",
                       "round": "{roundIdx}",
-                      "sessionNo": "{sessionNo}"
+                      "sessionNo": "{sessionNo}",
+                      "n": "{myPickN}"
                     }
                   }
                 ]
