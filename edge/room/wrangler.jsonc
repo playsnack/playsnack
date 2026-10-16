@@ -25,8 +25,9 @@
     "PACK_BASE_URL": "https://playsnack.pages.dev/data/multi-content",
     "STATS_URL": "https://playsnack.pages.dev/api/ev",
     "ALLOWED_ORIGINS": "https://playsnack.pages.dev,https://*.playsnack.pages.dev",
-    "LEGACY_CREATE_UNTIL": "",
-    "LEGACY_JOIN_UNTIL": ""
+    // #206: live release of the signed codes = 2026-10-16 08:10 UTC (PR #227) → +24 h / +7 days.
+    "LEGACY_CREATE_UNTIL": "2026-10-17T08:10:00Z",
+    "LEGACY_JOIN_UNTIL": "2026-10-23T08:10:00Z"
   },
   // Rate limits (Workers Rate Limiting): only on the test server until a develop deploy shows the
   // binding works on the free plan (#157 step 0). Without them the Worker counts in its own
