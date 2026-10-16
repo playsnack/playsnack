@@ -1,0 +1,4 @@
+@snack/bite-layout — third-party notices
+
+- yoga-layout 3.2.1 — MIT
+- Font metrics in src/metrics.js are derived from Pretendard and Galmuri11 — SIL Open Font License 1.1 (license texts: snack-player/public/fonts)

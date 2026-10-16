@@ -1,0 +1,20 @@
+Bite engine
+Copyright (c) 2026 seukwoo. All rights reserved.
+
+This is the license of the Bite engine (format, runtime, layout and
+renderer). It is separate from the license of any product that uses the
+engine.
+
+No license is granted to use, copy, modify, merge, publish, distribute,
+sublicense, sell, or run this software or any part of it — including
+operating it as a hosted or networked service — without the prior written
+permission of the copyright holder. Where the source can be seen (for example
+in a public repository), seeing it grants no other rights.
+
+The PlaySnack service (github.com/playsnack/playsnack) has the copyright
+holder's permission to use, modify and run this engine as part of PlaySnack.
+That permission covers PlaySnack only.
+
+Third-party components keep their own licenses; see NOTICE.
+
+Permission requests: https://github.com/seukwoo

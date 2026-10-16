@@ -9,6 +9,10 @@ holder.
 Viewing and forking on GitHub are allowed only to the extent GitHub's Terms
 of Service require; doing so grants no other rights.
 
+The Bite engine packages (packages/bite, packages/bite-layout,
+packages/bite-pixi) are not covered by this file: each has its own LICENSE
+(the Bite engine license) and NOTICE.
+
 Third-party components bundled or depended on keep their own licenses:
 jsep, yoga-layout, pixi.js, React, Express and ws (MIT), and the Pretendard
 and Galmuri fonts (SIL Open Font License 1.1, license texts next to the font

@@ -2,7 +2,7 @@
   "name": "@snack/bite-layout",
   "version": "0.1.0",
   "description": "Bite layout engine — expands a Bite document and lays it out with Yoga (flexbox). Headless; runs in Node and browsers.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
