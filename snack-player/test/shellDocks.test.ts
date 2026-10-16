@@ -101,3 +101,7 @@ for (const id of TOGETHER) {
     }
   });
 }
+test("tapBatchMs (#179): reaches only templates that declare it (no undeclared-variable warning elsewhere)", () => {
+  assert.equal(forTemplate({ vars: { sessionPhase: "lobby" } }, "tapBatchMs"), false);
+  assert.equal(forTemplate({ vars: { tapBatchMs: 250 } }, "tapBatchMs"), true);
+});

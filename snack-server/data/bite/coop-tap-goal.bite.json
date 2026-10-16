@@ -14,6 +14,10 @@
     "roster": [],
     "coopTotal": 0,
     "myTaps": 0,
+    "sentTaps": 0,
+    "sentAt": 0,
+    "shownTotal": 0,
+    "tapBatchMs": 250,
     "roomMode": "",
     "hostNick": "",
     "iAmHost": false,
@@ -196,9 +200,58 @@
         {
           "set": "myTaps",
           "to": "0"
+        },
+        {
+          "set": "sentTaps",
+          "to": "0"
+        },
+        {
+          "set": "sentAt",
+          "to": "0"
+        },
+        {
+          "set": "shownTotal",
+          "to": "0"
         }
       ],
       "tick": [
+        {
+          "if": "myTaps > sentTaps && now - sentAt >= tapBatchMs",
+          "then": [
+            {
+              "emit": "tally",
+              "payload": {
+                "delta": "{myTaps - sentTaps}"
+              }
+            },
+            {
+              "set": "sentTaps",
+              "to": "myTaps"
+            },
+            {
+              "set": "sentAt",
+              "to": "now"
+            }
+          ]
+        },
+        {
+          "if": "coopTotal > shownTotal",
+          "then": [
+            {
+              "set": "shownTotal",
+              "to": "coopTotal"
+            }
+          ]
+        },
+        {
+          "if": "myTaps == sentTaps && now - sentAt >= 2000 && shownTotal != coopTotal",
+          "then": [
+            {
+              "set": "shownTotal",
+              "to": "coopTotal"
+            }
+          ]
+        },
         {
           "if": "sessionPhase === 'lobby'",
           "then": [
@@ -227,6 +280,21 @@
     },
     "result": {
       "tick": [
+        {
+          "if": "myTaps > sentTaps",
+          "then": [
+            {
+              "emit": "tally",
+              "payload": {
+                "delta": "{myTaps - sentTaps}"
+              }
+            },
+            {
+              "set": "sentTaps",
+              "to": "myTaps"
+            }
+          ]
+        },
         {
           "if": "sessionPhase === 'lobby'",
           "then": [
@@ -355,6 +423,10 @@
                 "then": [
                   {
                     "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "set": "sentTaps",
                     "to": "0"
                   },
                   {
@@ -499,7 +571,7 @@
             "children": [
               {
                 "id": "goalNum",
-                "text": "{phase == 'play' ? (('' + (coopTotal) + ' / ' + (max(60, roster.length * 50)))) : '0 / 60'}",
+                "text": "{phase == 'play' ? (('' + (max(shownTotal, coopTotal)) + ' / ' + (max(60, roster.length * 50)))) : '0 / 60'}",
                 "width": 320,
                 "size": 34,
                 "font": "display",
@@ -524,11 +596,11 @@
                   {
                     "id": "barFill",
                     "box": "free",
-                    "width": "{phase == 'play' ? (max(6, round(min(1, coopTotal / max(60, roster.length * 50)) * 320))) : 6}",
+                    "width": "{phase == 'play' ? (max(6, round(min(1, max(shownTotal, coopTotal) / max(60, roster.length * 50)) * 320))) : 6}",
                     "height": 18,
                     "x": 0,
                     "y": 0,
-                    "fill": "{phase == 'play' ? (coopTotal >= max(60, roster.length * 50) ? '#22c55e' : '#d9ff00') : '#d9ff00'}"
+                    "fill": "{phase == 'play' ? (max(shownTotal, coopTotal) >= max(60, roster.length * 50) ? '#22c55e' : '#d9ff00') : '#d9ff00'}"
                   }
                 ]
               }
@@ -552,10 +624,8 @@
                     "to": "myTaps + 1"
                   },
                   {
-                    "emit": "tally",
-                    "payload": {
-                      "delta": 1
-                    }
+                    "set": "shownTotal",
+                    "to": "max(shownTotal, coopTotal) + 1"
                   }
                 ]
               }
@@ -668,6 +738,10 @@
                 "then": [
                   {
                     "set": "myTaps",
+                    "to": "0"
+                  },
+                  {
+                    "set": "sentTaps",
                     "to": "0"
                   },
                   {

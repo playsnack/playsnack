@@ -24,10 +24,15 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
   let seq = 0;
   const timers = new Map();
   const devices = new Map(); // peerId → app
+  const sent = []; // every action a device emitted: {i, name, payload, at}
   const later = (ms, fn) => {
     const h = ++seq;
     timers.set(h, { at: t + ms, fn, h });
   };
+  // As the shell (snack-player spectate.ts forTemplate): its own room vars reach a template only if declared.
+  const SHELL_ROOM_VARS = new Set(["iAmSpectator", "spectators", "roomMode", "hostNick", "iAmHost", "tapBatchMs"]);
+  const declared = load(id).vars ?? {};
+  const put = (app, k, v) => (SHELL_ROOM_VARS.has(k) && !Object.hasOwn(declared, k) ? undefined : app.setVar(k, v));
   const toDevice = (peerId, fn) => {
     const ms = down[Number(peerId.slice(1))] ?? 0;
     if (ms) later(ms, fn);
@@ -54,14 +59,14 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
     broadcast: (type, d) => {
       if (type === "autoStart") for (const peerId of devices.keys()) autoAt.set(peerId, d.endsIn >= 0 ? t + d.endsIn : null);
       if (type !== "setVar") return;
-      for (const [peerId, app] of devices) toDevice(peerId, () => app.setVar(d.id, d.value));
+      for (const [peerId, app] of devices) toDevice(peerId, () => put(app, d.id, d.value));
     },
     send: (peerId, type, d) => {
       const app = devices.get(peerId);
       if (!app) return;
       if (type === "autoStart") autoAt.set(peerId, d.endsIn >= 0 ? t + d.endsIn : null);
-      if (type === "setVar") toDevice(peerId, () => app.setVar(d.id, d.value));
-      if (type === "state") toDevice(peerId, () => Object.entries(d.sharedState).forEach(([k, v]) => app.setVar(k, v)));
+      if (type === "setVar") toDevice(peerId, () => put(app, d.id, d.value));
+      if (type === "state") toDevice(peerId, () => Object.entries(d.sharedState).forEach(([k, v]) => put(app, k, v)));
     },
   });
   const boot = (i, nick) => {
@@ -69,6 +74,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
     const app = createBite(load(id), { now: () => t + (clock[i] ?? 0), warn: (m) => assert.fail(`${nick}: ${m}`) });
     app.on("emit", (e) => {
       if (devices.get(peerId) !== app) return; // a closed tab
+      sent.push({ i, name: e.name, payload: e.payload, at: t, phase: app.phase }); // what this phone sent (message counts)
       const act = () => room.action(peerId, { name: e.name, payload: e.payload, clientMsgId: `${peerId}-${++seq}` });
       if (up[i]) later(up[i], act);
       else act();
@@ -124,7 +130,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
   // Is node `nid` (and every ancestor) shown on device i now?
   const pathTo = (nid, n = load(id).view) => (n?.id === nid ? [n] : (n?.children ?? []).map((c) => pathTo(nid, c)).find(Boolean)?.concat(n, []) ?? null);
   const shown = (i, nid) => pathTo(nid).every((n) => n.show == null || Boolean(app(i).eval(n.show)));
-  return { room, advance, app, prop, shown, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
+  return { room, sent, advance, app, prop, shown, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
 }
 
 test("tap-battle: game 2 started by the OTHER device — board == 내 탭 card on the non-starter", async () => {
@@ -794,4 +800,141 @@ test("balance-game: visible server countdown survives reload and clock skew, the
   assert.equal(T.prop(0, "voteTimerBar", "width"), 0, "early reveal does not show a misleading full timer");
   await T.advance(300);
   assert.equal(T.prop(0, "voteTimerSecs"), "공개");
+});
+
+// Tap batching (#190 / #179): every message a phone sends is one Durable Object request on the
+// edge (docs/edge-rooms.md §6), so timed tap games send their taps in batches of `tapBatchMs`
+// (250 ms; the room makes it 1 s for more than 20 players) plus the rest once at the end.
+// Each device in `who` taps on its own pattern every `every` ms while ITS screen is in play.
+async function tapWhilePlaying(T, who, every = 80, pattern = () => true) {
+  for (let k = 0; ; k++) {
+    let any = false;
+    for (const i of who) {
+      if (T.phase(i) !== "play") continue;
+      any = true;
+      if (pattern(i, k)) T.tap(i, "tapArea");
+    }
+    if (!any) return;
+    await T.advance(every);
+  }
+}
+const sentBy = (T, i, name) => T.sent.filter((e) => e.i === i && e.name === name);
+
+test("coop-tap-goal (#190): tallies go out in batches — ≤ 4 msgs/s per phone, instant gauge, total = sum of taps, the last taps counted", async () => {
+  const T = table("coop-tap-goal", ["A", "B", "C"], { up: [40, 90, 150], down: [30, 60, 120] });
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(3300);
+  for (const i of [0, 1, 2]) assert.equal(T.phase(i), "play", `device ${i}`);
+  assert.equal(T.v(0, "tapBatchMs"), 250, "a small room: 250 ms");
+  assert.equal(T.room._state.vars.has("tapBatchMs"), false, "…and the room never sends it (feel unchanged)");
+  assert.equal(T.prop(1, "goalNum"), "0 / 150");
+  T.tap(1, "tapArea");
+  assert.equal(T.prop(1, "goalNum"), "1 / 150", "the gauge moves on the tap itself, before any message");
+  assert.equal(sentBy(T, 1, "tally").length, 0, "…and nothing was sent for it yet");
+  const playFrom = T.now();
+  // 12.5 taps/s for A, 2 of 3 rounds for B, every other round for C — until each one's screen leaves play
+  await tapWhilePlaying(T, [0, 1, 2], 80, (i, k) => i === 0 || (i === 1 ? k % 3 !== 2 : k % 2 === 0));
+  const playMs = T.now() - playFrom;
+  await T.advance(2000); // the last batches land
+  for (const i of [0, 1, 2]) assert.equal(T.phase(i), "result", `device ${i}`);
+  const mine = [0, 1, 2].map((i) => T.v(i, "myTaps"));
+  const total = mine.reduce((a, b) => a + b, 0);
+  assert.ok(mine[0] > 150, `A tapped ${mine[0]}`);
+  for (const i of [0, 1, 2]) {
+    const tallies = sentBy(T, i, "tally");
+    assert.equal(tallies.reduce((s, e) => s + Number(e.payload.delta), 0), mine[i], `device ${i}: deltas add up to its taps`);
+    const inPlay = tallies.filter((e) => e.phase === "play").length;
+    assert.ok(inPlay <= Math.ceil(playMs / 250) + 1, `device ${i}: ${inPlay} tallies in ${playMs} ms of play (≤ 4/s)`);
+    assert.ok(inPlay < mine[i], `device ${i}: fewer messages (${inPlay}) than taps (${mine[i]})`);
+    assert.ok(tallies.filter((e) => e.phase === "result").length <= 1, `device ${i}: the rest goes at most once, as play ends`);
+    assert.equal(T.v(i, "coopTotal"), total, `device ${i}: the room's total = every tap`);
+  }
+  assert.ok(T.sent.some((e) => e.name === "tally" && e.phase === "result"), "a phone tapping to the end sends its rest in the result — and it is counted");
+  assert.equal(T.room._state.coop, total);
+  assert.equal(T.prop(2, "resSub"), `${total} / 150 탭`);
+  assert.equal(T.prop(2, "resTitle"), "성공! 다 같이 해냈어요");
+  assert.equal(T.prop(0, "resMine"), `내가 보탠 탭 ${mine[0]}회`);
+  // 다시 하기: a fresh count — nothing of the last game is sent again
+  const before = T.sent.length;
+  T.tap(0, "againBtn");
+  await T.advance(3300);
+  for (const i of [0, 1, 2]) assert.equal(T.phase(i), "play", `again device ${i}`);
+  assert.equal(T.prop(1, "goalNum"), "0 / 150");
+  assert.deepEqual(T.sent.slice(before).map((e) => e.name), ["start"]);
+});
+
+test("coop-tap-goal (#190): a spectator's taps are not counted, and its gauge settles back to the room's total", async () => {
+  const T = table("coop-tap-goal", ["A", "B"]);
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(3300);
+  for (let k = 0; k < 10; k++) {
+    T.tap(0, "tapArea"); // A: 10 taps, then the game runs on
+    await T.advance(100);
+  }
+  const c = T.late("C"); // joins mid-game → watches this one
+  await T.advance(100);
+  for (let k = 0; k < 5; k++) {
+    T.tap(c, "tapArea");
+    await T.advance(100);
+  }
+  const shownCount = () => T.prop(c, "goalNum").split(" / ")[0]; // the goal is the template's (it counts the roster)
+  assert.equal(shownCount(), "15", "its own taps show at once…");
+  await T.advance(2500);
+  assert.equal(shownCount(), "10", "…and settle back to what the room counted");
+  assert.equal(T.v(0, "coopTotal"), 10);
+});
+
+test("big room (#179): 25 phones → tapBatchMs 1 s for tap-battle, coop-click and coop-tap-goal — every tap still counted", async () => {
+  const nicks = () => Array.from({ length: 25 }, (_, i) => `P${i}`);
+  for (const id of ["tap-battle", "coop-click", "coop-tap-goal"]) {
+    // a slow park network: 400 ms up — the final batch still lands inside LATE_GRACE_MS
+    const T = table(id, nicks(), { up: Array(25).fill(400), down: Array(25).fill(100) });
+    await T.advance(100);
+    T.tap(0, "startBtn"); // reaches the room 400 ms later
+    await T.advance(1600);
+    assert.equal(T.phase(5), "countdown", `${id}: the 3·2·1 as before`);
+    assert.equal(T.v(5, "tapBatchMs"), 1000, `${id}: the room set 1 s during the countdown`);
+    await T.advance(1900);
+    assert.equal(T.phase(5), "countdown", `${id}: still 3·2·1 just before 3 s`);
+    await T.advance(200);
+    assert.equal(T.phase(5), "play", `${id}: play 3 s after the start, as before`);
+    const playFrom = T.now();
+    const who = Array.from({ length: 25 }, (_, i) => i);
+    await tapWhilePlaying(T, who, 100, (i, k) => (i + k) % 3 !== 0); // ~6.7 taps/s each
+    const playMs = T.now() - playFrom;
+    await T.advance(2000);
+    const name = id === "coop-tap-goal" ? "tally" : "taps";
+    let sum = 0;
+    for (const i of who) {
+      assert.equal(T.phase(i), "result", `${id} device ${i}`);
+      const inPlay = sentBy(T, i, name).filter((e) => e.phase === "play").length;
+      assert.ok(inPlay <= Math.ceil(playMs / 1000) + 1, `${id} device ${i}: ${inPlay} messages in ${playMs} ms (≤ 1/s)`);
+      sum += T.v(i, "myTaps");
+    }
+    if (id === "coop-tap-goal") {
+      assert.equal(T.v(3, "coopTotal"), sum, `${id}: the room's total = every tap`);
+    } else {
+      // the board shows the top 8; the room's scores hold everyone
+      for (const i of who) assert.equal(T.room._state.scores.get(`a${i}`), T.v(i, "myTaps"), `${id}: the room's count == 내 탭 for P${i}`);
+      for (const r of rows(T.v(3, "raceBoard"))) assert.equal(r.score, T.v(Number(r.nick.slice(1)), "myTaps"), `${id}: board row ${r.nick}`);
+      if (id === "coop-click") assert.equal(T.v(3, "coopTotal"), sum, `${id}: total = sum of everyone's taps`);
+    }
+  }
+});
+
+test("tapBatchMs (#179): 20 players keep 250 ms; 21 get 1 s; a room that shrank goes back to 250 at the next game", async () => {
+  const T = table("tap-battle", Array.from({ length: 21 }, (_, i) => `P${i}`));
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(3300);
+  assert.equal(T.v(0, "tapBatchMs"), 1000, "21 players → 1 s");
+  await T.advance(12000);
+  T.gone(20); // 20 left
+  T.tap(0, "againBtn");
+  await T.advance(3300);
+  assert.equal(T.phase(0), "play");
+  assert.equal(T.v(0, "tapBatchMs"), 250, "20 players → back to 250 ms");
+  assert.equal(T.v(7, "tapBatchMs"), 250);
 });

@@ -35,7 +35,17 @@ export const MIN_REACTION_MS = 80; // faster than this is a foul (anticipation)
 const REACTION_TOLERANCE_MS = 50; // a claim slower than the host's own measurement is clamped to it
 // A final count / reaction still lands this long after the window: two lost sends
 // (resend every 700 ms) plus the broker's worst delay (300 ms) still make it.
-const LATE_GRACE_MS = 2500;
+export const LATE_GRACE_MS = 2500;
+// Tap batching (#179): a timed tap game (tap-battle, coop-click, coop-tap-goal) sends its taps
+// at most every `tapBatchMs` — 250 ms, or 1 s in a big room (every incoming message is one
+// Durable Object request, edge-rooms.md §6). The room sets it once per game, at the countdown,
+// from the number of players then; a small room never gets the variable (its template's 250 stays).
+export const TAP_BATCH_MS = 250;
+export const TAP_BATCH_BIG_MS = 1000;
+export const TAP_BATCH_BIG_ROOM = 20; // more players than this → TAP_BATCH_BIG_MS
+// Most taps one `tally` may carry: a 1 s batch at TAP_RATE_MAX (15) with room to spare.
+export const TALLY_MAX_DELTA = 2 * TAP_RATE_MAX;
+export const tapBatchMsFor = (players) => (players > TAP_BATCH_BIG_ROOM ? TAP_BATCH_BIG_MS : TAP_BATCH_MS);
 const COUNTDOWN_STEP_MS = 1000;
 export const LEFT_MARK = "(나감)"; // ranking mark for a player who left the room (MP-12)
 
@@ -939,6 +949,9 @@ export function createRoom(o) {
         setVar("coopTotal", 0);
         setVar("coopTimeMs", 0);
       }
+      // Tap batching (#179): sent only to a big room (or back to 250 in a room that got 1 s before).
+      const batch = tapBatchMsFor(S.members.size);
+      if (batch !== TAP_BATCH_MS || r.vars.has("tapBatchMs")) setVar("tapBatchMs", batch);
       later("play", { sessionCountdown: 0 }, 3000);
       later("result", null, 3000 + dur);
     }
@@ -1009,8 +1022,15 @@ export function createRoom(o) {
       onActivity("vote", "투표함");
       ack(peerId, d.clientMsgId);
     } else if (name === "tally") {
-      const delta = Number(d?.payload?.delta);
-      r.coop += Number.isFinite(delta) ? delta : 1;
+      // Co-op taps, sent in batches (#190): only while a single play window is open (play, or
+      // the result's LATE_GRACE_MS for the last batch) — never in its 3·2·1, and a late batch
+      // never lands in the lobby / next game. Before any timed game a freeform tally still counts.
+      if (S.phase === "countdown" || (S.phase !== "play" && S.playMs > 0 && !inWindow())) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "closed" });
+      // A whole number of taps, 0..TALLY_MAX_DELTA per message (a forged {delta: 1e9} / negative can't move the total).
+      const raw = d?.payload?.delta;
+      const delta = raw == null ? 1 : Math.min(TALLY_MAX_DELTA, Math.max(0, Math.floor(Number(raw)) || 0));
+      if (delta === 0) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_delta" });
+      r.coop += delta;
       took(anonId);
       onPoints(anonId, nick, 1);
       setVar("coopTotal", r.coop);

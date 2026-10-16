@@ -36,7 +36,9 @@ export const LIMITS = {
   authTimeoutMs: 10000, // an unauthed socket older than this is closed on the next connect
   reportMs: 30000, // a room reports its usage to the meter at most this often (and when it empties)…
   reportEvery: 1000, // …or as soon as this many requests (sockets + messages) are unreported (#151:
-  // at 1:1 a busy room's 30 s is ~24k requests the guard would not see; 1 meter call per 1,000 = 0.1 %)
+  // at 1:1 a busy room's 30 s is ~24k requests the guard would not see; 1 meter call per 1,000 = 0.1 %)…
+  idleFlushMs: 5000, // …or once the room has been quiet this long (#191): a quiet DO may hibernate
+  // (~10 s without events) and lose what it has not reported; the pending timer keeps it awake until then.
 };
 
 // Room ids are `slug` or `slug~CODE` (snack-player links.ts roomIdFor): URL-unreserved chars.
@@ -200,18 +202,38 @@ export class UsageMeter {
 
 /**
  * A room's side of the meter: counts locally (memory only — never a write per message),
- * reports on traffic when `everyMs` passed or `everyN` requests are unreported, and when the
- * room empties; remembers the stage the meter last answered — for that UTC day only (the
- * limits reset 00:00 UTC, so a stage heard yesterday no longer refuses anyone).
+ * reports on traffic when `everyMs` passed or `everyN` requests are unreported, when the room
+ * empties, and once the room has been quiet `idleMs` (#191: a quiet DO may hibernate and lose
+ * its memory — counts not reported by then would be lost and the guard would count too few).
+ * `busy()` true = the room cannot hibernate now (a game's engine timer is pending): the quiet
+ * report then waits for the game to end instead of costing a meter call in every pause.
+ * Remembers the stage the meter last answered — for that UTC day only (the limits reset
+ * 00:00 UTC, so a stage heard yesterday no longer refuses anyone).
  */
 const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
+const zero = () => ({ conns: 0, msgs: 0, alarms: 0, rows: 0, refusedJoins: 0 });
 export class UsageReporter {
-  constructor({ usage, now = Date.now, everyMs = 30000, everyN = 1000 }) {
-    Object.assign(this, { usage, now, everyMs, everyN });
-    this.d = { conns: 0, msgs: 0, alarms: 0, rows: 0, refusedJoins: 0 };
+  constructor({ usage, now = Date.now, everyMs = 30000, everyN = 1000, idleMs = 0, busy = () => false, setTimer, clearTimer }) {
+    Object.assign(this, { usage, now, everyMs, everyN, idleMs, busy });
+    this.setTimer =
+      setTimer ??
+      ((fn, ms) => {
+        const h = setTimeout(fn, ms);
+        h?.unref?.(); // Node: a quiet-report timer never keeps a process alive
+        return h;
+      });
+    this.clearTimer = clearTimer ?? ((h) => clearTimeout(h));
+    this.d = zero();
     this.awakeSince = null;
     this.last = now();
+    this.lastCount = this.last;
+    this.idleTimer = null;
     this.stage = 0;
+  }
+  /** Anything counted and not reported yet? */
+  get pending() {
+    const d = this.d;
+    return Boolean(d.conns || d.msgs || d.alarms || d.rows || d.refusedJoins);
   }
   get stage() {
     return this.stageDay === utcDay(this.now()) ? this._stage : 0;
@@ -223,15 +245,36 @@ export class UsageReporter {
   count(k, n = 1) {
     this.d[k] += n;
     this.awakeSince ??= this.now();
+    this.lastCount = this.now();
+    this.armIdle(this.idleMs);
   }
   /** Call on traffic: reports when due (time, or enough unreported requests). */
   tick() {
     if (this.now() - this.last >= this.everyMs || this.d.conns + this.d.msgs >= this.everyN) this.flush(false);
   }
+  /** One timer at a time (not one per message): it checks the quiet time when it fires. */
+  armIdle(ms) {
+    if (!this.idleMs || this.idleTimer != null) return;
+    this.idleTimer = this.setTimer(() => this.onIdle(), ms);
+  }
+  onIdle() {
+    this.idleTimer = null;
+    if (!this.pending) return;
+    const quiet = this.now() - this.lastCount;
+    if (quiet < this.idleMs) return this.armIdle(this.idleMs - quiet);
+    if (this.busy()) return this.armIdle(this.idleMs); // mid-game: the DO stays awake — look again later
+    this.flush(false);
+  }
+  /** Stop the quiet-report timer (nothing is reported). */
+  stop() {
+    if (this.idleTimer != null) this.clearTimer(this.idleTimer);
+    this.idleTimer = null;
+  }
   flush(empty) {
     const t = this.now();
     const d = { ...this.d, awakeMs: this.awakeSince ? t - this.awakeSince : 0 };
-    this.d = { conns: 0, msgs: 0, alarms: 0, rows: 0, refusedJoins: 0 };
+    this.d = zero();
+    this.stop();
     this.awakeSince = empty ? null : t;
     this.last = t;
     if (!this.usage || !(d.conns || d.msgs || d.alarms || d.rows || d.awakeMs || d.refusedJoins)) return Promise.resolve();
@@ -261,7 +304,7 @@ export class RoomRelay {
     this.L = { ...LIMITS, ...limits };
     this.authChain = Promise.resolve(); // auths run one at a time (create / lock state)
     this.rate = new WeakMap(); // socket state → {sec, n} (memory only)
-    this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs, everyN: this.L.reportEvery });
+    this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs, everyN: this.L.reportEvery, idleMs: this.L.idleFlushMs });
     // Accounting for the sims (memory only, never stored).
     this.stats = { conns: 0, in: 0, out: 0, bytesIn: 0, byType: {}, authFail: 0 };
   }

@@ -1,6 +1,6 @@
 # Bite 포맷 스펙 v1
 
-> snackapp의 자체 엔진 **Bite**가 읽는 앱 문서 포맷. 파일 = `*.bite.json`.
+> PlaySnack의 자체 엔진 **Bite**가 읽는 앱 문서 포맷. 파일 = `*.bite.json`.
 > 엔진 = 런타임(`@snack/bite`) · 레이아웃(`@snack/bite-layout`) · 렌더링(`@snack/bite-pixi`). 셋이 같은 **노드** 트리를 공유한다.
 
 ## 0. 설계 원칙
@@ -227,16 +227,18 @@ jsep 기반의 JS 식 부분집합.
 | 액션 | 페이로드 | 필드 (`type`, 필수 여부) |
 |---|---|---|
 | `vote` | 객체 | `option` string·number **필수** — 선택지 키(예 `"o0"`) |
-| `tally` | 객체 | `delta` number (없으면 +1) |
+| `tally` | 객체 | `delta` number (없으면 +1) — `coopTotal`에 더한다. 협동 연타(coop-tap-goal)는 탭마다가 아니라 `taps`처럼 묶어서 보낸다(#190): 탭은 `myTaps`만 올리고(게이지는 `shownTotal`로 그 자리에서 움직임), `tick`에서 `myTaps > sentTaps && now - sentAt >= tapBatchMs`면 `delta = myTaps - sentTaps`, 결과 화면에 들어가면 남은 것을 한 번 더. 받는 때: 단일 플레이 창 판이면 `play` 중과 결과 뒤 `LATE_GRACE_MS`(2.5 s)까지만 — 카운트다운이나 그 뒤(대기실·다음 판)에 온 묶음은 `actionAck {accepted: false, reason: "closed"}`(지난 판 탭이 다음 판 합계에 섞이지 않음); 시간제 판을 한 번도 안 한 방은 언제든. `delta`는 정수로 내리고 메시지당 0–30(`TALLY_MAX_DELTA` = `TAP_RATE_MAX` × 2)으로 잘리며, 0이면 `reason: "invalid_delta"` |
 | `score` | 객체 | `score` number **필수** (유한수가 아니면 버림) |
 | `answer` | 객체 | `option` number **필수** — 0부터 세는 보기 번호(**그 라운드에 보인 순서**) · `ms` number — 이 기기가 잰 "문제 표시 → 탭" 시간(`tick`에서 새 `roundIdx`가 `roundAnswer < 0`으로 보이면 `seenAt = now`를 기록 → 탭 때 `now - seenAt`). 방장 검증: 숫자·0 이상·`answerMs + 500` 이하가 아니거나 없으면 **방장이 잰 경과 시간**을 쓴다(위조로 더 빨라질 수 없음), 방장이 본 경과 시간 + 50ms보다 느린 주장은 그 값으로 잘림, 소수는 반올림. 라운드당 1명 1번(두 번째부터 무시), **라운드가 열려 있는 `play` 중에만**(로비·카운트다운의 답은 무시), 보기 범위 밖 `option`은 답으로 치지 않음, 퀴즈 주인공(`quizPack`을 보낸 사람)의 답은 무시. `round` `sessionNo` number — 이 답이 어느 라운드(`roundIdx`)·어느 판(`sessionNo`)의 것인지; 다르면(늦게 다시 보낸 답) `actionAck {accepted: false, reason: "stale_round"}`. 받아들인 답은 그 기기에 `myPick {sessionNo, round, option, ms}`(플레이어별)로 돌려줘 새로고침해도 다시 고를 수 없다. 점수 = 정답일 때 `max(100, 1000 − round(ms / answerMs × 800))`, 오답 0. 점수판(`raceBoard`)은 공개(reveal) 때 갱신 |
 | `quizPack` | 객체 | 나 맞히기 퀴즈. `questions` array **필수** — `{q, options, answer}` 1–20개(`q` ≤80자, `options` 2–4개 각 ≤30자, `answer` 0부터; 길이는 글자(grapheme) 기준, 빈 보기는 빠지고 `answer`가 따라감, 못 쓰는 문항은 버림) · `title` string ≤40자 · `about` string(주인공 표시 이름, 닉네임 규칙대로 10자; 없으면 보낸 사람 닉네임) · `settings` object `{rounds 1–20, answerMs 3000–20000}`(있으면 `start`의 값보다 우선). 보낸 사람이 **주인공**이 된다. 받는 때: `lobby`(이미 저장된 팩이 있으면 그 주인공만 — 주인공이 **30초 넘게** 방에 없으면 누구나)와 `result`(누구나 = "나도 만들기", 단 그 결과 화면에서 **먼저 받아들인 한 명**의 팩이 다음 시작까지 유지 — 그 사람의 재전송만 받음). 거절은 `actionAck {accepted: false, reason}`: `invalid_pack`(쓸 문항 0개) · `not_subject` · `pack_waiting` · `not_in_lobby`. 글자 수 상한에 더해 문자열마다 UTF-16 길이도 상한의 4배까지(넘치는 글자는 잘림), 결합 문자가 기본 글자당 2개를 넘는 문자열은 버린다(용량 폭탄 방지). 팩은 세션 상태라 스냅샷·호스트 교대 뒤에도 남고, 새 팩이 오면 통째로 바뀐다 |
 | `rename` | 객체 | `nick` string **필수** — 이 사람의 새 닉네임(#104: 링크로 들어와 자동 이름을 받은 사람이 대기실에서 이름을 정할 때 셸이 보냄). 입장 닉네임과 같은 규칙으로 정리(앞뒤 공백 제거, 10글자(grapheme))하고, 비면 `actionAck {accepted: false, reason: "invalid_nick"}`. **대기실(`lobby`)·결과(`result`)에서만** 받고 카운트다운·플레이 중이면 `reason: "not_in_lobby"`(게임 중엔 이름이 바뀌지 않는다). 바뀌는 것: `roster`의 그 사람 이름, 점수 주인 이름(`raceBoard` 행 — 점수가 있을 때), 같은 anonId의 모든 연결. 그대로인 것: 플레이어별 변수, `pid`, 이미 저장된 `quizPack`의 주인공 표시 이름(`quizInfo.about` — 팩을 보내기 **전에** 바꾸면 새 이름이 쓰인다), 끝난 판의 `quizRecap`. 이름은 스냅샷(`nicks`)에 실려 호스트 교대·방 서버 재기동 뒤에도 남는다(방 서버는 소켓 첨부에도 새 이름을 적는다) |
 | `start` | 객체 **또는 숫자**(= `duration` ms) | `duration` `rounds` `roundMs` `answerMs` `revealMs` `matchupMs` number · `goal` number(협동 목표 — 단일 플레이 창에서 각자 `taps` 누적 수의 합이 `coopTotal`, 플레이 중 합이 `goal`에 닿으면 바로 결과로 가고 `coopTimeMs` = 플레이 시작→달성 ms(못 채우면 0); 다같이 300번 클릭) · `game` `theme` string(자유 텍스트) · `mode` `reaction`\|`nunchi`\|`guess` · `bracket` `quiz` `hidden` boolean |
 | `tap` | 없음 | 보낸 페이로드는 무시 (경주 +1 · 눈치 선점 · 반응 탭, 세션 모드에 따라) |
-| `taps` | 객체 | `count` number **필수** — 이 기기의 **누적** 탭 수. 탭 배틀은 매 탭마다가 아니라 ~250ms마다, 그리고 끝나고 한 번 더 보낸다(`tick`에서 `myTaps > sentTaps && now - sentAt >= 250`). 방장은 최대값을 채택하므로 늦게 오거나 다시 온 묶음이 수를 되돌리지 않는다. 상한 초당 15탭(`TAP_RATE_MAX`, 넘치면 잘림). 결과 전환 뒤 1.5초까지 마지막 묶음을 받는다 |
+| `taps` | 객체 | `count` number **필수** — 이 기기의 **누적** 탭 수. 탭 배틀은 매 탭마다가 아니라 ~250ms마다, 그리고 끝나고 한 번 더 보낸다(`tick`에서 `myTaps > sentTaps && now - sentAt >= tapBatchMs`). 방장은 최대값을 채택하므로 늦게 오거나 다시 온 묶음이 수를 되돌리지 않는다. 상한 초당 15탭(`TAP_RATE_MAX`, 넘치면 잘림). 결과 전환 뒤 2.5초(`LATE_GRACE_MS`)까지 마지막 묶음을 받는다 |
 | `reaction` | 객체 | `ms` number **필수** — 이 기기가 잰 "초록 표시 → 탭" 시간(`tick`에서 `reactionGo`가 켜진 `now`를 기록 → 탭 때 `now - goSeenAt`). 초록 전 탭이면 `-1`. 방장은 범위만 본다: 80ms 미만·초록 전 = 부정출발(0점), 창(4초) 밖 = 순위 제외, 그 외 `2000 − ms`(방장이 직접 잰 시간보다 빠른 주장은 그 값으로 잘림). 점수는 **기기 측정값**이지 방장 수신 시각이 아니다(MP-08) |
 | `lobby` | 없음 | 세션 종료 → 대기실 |
+
+- **탭 묶음 간격 `tapBatchMs`** (#179, 방 변수, number ms): 시간제 탭 게임(tap-battle·coop-click·coop-tap-goal)이 `taps`/`tally`를 보내는 최소 간격. 템플릿은 `"tapBatchMs": 250`을 **선언**하고 `tick` 조건에서 읽는다(선언 안 하면 셸이 넘겨도 무시). 방은 매 판 카운트다운이 시작될 때 그때 인원으로 정한다: **20명 이하 = 250 ms**(작은 방은 아예 보내지 않음 — 템플릿 기본값 그대로, 손맛 불변), **21명 이상 = 1,000 ms**(엣지에선 수신 메시지 1개 = DO 요청 1, `docs/edge-rooms.md` §6). 1 s를 받았던 방이 줄면 다음 판에 250을 다시 보낸다. 엔진 상수 `TAP_BATCH_MS` · `TAP_BATCH_BIG_MS` · `TAP_BATCH_BIG_ROOM`, `tapBatchMsFor(players)`(`packages/snack-room/src/room.js`). 카운트다운·플레이 타이머는 그대로이고, 마지막 묶음은 결과 화면 진입 즉시 나가 1 s 간격이어도 `LATE_GRACE_MS`(2.5 s) 안에 닿는다.
 
 `start`·`lobby`를 누가 보낼 수 있는지(친구 방 = 방장만, 공개 방 = 자동 시작)는 §6.2.
 

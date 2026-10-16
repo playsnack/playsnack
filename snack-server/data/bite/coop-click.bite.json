@@ -19,6 +19,7 @@
     "myTaps": 0,
     "sentTaps": 0,
     "sentAt": 0,
+    "tapBatchMs": 250,
     "shownTotal": 0,
     "playStart": 0,
     "iAmSpectator": false,
@@ -170,7 +171,7 @@
       ],
       "tick": [
         {
-          "if": "myTaps > sentTaps && now - sentAt >= 250",
+          "if": "myTaps > sentTaps && now - sentAt >= tapBatchMs",
           "then": [
             {
               "emit": "taps",
