@@ -385,13 +385,13 @@ try {
     const twoOk = await waitFor(async () => (await rosterN(A)) === 2 && (await rosterN(B)) === 2, 3000, "2 after C closed").then(() => true, () => false);
     const t2 = Date.now() - t0;
     await sleep(300);
-    await step("C closes its page → A and B show 2 within 3 s", twoOk && /2명/.test(await peopleChip(A)), { ms: t2, rosters: [(await vars(A)).roster, (await vars(B)).roster], people: [await peopleChip(A), await peopleChip(B)] }, A);
+    await step("C closes its page → A and B show 2 within 3 s", twoOk && /👥 2(\/30)?명/.test(await peopleChip(A)), { ms: t2, rosters: [(await vars(A)).roster, (await vars(B)).roster], people: [await peopleChip(A), await peopleChip(B)] }, A);
     t0 = Date.now();
     await B.getByRole("button", { name: "홈으로" }).click();
     const oneOk = await waitFor(async () => (await rosterN(A)) === 1, 3000, "1 after B went home").then(() => true, () => false);
     const t1 = Date.now() - t0;
     await sleep(300);
-    await step("B taps ← 홈 → A shows 1 within 3 s", oneOk && /1명/.test(await peopleChip(A)), { ms: t1, roster: (await vars(A)).roster, people: await peopleChip(A), bUrl: B.url() }, A);
+    await step("B taps ← 홈 → A shows 1 within 3 s", oneOk && /👥 1(\/30)?명/.test(await peopleChip(A)), { ms: t1, roster: (await vars(A)).roster, people: await peopleChip(A), bUrl: B.url() }, A);
   });
 
   // ── 8. scheduled start ──

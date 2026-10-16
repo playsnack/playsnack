@@ -126,6 +126,9 @@ The Worker decides first (`admit.js decideUpgrade`, the hub runs the same functi
 and closes (a browser hides an upgrade's HTTP status). Close codes: `expired` 4004 · `pin-required` / `pin` / `locked`
 / `closed` 4003 · `slow` 4029 · `origin` / `bad` 4000.
 
+**Refusals in the room** (the DO, at the hello): `seat_taken` 4009 · `full` / `room_full_today` / `friends_full` (#232) 4029 ·
+PIN refusals 4003 · `bad` 4000.
+
 ## 5. Limits
 
 | Limit | Where | Value |
@@ -142,6 +145,8 @@ and closes (a browser hides an upgrade's HTTP status). Close codes: `expired` 40
 | Reactions | DO, per socket | ≤ 3/s, allowlist ❤️ 🔥 😂 👍 😮 (snack-player `REACTIONS`); extra ones are dropped, not spread |
 | Usage stage 3 | DO | at ≥ 95 % of any free limit: a socket above 60 frames / min → 4029 |
 | Actions | DO | 15/s as before (`actionAck rate_limited`) |
+| Sockets | DO, every room | 300 (`maxSockets`) → `denied{full}` + 4029 |
+| Friends room (#232) | DO hello, `slug~CODE` only (PIN and quiz rooms too) | `FRIENDS_ROOM_MAX = 30` distinct devices (anonId) in the room, spectators included (`game.js`, limit `friendsMax`). A device that already has a seat — its socket still in (silent rejoin / takeover), a seat token, a PIN pass, the organizer token — always gets in. The next new device → `denied{friends_full, max}` + 4029, counted as `refusedJoins` in the meter (D2 R0). Public / organizer rooms: only `maxSockets` |
 
 No per-IP frame budget (200 phones behind one park NAT). A tap game sends ≤ 4 frames/s (`tapBatchMs` 250), within the
 refill.
@@ -164,7 +169,8 @@ develop deploy shows the bindings work, copy the block to the top level with oth
 | `/usage` | unchanged |
 
 Server → client, new: `pass`, `pinClosed`, `alert`; `denied` reasons `expired`, `slow`, `origin`, `locked`, `closed`
-(plus the existing `pin`, `pin-required`, `room_full_today`, `seat_taken`, `full`, `bad`). The current player treats
+(plus the existing `pin`, `pin-required`, `room_full_today`, `seat_taken`, `full`, `bad`; #232 adds `friends_full` — the
+player shows "친구방이 꽉 찼어요 (30명)" with 공개방으로 가기 / 홈으로, no retry). The current player treats
 unknown messages as no-ops; the new reasons only occur for v2 links / limits it does not create yet.
 
 **Vars** (`wrangler.jsonc`, top level and `env.dev`): `ALLOWED_ORIGINS` (live: `https://playsnack.pages.dev,
@@ -241,6 +247,17 @@ and the 70 % alert issue).
   친구 초대하기 copies (clipboard read back, "링크를 복사했어요"), `navigator.share` never called.
 - `snack-player/test/invite.test.ts` (#208 / #209) — touch vs computer (`(pointer: coarse)`, mobile UA, iPadOS-as-Mac), share only
   on touch, clipboard ok / refused, the copied lines, the lobby PIN rule, the maker's one mint with / without a PIN.
+
+## 9c. Tests (#232, friends room cap)
+
+- `packages/snack-room/test/edge-friends-cap.test.js` (hub `friendsMax: 3`, port 5030) — the new device past the cap gets
+  `friends_full` + 4029 and never enters; a spectator holds a seat; the same device on a new socket (seat token), a device back with
+  its seat token after a new one took the free place, and the organizer token all get in while full; refusals counted in
+  `refusedJoins`; a public room takes 5 with no cap.
+- `snack-player/test/roomType.test.ts` (chip "👥 n/30명", near from 25, public "👥 n명"), `roomAdmission.test.ts` (copy, `toPublic`,
+  final on the frame and on 4029 `friends_full`, telemetry), `api/_test/telemetry-client.test.js` (the ingest keeps `friends_full`).
+- `snack-server/tools/room-rules-e2e.mjs` step 1a (hub `friendsMax: 2`): "👥 2/30명"; "👥 30/30명" clears QR at 360 / 390; B reloads
+  and is back while full; the 3rd device gets the sheet with [공개방으로 가기] [홈으로], refused once; 공개방으로 가기 → `/p/<slug>`.
 
 ## 10. Residual risks
 

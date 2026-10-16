@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createBite } from "../../packages/bite/src/index.js";
 import { absBoxes, computeScene, initLayout } from "../../packages/bite-layout/src/index.js";
-import { chipAction, leaveFriendsCopy, roomChip, roomKind, showRoomChip } from "../src/roomType.ts";
+import { FRIENDS_NEAR_FULL, FRIENDS_ROOM_MAX, chipAction, leaveFriendsCopy, peopleChip, roomChip, roomKind, showRoomChip } from "../src/roomType.ts";
 import { askPinFirst, invitePinAsked, INVITE_PIN_ASK } from "../src/invite.ts";
 import { forTemplate } from "../src/spectate.ts";
 
@@ -20,6 +20,21 @@ test("chip: the room kind from the link, its label and what a tap does", () => {
   assert.match(roomChip("public").aria, /친구방 만들기/);
   assert.match(roomChip("friends").aria, /공개방으로/);
   for (const k of ["public", "friends"] as const) assert.ok(!/방장/.test(roomChip(k).label));
+});
+
+test("#232 people chip: '👥 n명' in a public room; '👥 n/30명' in a friends room, highlighted from 25", () => {
+  assert.equal(FRIENDS_ROOM_MAX, 30);
+  assert.equal(FRIENDS_NEAR_FULL, 25);
+  assert.deepEqual(peopleChip("public", 12), { text: "👥 12명", near: false });
+  assert.deepEqual(peopleChip("public", 29), { text: "👥 29명", near: false });
+  assert.equal(peopleChip("friends", 1).text, "👥 1/30명");
+  assert.equal(peopleChip("friends", 12).text, "👥 12/30명");
+  assert.equal(peopleChip("friends", 24).near, false);
+  assert.equal(peopleChip("friends", 25).near, true);
+  assert.equal(peopleChip("friends", 30).near, true);
+  assert.equal(peopleChip("friends", 30).text, "👥 30/30명");
+  assert.equal(peopleChip("friends", 25).aria, "25명 · 친구방은 최대 30명 · 곧 꽉 차요");
+  assert.equal(peopleChip("friends", 3).aria, "3명 · 친구방은 최대 30명");
 });
 
 test("chip: lobby and result only — hidden during the 3·2·1 countdown and play", () => {

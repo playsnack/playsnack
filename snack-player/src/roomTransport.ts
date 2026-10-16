@@ -217,7 +217,7 @@ export class ServerTransport extends BaseTransport {
     if (code === 4009) return "replaced";
     if (code === 4004) return "expired";
     if (code === 4003) return reason === "pin" || reason === "locked" || reason === "closed" ? reason : "pin-required";
-    if (code === 4029 && reason === "slow") return "slow";
+    if (code === 4029 && (reason === "slow" || reason === "friends_full")) return reason;
     return this.connState === "connected" ? "disconnected" : "unreachable";
   }
 

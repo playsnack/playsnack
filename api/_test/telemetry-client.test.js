@@ -240,7 +240,7 @@ test('joinFailReason maps transport reasons onto the reported set', async () => 
   const cases = { timeout: 'timeout', unreachable: 'unreachable', disconnected: 'disconnected', broker: 'unreachable',
     subscribe: 'subscribe', silence: 'silence', load: 'network', 'refused: Not authorized': 'refused', whatever: 'other', '': 'other',
     // #157 room server refusals: the reason only ('pin-required' counts as 'pin')
-    pin: 'pin', 'pin-required': 'pin', locked: 'locked', closed: 'closed', expired: 'expired', slow: 'slow', seat_taken: 'seat_taken', full: 'full',
+    pin: 'pin', 'pin-required': 'pin', locked: 'locked', closed: 'closed', expired: 'expired', slow: 'slow', seat_taken: 'seat_taken', full: 'full', friends_full: 'friends_full',
     room_full_today: 'other', replaced: 'other' };
   for (const [raw, want] of Object.entries(cases)) assert.equal(t.joinFailReason(raw), want, raw);
   assert.equal(t.joinFailReason(undefined), 'other');
@@ -271,7 +271,7 @@ test('automatedBrowser: webdriver or a headless/bot user agent stops collection;
 
 test('#157: every reason joinFailReason reports is one the ingest keeps (room server refusals included)', async () => {
   const t = await fresh();
-  for (const raw of ['pin', 'pin-required', 'locked', 'closed', 'expired', 'slow', 'seat_taken', 'full', 'timeout', 'silence', 'nonsense']) {
+  for (const raw of ['pin', 'pin-required', 'locked', 'closed', 'expired', 'slow', 'seat_taken', 'full', 'friends_full', 'timeout', 'silence', 'nonsense']) {
     const reason = t.joinFailReason(raw);
     assert.ok(JOIN_FAIL_REASONS.has(reason), `${raw} → ${reason}`);
     const n = normalizeEvent({ k: 'room_join', ok: false, ms: 900, room: 'friend', reason, via: 'edge' });

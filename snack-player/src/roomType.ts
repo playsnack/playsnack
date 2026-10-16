@@ -10,6 +10,20 @@ export type RoomKind = "public" | "friends";
 /** A link with a room code is a friends room; without one, the app's public room. */
 export const roomKind = (code: string | null | undefined): RoomKind => (code ? "friends" : "public");
 
+/**
+ * #232: a friends room holds at most this many people (edge/room game.js FRIENDS_ROOM_MAX, the
+ * room server decides); from FRIENDS_NEAR_FULL the people chip is highlighted (nearly full).
+ */
+export const FRIENDS_ROOM_MAX = 30;
+export const FRIENDS_NEAR_FULL = 25;
+
+/** The people chip (top right): "👥 n명" in a public room, "👥 n/30명" in a friends room (near = ≥ 25). */
+export function peopleChip(kind: RoomKind, people: number): { text: string; near: boolean; aria?: string } {
+  if (kind !== "friends") return { text: `👥 ${people}명`, near: false };
+  const near = people >= FRIENDS_NEAR_FULL;
+  return { text: `👥 ${people}/${FRIENDS_ROOM_MAX}명`, near, aria: `${people}명 · 친구방은 최대 ${FRIENDS_ROOM_MAX}명${near ? " · 곧 꽉 차요" : ""}` };
+}
+
 /** The chip: what it says and what a screen reader hears (what a tap does). */
 export function roomChip(kind: RoomKind): { icon: string; label: string; aria: string } {
   return kind === "public"

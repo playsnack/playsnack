@@ -6,6 +6,9 @@
 //      B opens the
 //      invite link → A’s chip asks "친구방에서 나갈까요?" (stays); B has no 시작하기, "방장이 시작하길
 //      기다리는 중 · 방장 · A". A starts → both play; the chip is hidden in countdown / play, back on the result.
+//   1a. (#232) the friends room's cap (the hub's friendsMax 2): A and B show "👥 2/30명" ("👥 30/30명" still fits
+//      at 360 / 390); B reloads and is back (its seat); C opens the invite → "친구방이 꽉 찼어요 (30명)",
+//      [공개방으로 가기] [홈으로], refused once; 공개방으로 가기 → /p/<slug>, "👥 n명".
 //   1b. alone in a friends room the chip goes straight back to the public room (no sheet).
 //   2. 공개 방 (#141: 2명부터): C opens /p/<slug> alone → "한 명 더 오면 시작해요" · "링크를 친구에게
 //      보내도 돼요", nothing counts down; D comes → same room, both "<n>초 뒤 시작 · 2명"; nobody
@@ -39,7 +42,9 @@ const FRIENDS_SLUG = "tpl-tap-battle";
 const PUBLIC_SLUG = "tpl-coop-tap-goal";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const hub = await startEdgeHub({ port: HUB_PORT });
+// #232: a friends room's cap is 2 here (30 live) — the 3rd device sees the full sheet.
+const FRIENDS_MAX = 2;
+const hub = await startEdgeHub({ port: HUB_PORT, limits: { friendsMax: FRIENDS_MAX } });
 if (!SKIP_BUILD || !existsSync(join(OUT, "index.html"))) {
   const env = { ...process.env, VITE_ROOM_URL: hub.url };
   delete env.VITE_SERVER_URL;
@@ -198,6 +203,60 @@ try {
   const B = await open(b2, "밥", invite, logs);
   await waitFor(async () => (await Promise.all([A, B].map(vars))).every((v) => (v.roster || []).length === 2), 15000, "both in the friends room");
   await sleep(500);
+  // ── 1a. #232 friends room cap (this hub: FRIENDS_MAX 2; the copy and chip say the real 30) ──
+  const peopleOf = (p) => p.evaluate(() => {
+    const el = document.querySelector('[data-testid="people-chip"]');
+    return { text: (el?.textContent ?? "").trim(), near: el?.getAttribute("data-near") ?? null };
+  });
+  const chipsAB = await Promise.all([A, B].map(peopleOf));
+  // the widest friends label ("👥 30/30명", highlighted) still fits the top row at 360 / 390 px
+  const widest = [];
+  for (const [w, h] of [[360, 640], [390, 844]]) {
+    await A.setViewportSize({ width: w, height: h });
+    await sleep(300);
+    widest.push({ w, ...(await A.evaluate(() => {
+      const el = document.querySelector('[data-testid="people-chip"]');
+      const c = el.cloneNode(true);
+      c.textContent = "👥 30/30명";
+      c.removeAttribute("data-testid");
+      el.after(c);
+      const r = c.getBoundingClientRect();
+      const qr = document.querySelector('[aria-label="QR 코드로 초대하기"]')?.getBoundingClientRect();
+      c.remove();
+      return { people: { left: r.left, right: r.right }, qrRight: qr?.right ?? null };
+    })) });
+  }
+  await A.setViewportSize({ width: 390, height: 844 });
+  step("#232 friends room people chip '👥 2/30명' (not highlighted below 25); '👥 30/30명' still clears QR at 360 / 390 px",
+    chipsAB.every((c) => c.text === "👥 2/30명" && c.near === null) && widest.every((r) => r.qrRight != null && r.qrRight + 4 <= r.people.left && r.people.right <= r.w),
+    { chipsAB, widest });
+  // full (2 of 2): B reloads — its seat lets it back in
+  await B.reload({ waitUntil: "load" });
+  await B.waitForFunction(() => globalThis.__bite?.scene, null, { timeout: 15000 });
+  await waitFor(async () => (await vars(B)).roster?.length === 2 && (await vars(A)).roster?.length === 2, 15000, "B back after a reload");
+  step("#232 full friends room: a device that has a seat (B reloads) gets back in", true);
+  // a new device: the sheet, no retry loop; 공개방으로 가기 → the same game's public room
+  const roomKey = `room:${FRIENDS_SLUG}~${new URL(invite).searchParams.get("room")}`;
+  const fullBefore = hub.history().get(roomKey)?.friendsFull ?? 0;
+  const C3 = await open(b3, "찰리", invite, logs);
+  const full = C3.getByRole("alertdialog");
+  await full.waitFor({ state: "visible", timeout: 15000 });
+  const fullText = ((await full.textContent()) ?? "").trim();
+  const fullReason = await full.getAttribute("data-reason");
+  const fullButtons = (await full.getByRole("button").allTextContents()).map((t) => t.trim());
+  const urlAtSheet = C3.url();
+  await sleep(2500);
+  const fullCount = hub.history().get(roomKey)?.friendsFull ?? 0;
+  step("#232 the 3rd new device (cap 2): '친구방이 꽉 찼어요 (30명)' with [공개방으로 가기] [홈으로], refused once (no retry loop), the room still 2",
+    fullReason === "friends_full" && /친구방이 꽉 찼어요 \(30명\)/.test(fullText) && fullButtons.join("|") === "공개방으로 가기|홈으로" && fullCount - fullBefore === 1 && (await vars(A)).roster?.length === 2 && C3.url() === urlAtSheet,
+    { fullReason, fullText, fullButtons, refused: fullCount - fullBefore });
+  await full.getByRole("button", { name: "공개방으로 가기" }).click();
+  await waitFor(async () => !/[?&]room=/.test(C3.url()) && new URL(C3.url()).pathname === `/p/${FRIENDS_SLUG}` && (await vars(C3)).roomMode === "auto", 15000, "C in the public room");
+  await sleep(400);
+  const pubPeople = await peopleOf(C3);
+  step("#232 공개방으로 가기 → /p/<slug> (the same game's public room): chip 🌐 공개방, people chip '👥 n명' (no cap shown)",
+    /🌐\s*공개방/.test(await chipText(C3)) && /^👥 \d+명$/.test(pubPeople.text) && (await C3.getByRole("alertdialog").count()) === 0, { url: C3.url(), pubPeople });
+  await C3.context().close();
   // with a friend in: the chip asks first; "친구방에 있기" keeps everything as it was
   await A.getByTestId("room-type-chip").click();
   const sheet = A.getByTestId("leave-friends");
