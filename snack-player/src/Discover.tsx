@@ -9,14 +9,15 @@ import { MAKE_PARAM, QUIZ_APP_ID, QUIZ_SLUG } from "./quiz";
 import { BLOCK_CSS } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
 
-// Home: the 대표작 card (index.json `flagship` — today "나 맞히기", a game of
-// its own: make a quiz about yourself, friends guess) as the one lime hero,
-// then 추천 (games the owner reviewed + fixed on a real phone — index.json
-// `featured`, by rank) as cards, then every other game under "검토 전 게임" as
-// a quieter list. The 대표작 card itself is not a button — its buttons are;
-// a 추천 card or 검토 전 row opens the app (/p/tpl-<id>). No live numbers
-// here until there is real data to show (master plan D0) — only what is
-// true: the app, its kind, and whether it's played together.
+// Home, three tiers (catalog.ts / docs/template-taxonomy.md "Home tiers"):
+// the 대표작 card (index.json `flagship` — today "나 맞히기", a game of its
+// own: make a quiz about yourself, friends guess) as the one lime hero, then
+// 추천작 (passed a real-phone check or had its fix merged — index.json
+// `featured` + `reviewedIn`, by rank) as cards, then every other game under
+// "추천 후보" as a quieter list. The 대표작 card itself is not a button — its
+// buttons are; a 추천작 card or 추천 후보 row opens the app (/p/tpl-<id>).
+// No live numbers here until there is real data to show (master plan D0) —
+// only what is true: the app, its kind, and whether it's played together.
 // Skin = "Mini-Block Arcade": chunky blocks (radius 0 + 2px border + blur:0 hard
 // shadow), lime is the single hero color. Pixel font only for Latin/digit-only text (logo, scores); Korean headings are Pretendard 700.
 
@@ -92,7 +93,7 @@ export function Discover() {
 
         {!!apps?.featured.length && (
           <>
-            <h2 style={sectionTitle}>⭐ 추천</h2>
+            <h2 style={sectionTitle}>⭐ 추천작</h2>
             <div style={grid} data-section="featured">
               {apps.featured.map((m) => (
                 <button key={m.id} className="blk" style={card} data-app={m.id} onClick={() => open(m.id)}>
@@ -108,17 +109,18 @@ export function Discover() {
           </>
         )}
 
-        {/* Not yet reviewed on a real phone: still playable, deliberately quieter. */}
-        {!!apps?.unreviewed.length && (
+        {/* 추천 후보: not yet checked on a real phone / still being fixed. Still
+            playable, deliberately quieter — only the 같이 chip keeps the lime. */}
+        {!!apps?.candidates.length && (
           <>
-            <h2 style={subTitle}>검토 전 게임 <span style={{ fontWeight: 600 }}>· {apps.unreviewed.length}</span></h2>
-            <p style={subNote}>아직 다듬는 중이에요. 플레이는 할 수 있어요.</p>
-            <div style={list} data-section="unreviewed">
-              {apps.unreviewed.map((m) => (
+            <h2 style={subTitle}>추천 후보 <span style={{ fontWeight: 600 }}>· {apps.candidates.length}</span></h2>
+            <p style={subNote}>아직 다듬는 중인 실험작이에요. 플레이는 할 수 있어요.</p>
+            <div style={list} data-section="candidates">
+              {apps.candidates.map((m) => (
                 <button key={m.id} style={row} data-app={m.id} onClick={() => open(m.id)}>
                   <span style={{ fontSize: 20, width: 28, textAlign: "center", flexShrink: 0 }}>{m.emoji}</span>
                   <span style={rowTitle}>{m.title}</span>
-                  {m.mode === "multi" && <span style={tagMuted}>같이</span>}
+                  {m.mode === "multi" && <span style={tagRow}>같이</span>}
                   <span style={{ color: C.inkMuted, fontSize: TOKENS.size.caption, flexShrink: 0 }}>{CAT[m.category] ?? "스낵"}</span>
                 </button>
               ))}
@@ -155,8 +157,9 @@ const card: React.CSSProperties = {
 // Body font: the pixel face is only for Latin/digit-only text (design system rule).
 const cardTitle: React.CSSProperties = { fontWeight: 700, fontSize: TOKENS.size.bodyMd, marginTop: S.s2, lineHeight: 1.35 };
 const tag: React.CSSProperties = { border: `1px solid ${C.accent}`, color: C.accent, borderRadius: R.chip, padding: "1px 7px", fontSize: 11, fontWeight: 800 };
-const tagMuted: React.CSSProperties = { ...tag, borderColor: C.borderBlock, color: C.inkMuted, flexShrink: 0 };
-// 검토 전: smaller muted heading + a flat hairline list (no block shadow, no lime).
+// The same lime 같이 chip as on the 추천작 cards, so it reads at a glance in the list (#148).
+const tagRow: React.CSSProperties = { ...tag, flexShrink: 0 };
+// 추천 후보: smaller muted heading + a flat hairline list (no block shadow; lime only on 같이).
 const subTitle: React.CSSProperties = { fontFamily: TOKENS.font.heading, fontSize: TOKENS.size.bodyLg, fontWeight: 700, color: C.inkMuted, margin: `${S.s6}px 0 ${S.s1}px`, lineHeight: 1.4 };
 const subNote: React.CSSProperties = { color: C.inkMuted, fontSize: TOKENS.size.caption, margin: `0 0 ${S.s3}px`, lineHeight: 1.5 };
 const list: React.CSSProperties = { display: "flex", flexDirection: "column", border: `${TOKENS.border.hairline}px solid ${C.hairline}`, borderBottom: "none", background: C.bg };
