@@ -34,7 +34,7 @@ const isRefusal = (err) => typeof err?.code === "number" && ((err.code >= 1 && e
 export function mqttBus({
   url = DEFAULT_BROKER,
   room,
-  prefix = "snackapp/v1",
+  prefix = "playsnack/v1",
   failAfterMs = JOIN_BUDGET_MS,
   dropAfterMs = DROP_BUDGET_MS,
   connectTimeoutMs = CONNACK_TIMEOUT_MS,

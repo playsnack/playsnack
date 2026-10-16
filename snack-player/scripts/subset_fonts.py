@@ -1,4 +1,4 @@
-"""Subset the shipped fonts to the characters snackapp actually renders.
+"""Subset the shipped fonts to the characters PlaySnack actually renders.
 
     uv run --with "fonttools[woff]==4.60.1" python -I snack-player/scripts/subset_fonts.py          # rebuild
     uv run --with "fonttools[woff]==4.60.1" python -I snack-player/scripts/subset_fonts.py --check  # gate
@@ -127,7 +127,7 @@ def rename(font, family):
         elif rec.nameID in (2, 17):
             rec.string = weight
         elif rec.nameID == 3:
-            rec.string = f"{ps};snackapp-subset"
+            rec.string = f"{ps};playsnack-subset"
         elif rec.nameID == 4:
             rec.string = full
         elif rec.nameID == 6:

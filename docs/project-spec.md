@@ -1,4 +1,6 @@
-# Snackapp — Project Flow & Quality Spec (the "done" definition) · v2 (2026-06-24 재작성)
+# PlaySnack — Project Flow & Quality Spec (the "done" definition) · v2 (2026-06-24 재작성)
+
+> **현재 역할:** 이 문서는 2026-06-24 기준 품질 기준과 spec-driven 작업 방식의 참고자료다. 현재 제품 계획의 원본은 `docs/business-plan-2026.md`, 실제 실행 상태는 GitHub Project / Issues다. 여기의 항목을 바로 작업하지 말고, 필요한 경우 최신 범위와 검증 기준을 Issue로 다시 작성한다.
 
 이 문서는 spec-driven 작업(`/speckit-specify`)의 baseline이자 "good"의 단일 기준이다.
 **v2 재작성 이유:** 자동 게이트(oracle/layout/sim/battery)는 전부 green이었는데 실제 폰
