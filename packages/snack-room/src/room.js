@@ -76,8 +76,9 @@ export const AUTO_START_RANGE = [3000, 60000];
 // …and only with at least this many players here (#141: a public room never starts with one
 // person alone; spectators don't count). Fewer during the countdown → it stops and waits again.
 export const AUTO_START_MIN = 2;
-// …and after a game the result stays up this long, then the lobby (and its countdown) again.
-export const RESULT_HOLD_MS = 8000;
+// …and after a game the result STAYS (#212: no automatic next game — that looped forever). Someone
+// tapping "한 판 더" (the result's again button sends `start`) brings the lobby back and arms the
+// countdown (still only with AUTO_START_MIN players); nobody taps → nothing restarts, no timer runs.
 const AUTO_OPTS_MAX = 1024; // bytes of a start payload kept for auto-start (JSON)
 // Also at most 4 UTF-16 units per allowed grapheme: one "grapheme" can carry thousands of
 // combining marks (a size bomb in every snapshot). Text with more than 2 marks per base
@@ -176,10 +177,10 @@ const buildMatchups = (cands) => {
  * @param {"any" | "host" | "auto"} [o.startRule]  who starts a game (docs/bite-format.md §6.1 "방장 · 자동 시작"):
  *   "any" (default) anyone; "host" (friends room, #135) only the host (방장) — the first person in,
  *   handed on after HOST_GRACE_MS away; "auto" (public room, #136) nobody: once a client sent the app's
- *   start payload (`configureAuto`) the lobby counts down and starts by itself, and returns after the result.
+ *   start payload (`configureAuto`) the lobby counts down and starts by itself; after a game the result
+ *   stays until someone taps "한 판 더" (`start` — back to the lobby and its countdown, #212).
  * @param {number} [o.autoStartMs]   "auto": default lobby countdown (AUTO_START_MS)
  * @param {number} [o.autoStartMin]  "auto": players needed for the countdown to run (AUTO_START_MIN, at least 1)
- * @param {number} [o.resultHoldMs]  "auto": how long the result stays before the lobby (RESULT_HOLD_MS)
  */
 export function createRoom(o) {
   const {
@@ -204,7 +205,6 @@ export function createRoom(o) {
     startRule = "any",
     autoStartMs = AUTO_START_MS,
     autoStartMin = AUTO_START_MIN,
-    resultHoldMs = RESULT_HOLD_MS,
   } = o;
   const rule = startRule === "host" || startRule === "auto" ? startRule : "any";
   const autoMin = clampInt(autoStartMin, 1, 1000) ?? AUTO_START_MIN;
@@ -324,7 +324,6 @@ export function createRoom(o) {
     if (ended) S.done += 1; // sessions finished in this room (telemetry §9.3)
     S.phase = phase;
     if (ended && S.sid) report(onSessionEnd, sessionEnded());
-    if (ended && autoOn()) later("autoLobby", null, resultHoldMs); // a public room goes on by itself
     setVar("sessionPhase", phase);
     for (const [k, v] of Object.entries(extra)) {
       if (k === "sessionCountdown") S.num = v;
@@ -429,9 +428,9 @@ export function createRoom(o) {
   // An "auto" room (public room) starts by itself once a client told it the app's start payload
   // (configureAuto — the template's `room.start`): the lobby counts down S.autoMs once autoMin
   // players are here (#141 — default 2: one person alone waits for a second; one timer — everyone
-  // who joins meanwhile plays; dropping below autoMin stops it, back to waiting), and after a game
-  // the result holds resultHoldMs, then the lobby again — counting down only if someone played (two
-  // phones left open do not loop games), else idle until someone joins or taps start. The countdown
+  // who joins meanwhile plays; dropping below autoMin stops it, back to waiting). After a game the
+  // result stays (#212 — no timer: the DO may hibernate) until someone taps "한 판 더" (`start` from the
+  // result): then the lobby again and its countdown (autoMin players; fewer → it waits). The countdown
   // goes out as {t: "autoStart", d: {endsIn, ms}} (endsIn −1 = none): a client runs it on its own
   // clock. The timer is session data (S.timers), so a snapshot / hand-over / hibernation keeps it.
   const autoOn = () => rule === "auto" && S.autoOpts != null;
@@ -786,14 +785,9 @@ export function createRoom(o) {
       if (autoPlayers() < autoMin) return void broadcastOut("autoStart", autoMsg());
       startSession(S.autoOpts, null, true).catch((e) => console.error("[snack-room] auto start failed", e));
     },
-    autoLobby: () => {
-      if (S.phase !== "result") return;
-      S.accepting = false;
-      S.playAt = 0;
-      S.lateUntil = 0;
-      setPhase("lobby", { sessionCountdown: 0 });
-      if (S.acted?.size) armAuto();
-    },
+    // Before #212 a result went back to the lobby by itself: a snapshot from then may still hold
+    // this timer — the result now stays (only "한 판 더" leaves it).
+    autoLobby: () => {},
   };
 
   // A session / pack id that is the same whichever host applies the action (telemetry §9.3).
@@ -1171,8 +1165,18 @@ export function createRoom(o) {
       // room — and needs someone to guess: the subject plus at least one friend.
       // Any start payload: a crafted {} or number must not start another game in this room.
       const p = d?.payload;
-      // A public room starts by itself: a tap only wakes an idle lobby's countdown.
+      // A public room starts by itself: a tap only wakes an idle lobby's countdown — or, on the
+      // result, is "한 판 더" (#212): back to the lobby, whose countdown runs once autoMin are here.
       if (autoOn()) {
+        if (S.phase === "result") {
+          clearSessionTimers();
+          S.accepting = false;
+          S.playAt = 0;
+          S.lateUntil = 0;
+          setPhase("lobby", { sessionCountdown: 0 });
+          // alone: the lobby waits ("한 명 더 오면 시작해요"); the 2nd arrival's join arms it
+          return ack(peerId, d?.clientMsgId, armAuto() ? { accepted: true } : { accepted: true, waiting: "need_players" });
+        }
         if (armAuto()) return ack(peerId, d?.clientMsgId);
         const few = S.phase === "lobby" && !autoTimer() && autoPlayers() < autoMin;
         return ack(peerId, d?.clientMsgId, { accepted: false, reason: few ? "need_players" : "auto_start" });
