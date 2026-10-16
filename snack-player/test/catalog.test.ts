@@ -1,9 +1,10 @@
 // node --import tsx --test snack-player/test/   (pnpm player:test)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { isFeatured, splitHome, type CatalogEntry } from "../src/catalog.ts";
-import { QUIZ_APP_ID } from "../src/quiz.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { SPEED_QUIZ_ID, cardPath, flagshipActions, isBareQuizLink, isFeatured, redirectFor, splitHome, templateFileOf, type CatalogEntry } from "../src/catalog.ts";
+import { roomIdFor } from "../src/links.ts";
+import { QUIZ_APP_ID, QUIZ_SLUG } from "../src/quiz.ts";
 
 const index = JSON.parse(
   readFileSync(new URL("../../snack-server/data/bite/index.json", import.meta.url), "utf8"),
@@ -121,4 +122,70 @@ test("index.json: no hidden / merged game reaches any home tier", () => {
   const gone = new Set(index.filter((t) => t.hidden || t.mergedInto).map((t) => t.id));
   assert.ok(gone.size > 0);
   for (const t of [flagship!, ...featured, ...candidates]) assert.ok(!gone.has(t.id), `${t.id} is hidden/merged but shown`);
+});
+
+// ── #210: 나 맞히기 (대표작) and 스피드 퀴즈 are two games, two cards, one template ──
+const BITE = new URL("../../snack-server/data/bite/", import.meta.url);
+
+test("index.json: no duplicate ids", () => {
+  const ids = index.map((t) => t.id);
+  assert.equal(new Set(ids).size, ids.length, `duplicate id in ${ids.filter((x, i) => ids.indexOf(x) !== i)}`);
+});
+
+test("대표작 card (나 맞히기): one button, 내 퀴즈 만들기 → the maker; no 스피드 퀴즈 link on it", () => {
+  const { flagship } = splitHome(index);
+  assert.equal(flagship?.title, "나 맞히기 퀴즈");
+  const actions = flagshipActions(flagship!);
+  assert.deepEqual(actions, [{ action: "make", label: "내 퀴즈 만들기", path: `/p/${QUIZ_SLUG}?make=1` }]);
+  assert.ok(!actions.some((a) => /스피드/.test(a.label) || a.path === cardPath({ id: QUIZ_APP_ID })), "the public quiz room is on the 대표작 card again");
+  assert.deepEqual(flagshipActions(e("other")), [{ action: "play", label: "바로 하기", path: "/p/tpl-other" }], "a non-quiz flagship still opens");
+});
+
+test("스피드 퀴즈: its own entry, listed once under 추천 후보, its own link — the quiz template's file", () => {
+  const speed = index.filter((t) => t.title === "스피드 퀴즈");
+  assert.deepEqual(speed.map((t) => t.id), [SPEED_QUIZ_ID], "스피드 퀴즈 must be one catalog entry");
+  const s = speed[0];
+  assert.equal(s.mode, "multi");
+  assert.equal(templateFileOf(s), QUIZ_APP_ID);
+  assert.ok(!s.flagship && !isFeatured(s), "스피드 퀴즈 promoted without review");
+  const { flagship, featured, candidates } = splitHome(index);
+  assert.equal(candidates.filter((t) => t.id === SPEED_QUIZ_ID).length, 1);
+  assert.ok(flagship!.id !== SPEED_QUIZ_ID && !featured.some((t) => t.id === SPEED_QUIZ_ID));
+  assert.equal(cardPath(s), "/p/tpl-speed-quiz");
+  // Its own public room — not the 나 맞히기 one; friends rooms are its own too.
+  const none = new URLSearchParams();
+  assert.equal(roomIdFor(`tpl-${s.id}`, none), "tpl-speed-quiz");
+  assert.notEqual(roomIdFor(`tpl-${s.id}`, none), roomIdFor(QUIZ_SLUG, none));
+});
+
+test("template: names an entry with its own file (no chains); index.html preloads that file", () => {
+  const aliases = index.filter((t) => t.template !== undefined);
+  assert.deepEqual(aliases.map((t) => t.id), [SPEED_QUIZ_ID]);
+  for (const t of aliases) {
+    const target = index.find((x) => x.id === t.template);
+    assert.ok(target && !target.template && !target.mergedInto, `${t.id}: template ${t.template} is not a playable entry`);
+    assert.ok(existsSync(new URL(`${t.template}.bite.json`, BITE)), `${t.id}: ${t.template}.bite.json missing`);
+    assert.ok(!existsSync(new URL(`${t.id}.bite.json`, BITE)), `${t.id}: has a file of its own and a template`);
+  }
+  for (const t of index.filter((x) => !x.template && !x.mergedInto)) assert.ok(existsSync(new URL(`${t.id}.bite.json`, BITE)), `${t.id}.bite.json missing`);
+  // The page preloads an app's file before the code runs (index.html); its alias map = index.json.
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const map = JSON.parse(/var file = (\{[^}]*\})\[tpl\[1\]\]/.exec(html)![1]);
+  assert.deepEqual(map, Object.fromEntries(aliases.map((t) => [t.id, t.template])));
+});
+
+test("a bare 나 맞히기 link (no room code, not the maker) opens 스피드 퀴즈; quiz links with a code stay", async () => {
+  const p = (q: string) => new URLSearchParams(q);
+  assert.equal(isBareQuizLink(QUIZ_SLUG, p("")), true);
+  assert.equal(isBareQuizLink(QUIZ_SLUG, p("room=1")), true, "a legacy forced room is the public room");
+  assert.equal(isBareQuizLink(QUIZ_SLUG, p("room=ABCDEFGHJK")), false, "a friends quiz room");
+  assert.equal(isBareQuizLink(QUIZ_SLUG, p("make=1")), false, "the maker");
+  assert.equal(isBareQuizLink(QUIZ_SLUG, p("room=bad!")), false, "a cut code → LiveApp's bad-link screen");
+  assert.equal(isBareQuizLink("tpl-speed-quiz", p("")), false);
+  assert.equal(isBareQuizLink("tpl-quiz-ox", p("")), false);
+  assert.equal(await redirectFor(QUIZ_SLUG, p("")), "tpl-speed-quiz");
+});
+
+test("merged 상식 트리비아 레이스 → 스피드 퀴즈 (the built-in-questions game), not 나 맞히기", () => {
+  assert.equal(index.find((t) => t.id === "race-trivia")?.mergedInto, SPEED_QUIZ_ID);
 });

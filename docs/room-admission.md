@@ -110,7 +110,9 @@ The Worker decides first (`admit.js decideUpgrade`, the hub runs the same functi
   No meta (e.g. the room sat empty > 24 h and was cleaned up) → quietly created again (owner decision 2).
 - **C. Host sets a PIN** (PR 2 UI; only while alone) — `POST /mint {slug, pin, anonId}` → `{code(20), org, pass}`. The
   client switches to the new code (nobody else is in yet) and enters with `?k=pass`. The PIN stays on the host's
-  device only.
+  device only. Where the host chooses it (#208): the 나 맞히기 maker page's "비밀번호 걸기" row by 완료 (off by default)
+  — then 완료's one `/mint` already carries the PIN (no open room first, no switch); the quiz lobby's band next to
+  친구 초대하기; the QR invite sheet. The lobby button and the QR row show only while the host is alone.
 - **D. Friend, PIN room** — `?k=` pass / seat first; else `?pin=dddd`. Right PIN → forwarded with no RPC; the DO reads
   `pinlock` inside the upgrade: locked ipKey / closed room → the *same* frame a wrong PIN gets (close 4003); otherwise
   this ipKey's wrong-count is cleared. After the hello the DO sends `{t:"pass", d:{token, exp}}`. Wrong PIN → one RPC
@@ -232,7 +234,12 @@ and the 70 % alert issue).
 - `snack-player/test/shellDocks.test.ts` — the host PIN notice clear of the top-row pills and 😀 at 320–430 px.
 - `api/_test/og.test.js` (15 / 20 symbols, no lookup for a PIN room), `api/_test/telemetry-client.test.js` (reasons kept by the ingest).
 - `snack-server/tools/pin-room-e2e.mjs` (in gate-all): one-tap join (15), PIN set while alone (20), PIN screen before any socket,
-  wrong → tries left, right → in, reload on the pass, locked countdown, host alert, forged → expired, public room unchanged.
+  wrong → tries left, right → in, reload on the pass, locked countdown, host alert, forged → expired, public room unchanged;
+  #208 PIN set in the quiz maker → exactly one `/mint` with it, friend gets the PIN screen; default off → plain room, lobby
+  "비밀번호 걸기" beside 친구 초대하기 (fits at 320 / 360 px) and gone once a friend joins; #209 a computer (1280×800) →
+  친구 초대하기 copies (clipboard read back, "링크를 복사했어요"), `navigator.share` never called.
+- `snack-player/test/invite.test.ts` (#208 / #209) — touch vs computer (`(pointer: coarse)`, mobile UA, iPadOS-as-Mac), share only
+  on touch, clipboard ok / refused, the copied lines, the lobby PIN rule, the maker's one mint with / without a PIN.
 
 ## 10. Residual risks
 

@@ -31,6 +31,7 @@ const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m
 import { makerLink, resultHooks, useResultExtras } from "./ResultExtras";
 import { InviteQrSheet, QrButton } from "./InviteQr";
 import Toast from "./Toast";
+import { browserHandOutEnv, canOfferPin, copiedLines, handOutLink } from "./invite";
 import { fetchRoomResult, lastResultWatcher, type SavedResult } from "./roomResult";
 // The room's last finished game (docs/room-results.md) — loaded only when there is one.
 const LastResult = lazy(() => import("./LastResult.tsx").then((m) => ({ default: m.LastResult })));
@@ -475,7 +476,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // to copy by hand (kept until dismissed). Only what really happened is
   // reported. A present-but-invalid code never falls back to the public room.
   const code = roomParam.kind === "code" ? roomParam.code : null;
-  const [invite, setInvite] = useState<"copied" | "show" | null>(null);
+  const [invite, setInvite] = useState<"copied" | null>(null);
   const [area, setArea] = useState<[number, number]>([0, 0]); // the play area (BitePlayer), for the quiz invite band
   const [qrOpen, setQrOpen] = useState(() => inviteOnOpen.delete(roomId)); // the same link as a QR, for friends right here
   const failMint = () => {
@@ -533,27 +534,27 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // The result screen's "친구 초대" can run in the public room too: there it hands out the
   // maker link ("나도 만들어 보기"), not the busy public room.
   const inviteUrl = () => (code ? friendLink(location.origin, slug, params, code) : makerLink(location.origin));
+  // #209: the share sheet on touch phones / tablets only; on a computer the link is copied
+  // (+ "show the QR" for phones nearby); no clipboard → the QR sheet with the link selected.
+  const [qrManual, setQrManual] = useState(false);
+  const [copiedText, setCopiedText] = useState<string[]>([]);
   const shareInvite = async () => {
     const url = inviteUrl();
     const what = code ? "invite" : "app"; // the public room hands out the maker link
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({ url });
-        trackShare("web", what, slug);
-        return;
-      } catch (e) {
-        if ((e as { name?: string })?.name === "AbortError") return; // the person closed the sheet: nothing happened
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
+    const env = browserHandOutEnv();
+    const out = await handOutLink(url, env);
+    if (out === "cancelled") return; // the person closed the sheet: nothing happened
+    if (out === "shared") return trackShare("web", what, slug);
+    if (out === "copied") {
       trackShare("copy", what, slug);
+      setCopiedText(copiedLines({ touch: env.touch, pin: code ? passes.pin(roomId) : null }));
       setInvite("copied");
-      setTimeout(() => setInvite((s) => (s === "copied" ? null : s)), 2500);
-    } catch {
-      trackShare("other", what, slug);
-      setInvite("show"); // stays until ✕ — a long link needs time to long-press
+      setTimeout(() => setInvite((s) => (s === "copied" ? null : s)), env.touch ? 2500 : 4000);
+      return;
     }
+    trackShare("other", what, slug);
+    setQrManual(true);
+    setQrOpen(true); // the link, selected, to copy by hand (kept until 닫기)
   };
   // Result screen of a template with a result view (나 맞히기 퀴즈): view, image,
   // reaction question and the result buttons' taps (ResultExtras.tsx).
@@ -583,14 +584,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // What happened to the invite link (only what really happened is said).
   const inviteFeedback = (
     <>
-      <Toast shown={invite === "copied"} style={inviteNote} role="status">초대 링크를 복사했어요</Toast>
+      <Toast shown={invite === "copied"} style={{ ...inviteNote, flexDirection: "column", alignItems: "flex-start", gap: 2, wordBreak: "keep-all" }} role="status" data-testid="invite-copied">
+        {copiedText.map((l, i) => <span key={i} style={i ? { color: C.inkMuted, fontSize: TOKENS.size.bodySm } : undefined}>{l}</span>)}
+      </Toast>
       <Toast shown={mintFail} style={inviteNote} role="status">방을 만들지 못했어요. 잠시 후 다시 눌러 주세요</Toast>
-      {invite === "show" && (code || inResult) && (
-        <div style={inviteNote} role="status">
-          <span style={{ userSelect: "all", wordBreak: "break-all" }}>{inviteUrl()}</span>
-          <button style={closeBtn} onClick={() => setInvite(null)} aria-label="닫기">✕</button>
-        </div>
-      )}
     </>
   );
   // Quiz lobby (friends-only room): the template owns every word of the lobby;
@@ -612,8 +609,14 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     covered: makerOpen || Boolean(lastResult) || inResult || Boolean(invite) || qrOpen || showPackFail || Boolean(pinGate) || Boolean(pinSet) || Boolean(hostPin) || mintFail,
   });
   // "비밀번호 걸기" only while nobody else is in (a PIN means a new link, owner decision #157).
-  const canSetPin = Boolean(EDGE_ROOM_SERVER) && Boolean(code) && conn === "connected" && people <= 1;
-  const invitePin = EDGE_ROOM_SERVER && code ? { value: passes.pin(roomId), canSet: canSetPin, onSet: () => { setQrOpen(false); setPinSet({ checking: false }); } } : undefined;
+  const canSetPin = canOfferPin({ edge: Boolean(EDGE_ROOM_SERVER), code: Boolean(code), connected: conn === "connected", people });
+  const openPinSet = () => { setQrOpen(false); setQrManual(false); setPinSet({ checking: false }); };
+  const hostPinValue = code ? passes.pin(roomId) : null;
+  const invitePin = EDGE_ROOM_SERVER && code ? { value: hostPinValue, canSet: canSetPin, onSet: openPinSet } : undefined;
+  // #208: "비밀번호 걸기" right next to 친구 초대하기 in the quiz lobby (alone only) — not only inside QR.
+  const bandPin = quizInvite && alone && canSetPin;
+  // Under ~330 px of band (phones narrower than 390 wide) the three buttons share it tighter (#208).
+  const bandNarrow = bandPin && band.w < BAND_NARROW_W;
   return (
     <>
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} onArea={(w, h) => setArea([w, h])} />
@@ -621,10 +624,16 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} reconnecting={reconnecting && reconnectNotice} />}
       {quizInvite && (
         <div style={{ ...quizInviteBand, top: `calc(var(--snack-safe-top) + ${band.y}px)`, left: band.x, width: band.w, height: band.h }}>
-          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: band.h, flex: 1 } : { ...pill, height: band.h }}
+          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: band.h, flex: 1, minWidth: 0, ...(bandNarrow ? { fontSize: TOKENS.size.bodyMd } : null) } : { ...pill, height: band.h }}
             onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">
-            {alone ? "🔗 친구 초대하기" : "🔗 친구 더 부르기"}
+            {alone ? (bandNarrow ? "친구 초대하기" : "🔗 친구 초대하기") : "🔗 친구 더 부르기"}
           </button>
+          {bandPin && (
+            <button className="blk" style={{ ...pill, ...bandPinBtn, height: band.h, ...(bandNarrow ? bandPinNarrow : null) }}
+              onClick={openPinSet} data-testid="band-pin" aria-label={hostPinValue ? "비밀번호 바꾸기" : "비밀번호 걸기"}>
+              {hostPinValue ? <>비밀번호<br />{hostPinValue}</> : bandNarrow ? <>비밀번호<br />걸기</> : "비밀번호 걸기"}
+            </button>
+          )}
           <QrButton style={{ height: band.h, minWidth: band.h }} onClick={() => setQrOpen(true)} />
         </div>
       )}
@@ -680,7 +689,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       {extras.overlay}
       {/* The result screen's own "친구 초대" is the template's; its QR sits in the top row. */}
       {withRoom && conn !== "failed" && inResult && <div style={inviteDockTop}><QrButton onClick={() => setQrOpen(true)} /></div>}
-      {qrOpen && <InviteQrSheet url={inviteUrl()} pin={invitePin} onClose={() => setQrOpen(false)} onCopied={() => trackShare("copy", code ? "invite" : "app", slug)} />}
+      {qrOpen && <InviteQrSheet url={inviteUrl()} pin={invitePin} manual={qrManual} onClose={() => { setQrOpen(false); setQrManual(false); }} onCopied={() => trackShare("copy", code ? "invite" : "app", slug)} />}
       {lastResult && (
         <Suspense fallback={null}>
           <LastResult saved={lastResult} slug={slug} myNick={getNick()} onAgain={() => setLastResult(null)} />
@@ -723,12 +732,16 @@ const inviteDockTop: React.CSSProperties = {
   position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", left: 84, maxWidth: "calc(100vw - 180px)",
   display: "flex", flexDirection: "column-reverse", alignItems: "flex-start", gap: 8, zIndex: 13,
 };
+// "비밀번호 걸기" in the quiz invite band: a quiet pill beside the lime 친구 초대하기 (lime stays the
+// one hero). Below ~330 px of band it wraps to two lines so 친구 초대하기 keeps its width.
+const bandPinBtn: React.CSSProperties = {
+  flex: "none", justifyContent: "center", padding: "0 12px", whiteSpace: "nowrap", lineHeight: 1.15, textAlign: "center",
+  font: `700 ${TOKENS.size.bodySm}px ${TOKENS.font.body}`,
+};
+const bandPinNarrow: React.CSSProperties = { whiteSpace: "normal", padding: "0 6px", maxWidth: 68 };
+const BAND_NARROW_W = 330;
 const inviteNote: React.CSSProperties = {
   ...pill, minHeight: 0, padding: "8px 12px", whiteSpace: "normal", wordBreak: "break-all", fontWeight: 600, alignItems: "flex-start",
-};
-const closeBtn: React.CSSProperties = {
-  flex: "none", width: 32, height: 32, margin: "-4px -6px -4px 0", padding: 0, border: "none", background: "transparent",
-  color: C.ink, fontSize: 16, cursor: "pointer",
 };
 // The quiz lobby's invite band: the template leaves y 758–810 × x 16–374 of its
 // 390×844 frame empty for it; its place on screen is that box through the

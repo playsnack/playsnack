@@ -71,7 +71,9 @@
         var tpl = location.pathname.match(/\/p\/tpl-([a-z0-9-]+)/) || location.hash.match(/^#\/p\/tpl-([a-z0-9-]+)/);
         if (tpl) {
           var data = base.replace(/fonts\/$/, "") + "data/bite/";
-          preload(data + tpl[1] + ".bite.json", "fetch");
+          // An app that plays another app's file (index.json `template`; kept equal by test/catalog.test.ts).
+          var file = { "speed-quiz": "speed-trivia-score" }[tpl[1]] || tpl[1];
+          preload(data + file + ".bite.json", "fetch");
           preload(data + "index.json", "fetch"); // tells whether the link was merged into another app
         }
       })();

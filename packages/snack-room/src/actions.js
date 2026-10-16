@@ -58,13 +58,18 @@ export const HOST_ACTIONS = Object.freeze({
   // + 50 ms. One answer per player per round, only while a round is open; the quiz's subject
   // (pack sender) is ignored. round / sessionNo = what the device answered (roundIdx /
   // sessionNo): another round or game → actionAck {accepted:false, reason:"stale_round"}.
-  // Early reveal: the answer that completes quizProgress (every present answerer, the subject
-  // excluded) brings the reveal to EARLY_REVEAL_MS (600 ms) from now; so does the leave of the
-  // last one still to answer. A join never does — a newcomer reopens it to the window's end.
+  // Change (#211): a later answer is a switch, taken only within CHANGE_WINDOW_MS (3 s, never
+  // past the answer window) of the room taking the first one — scored from the last pick's ms
+  // (never faster than the pick it replaces); else actionAck {accepted:false, reason:"locked"}
+  // and myPick (what stands) goes back. n = the device's pick count this round: n at or below
+  // the last one seen (a resend), or the same option → reason "duplicate".
+  // Early reveal: once every present answerer (the subject excluded) has answered AND their
+  // change windows have closed, EARLY_REVEAL_MS (300 ms) later; the leave of the last one still
+  // to answer can complete it. A join never does — a newcomer reopens it to the window's end.
   answer: {
     payload: "object",
-    fields: { option: { type: "number", required: true }, ms: { type: "number" }, round: { type: "number" }, sessionNo: { type: "number" } },
-    description: "quiz answer — 0-based choice index, plus the answer time this device measured (ms)",
+    fields: { option: { type: "number", required: true }, ms: { type: "number" }, round: { type: "number" }, sessionNo: { type: "number" }, n: { type: "number" } },
+    description: "quiz answer — 0-based choice index, the answer time this device measured (ms), n = this device's pick count this round (switch within 3 s)",
   },
   // 나 맞히기: sanitizeQuizPack(payload) — title ≤40, 1–20 questions {q ≤80, options 2–4
   // each ≤30, answer}, settings {rounds 1–20, answerMs 3000–20000}; invalid questions are

@@ -273,7 +273,7 @@
     "order": 25,
     "createdAt": 0,
     "hidden": true,
-    "mergedInto": "speed-trivia-score"
+    "mergedInto": "speed-quiz"
   },
   {
     "id": "race-reaction",
@@ -498,6 +498,23 @@
   },
   {
     "id": "speed-trivia-score",
+    "title": "나 맞히기 퀴즈",
+    "category": "quiz",
+    "emoji": "🙋",
+    "accent": "#d9ff00",
+    "mode": "multi",
+    "official": true,
+    "ratingSum": 0,
+    "ratingCount": 0,
+    "avg": 0,
+    "useCount": 0,
+    "order": 42,
+    "flagship": true,
+    "createdAt": 0
+  },
+  {
+    "id": "speed-quiz",
+    "template": "speed-trivia-score",
     "title": "스피드 퀴즈",
     "category": "game",
     "emoji": "🧠",
@@ -508,8 +525,7 @@
     "ratingCount": 0,
     "avg": 0,
     "useCount": 0,
-    "order": 42,
-    "flagship": true,
+    "order": 54,
     "createdAt": 0
   },
   {
