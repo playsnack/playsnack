@@ -1,4 +1,4 @@
-// The shell's room buttons sit in the top row (🔗 친구 초대 + QR / 🤝 친구끼리, right of 홈)
+// The shell's room buttons sit in the top row (🌐 공개방 / 🤝 친구방 · 🔗 초대 · QR, right of 홈)
 // and under the people chip (😀), on every screen (MP-09). This checks that no
 // together template draws text or a tappable node there, in any session phase.
 // node --import tsx --test snack-player/test/   (pnpm player:test)
@@ -19,8 +19,8 @@ const TOGETHER = index.filter((t) => t.mode === "multi" && !t.hidden && !(t as {
 type Box = { x: number; y: number; w: number; h: number };
 // Frame coordinates (390 wide): pills are 44 tall from y 10; 😀 is 46×46 at right 12, top 62.
 const ZONES: Record<string, Box> = {
-  // 🔗 친구 초대 (84–184) + QR (190–235, measured at 390 by scripts/qr-shots.mjs); the QR alone on the result screen.
-  invitePill: { x: 84, y: 10, w: 160, h: 44 },
+  // #143: 🌐 공개방 / 🤝 친구방 · 🔗 초대 · QR (76–273, measured at 390 by room-rules-e2e); chip + QR on the result screen.
+  invitePill: { x: 76, y: 10, w: 200, h: 44 },
   reactionFab: { x: 332, y: 62, w: 46, h: 46 },
   debugTab: { x: 294, y: 62, w: 32, h: 32 }, // 🪲 (?debug=1 only, DebugLog.tsx)
 };

@@ -14,7 +14,8 @@ import { CONNECT_TIMEOUT_MS, hasSeatToken, type ConnState, type RoomTransport } 
 import { createRoom, EDGE_ROOM_SERVER, hrefTo, isFreshRoom, loadRoomDoc, navigate, newFriendRoom, SERVERLESS } from "./backend";
 import { friendLink, playPath, publicLink, roomCodeOf, roomIdFor, roomKindOf, roomParamOf, shareableParams } from "./links";
 import { needsRoom, soloAlternative, type CatalogEntry } from "./catalog";
-import { HomeButton, HostPinNotice, LoadingScreen, MessageScreen, PinSheet, RoomChip, RoomFailedSheet, RoomSlowNotice, goHome, type PinError } from "./Screens";
+import { ChoiceSheet, HomeButton, HostPinNotice, LoadingScreen, MessageScreen, PinSheet, RoomChip, RoomFailedSheet, RoomSlowNotice, RoomTypeChip, goHome, type PinError } from "./Screens";
+import { chipAction, leaveFriendsCopy, roomChip, roomKind, showRoomChip } from "./roomType";
 import { passes, PIN_REASONS } from "./roomAdmission";
 import { pill, primaryBtn, secondaryBtn } from "./ui";
 import { C, R, S, TOKENS, blockShadow } from "./tokens.gen";
@@ -31,12 +32,12 @@ const QuizMaker = lazy(() => import("./QuizMaker.tsx").then((m) => ({ default: m
 import { makerLink, resultHooks, useResultExtras } from "./ResultExtras";
 import { InviteQrSheet, QrButton } from "./InviteQr";
 import Toast from "./Toast";
-import { browserHandOutEnv, canOfferPin, copiedLines, handOutLink } from "./invite";
+import { INVITE_PIN_ASK, askPinFirst, browserHandOutEnv, canOfferPin, copiedLines, handOutLink, invitePinAsked } from "./invite";
 import { fetchRoomResult, lastResultWatcher, type SavedResult } from "./roomResult";
 // The room's last finished game (docs/room-results.md) — loaded only when there is one.
 const LastResult = lazy(() => import("./LastResult.tsx").then((m) => ({ default: m.LastResult })));
 import { quizInviteBandRect } from "./canvasFit";
-import { SPECTATOR_NOTICE_BOX, SPECTATOR_NOTICE_TEXT, forTemplate, showSpectatorNotice } from "./spectate";
+import { SPECTATOR_NOTICE_BOX, SPECTATOR_NOTICE_TEXT, declaresVar, forTemplate, showSpectatorNotice } from "./spectate";
 
 // "나도 만들기" on the quiz result screen opens the maker over this room (lane B).
 resultHooks.makeQuiz = () => openQuizMaker();
@@ -63,6 +64,10 @@ export const RECONNECT_NOTICE_MS = 1_500;
 
 /** Rooms this page just moved its host into with a new PIN link: their invite sheet opens at once (#157). */
 const inviteOnOpen = new Set<string>();
+/** Rooms this page just moved its host into from "비밀번호 걸고 보내기" (#217): a one-tap "링크 보내기" sheet waits there. */
+const sendOnOpen = new Set<string>();
+/** Rooms whose "비밀번호를 걸까요?" was answered on this device (#217). */
+const pinAsked = invitePinAsked();
 
 type LoadError = "notFound" | "network";
 const isNetworkError = (e: unknown) =>
@@ -124,7 +129,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   const firstPinRef = useRef<string | null>(null);
   const enterPinRef = useRef<(pin: string) => void>(() => {});
   // The host's side: setting a PIN (a new link) and the PIN room's warnings.
-  const [pinSet, setPinSet] = useState<{ checking: boolean } | null>(null);
+  const [pinSet, setPinSet] = useState<{ checking: boolean; send?: boolean } | null>(null);
   const [hostPin, setHostPin] = useState<"alert" | "closed" | null>(null);
   const [moving, setMoving] = useState(false);
   const [mintFail, setMintFail] = useState(false);
@@ -454,6 +459,8 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     if (!rt) return;
     runtimeRef.current = rt;
     applyShared(sharedRef.current); // seed from cold-load / latest authoritative state
+    // A shell variable (#143): this friends room has a PIN — the lobby subtitle adds 🔒.
+    if (doc && declaresVar(doc, "roomPin")) rt.setVar("roomPin", pinRoom);
     extras.attach(rt as Parameters<typeof extras.attach>[0]);
     quizTick(); // a pack made for this room shows "준비 중…" from the first frame
     // Dev only (dropped from builds): the screenshot harness feeds fixture vars.
@@ -485,7 +492,7 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   };
   // The room server makes the code (/mint, ~0.1 s, no room woken yet); this device hosts it.
   // `pin`: a PIN room (a new link). `replace`: the old link was only this device's (nobody came).
-  const goToNewRoom = async (o: { pin?: string; replace?: boolean; openInvite?: boolean } = {}) => {
+  const goToNewRoom = async (o: { pin?: string; replace?: boolean; openInvite?: boolean; sendLink?: boolean } = {}) => {
     const r = await newFriendRoom(slug, o.pin ? { pin: o.pin, anonId: getAnonId() } : {});
     if (!r.ok) return false;
     const p = shareableParams(params);
@@ -497,6 +504,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     const pack = isQuiz ? store.roomPack(roomId) : null;
     if (pack) store.rememberRoomPack(next, pack);
     if (o.openInvite) inviteOnOpen.add(next);
+    if (o.sendLink) {
+      sendOnOpen.add(next);
+      pinAsked.add(next); // the new room's PIN is set: never asked there
+    }
     navigate(playPath(slug, p), { replace: Boolean(o.replace) });
     return true;
   };
@@ -509,9 +520,11 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
     if (!ok) failMint();
   };
   // "비밀번호 걸기" (host, alone): 4 digits → a new PIN link; the invite sheet opens there with the PIN.
+  // From "비밀번호 걸고 보내기" (#217, `send`): the new room's "링크 보내기" sheet instead (one fresh tap shares).
   const submitPinSet = async (pin: string) => {
-    setPinSet({ checking: true });
-    const ok = await goToNewRoom({ pin, replace: true, openInvite: true });
+    const send = Boolean(pinSet?.send);
+    setPinSet({ checking: true, send });
+    const ok = await goToNewRoom({ pin, replace: true, ...(send ? { sendLink: true } : { openInvite: true }) });
     if (!ok) {
       setPinSet(null);
       failMint();
@@ -558,7 +571,16 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   };
   // Result screen of a template with a result view (나 맞히기 퀴즈): view, image,
   // reaction question and the result buttons' taps (ResultExtras.tsx).
-  const extras = useResultExtras({ doc, slug, params, onInvite: () => void shareInvite() });
+  // Every invite button goes through here (#217): the first one in a friends room may ask
+  // "비밀번호를 걸까요?" first (decided at render: requestInviteRef).
+  const requestInviteRef = useRef<() => void>(() => void shareInvite());
+  const requestInvite = () => requestInviteRef.current();
+  const [inviteAsk, setInviteAsk] = useState(false);
+  // "비밀번호 걸고 보내기" landed here: one tap on "링크 보내기" shares it (a fresh user gesture, iOS).
+  const [sendReady, setSendReady] = useState(() => sendOnOpen.delete(roomId));
+  // The room-type chip (#143): the "친구방에서 나갈까요?" sheet.
+  const [leaveAsk, setLeaveAsk] = useState(false);
+  const extras = useResultExtras({ doc, slug, params, onInvite: requestInvite });
   const inResult = extras.inResult;
 
   if (roomParam.kind === "invalid") {
@@ -606,17 +628,33 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
   // steps aside while something else holds the top of the screen.
   const nameCard = showNameCard({
     auto: nickAuto, chosen: nameChosen, live: withRoom && conn === "connected", phase: spectator.phase,
-    covered: makerOpen || Boolean(lastResult) || inResult || Boolean(invite) || qrOpen || showPackFail || Boolean(pinGate) || Boolean(pinSet) || Boolean(hostPin) || mintFail,
+    covered: makerOpen || Boolean(lastResult) || inResult || Boolean(invite) || qrOpen || showPackFail || Boolean(pinGate) || Boolean(pinSet) || Boolean(hostPin) || mintFail || inviteAsk || sendReady || leaveAsk,
   });
   // "비밀번호 걸기" only while nobody else is in (a PIN means a new link, owner decision #157).
   const canSetPin = canOfferPin({ edge: Boolean(EDGE_ROOM_SERVER), code: Boolean(code), connected: conn === "connected", people });
   const openPinSet = () => { setQrOpen(false); setQrManual(false); setPinSet({ checking: false }); };
   const hostPinValue = code ? passes.pin(roomId) : null;
   const invitePin = EDGE_ROOM_SERVER && code ? { value: hostPinValue, canSet: canSetPin, onSet: openPinSet } : undefined;
-  // #208: "비밀번호 걸기" right next to 친구 초대하기 in the quiz lobby (alone only) — not only inside QR.
-  const bandPin = quizInvite && alone && canSetPin;
-  // Under ~330 px of band (phones narrower than 390 wide) the three buttons share it tighter (#208).
-  const bandNarrow = bandPin && band.w < BAND_NARROW_W;
+  // #217: the first invite in a friends room asks "비밀번호를 걸까요?" (alone, no PIN yet, not asked
+  // here before). A PIN room this device only joined (no PIN known here) counts as having one.
+  const askPin = askPinFirst({
+    edge: Boolean(EDGE_ROOM_SERVER), code: Boolean(code), connected: conn === "connected", people,
+    pin: hostPinValue || (pinRoom ? "set" : null), asked: pinAsked.has(roomId),
+  });
+  requestInviteRef.current = () => (askPin ? setInviteAsk(true) : void shareInvite());
+  // #143: the room-type chip — lobby and result only; not in the 나 맞히기 quiz (always a friends room).
+  const kind = roomKind(code);
+  const chip = roomChip(kind);
+  const chipShown = !isQuiz && showRoomChip({ withRoom, failed: conn === "failed", phase: spectator.phase, inResult });
+  const toPublicRoom = () => navigate(publicLink(slug, params));
+  const onChip = () => {
+    const a = chipAction(kind, people);
+    if (a === "mint") void openFriendRoom();
+    else if (a === "leave") toPublicRoom();
+    else setLeaveAsk(true);
+  };
+  const rowNarrow = typeof innerWidth === "number" && innerWidth < TOP_ROW_FULL_W;
+  const leaveCopy = leaveFriendsCopy(Boolean(EDGE_ROOM_SERVER && doc.room));
   return (
     <>
       <BitePlayer doc={doc} onHostEvent={withRoom ? onHostEvent : undefined} onReady={onReady} onArea={(w, h) => setArea([w, h])} />
@@ -624,16 +662,10 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       {withRoom && conn !== "failed" && <RoomChip state={conn} people={people} reconnecting={reconnecting && reconnectNotice} />}
       {quizInvite && (
         <div style={{ ...quizInviteBand, top: `calc(var(--snack-safe-top) + ${band.y}px)`, left: band.x, width: band.w, height: band.h }}>
-          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: band.h, flex: 1, minWidth: 0, ...(bandNarrow ? { fontSize: TOKENS.size.bodyMd } : null) } : { ...pill, height: band.h }}
-            onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">
-            {alone ? (bandNarrow ? "친구 초대하기" : "🔗 친구 초대하기") : "🔗 친구 더 부르기"}
+          <button className="blk" style={alone ? { ...primaryBtn, padding: 0, height: band.h, flex: 1, minWidth: 0 } : { ...pill, height: band.h }}
+            onClick={requestInvite} aria-label="친구 초대 링크 보내기">
+            {alone ? "🔗 친구 초대하기" : "🔗 친구 더 부르기"}
           </button>
-          {bandPin && (
-            <button className="blk" style={{ ...pill, ...bandPinBtn, height: band.h, ...(bandNarrow ? bandPinNarrow : null) }}
-              onClick={openPinSet} data-testid="band-pin" aria-label={hostPinValue ? "비밀번호 바꾸기" : "비밀번호 걸기"}>
-              {hostPinValue ? <>비밀번호<br />{hostPinValue}</> : bandNarrow ? <>비밀번호<br />걸기</> : "비밀번호 걸기"}
-            </button>
-          )}
           <QrButton style={{ height: band.h, minWidth: band.h }} onClick={() => setQrOpen(true)} />
         </div>
       )}
@@ -653,20 +685,27 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
           )}
         </div>
       )}
-      {/* Friends-only room pill (top row, right of 홈): "친구끼리" opens a new coded
-          room (an unlisted link — friends who have it meet there); in a coded room
-          it hands the invite link out. In the quiz lobby the band button has it.
-          The bottom corners belong to the templates' start / answer buttons (MP-09). */}
-      {withRoom && conn !== "failed" && !quizInvite && (
-        <div style={inResult ? resultNoteDock : inviteDockTop}>
-          {inviteFeedback}
-          {/* On the result screen its own "친구 초대" button replaces the pill (MP-09).
-              QR once connected: the wide "방에 들어가는 중" chip needs the room on a 360 px screen. */}
-          {inResult ? null : code
-            ? <div style={{ display: "flex", gap: 6 }}><button className="blk" style={pill} onClick={() => void shareInvite()} aria-label="친구 초대 링크 보내기">🔗 친구 초대</button>{conn === "connected" && <QrButton onClick={() => setQrOpen(true)} />}</div>
-            : <button className="blk" style={{ ...pill, opacity: minting ? 0.6 : 1 }} onClick={() => void openFriendRoom()} aria-label="친구끼리 하는 방 만들기" aria-busy={minting}>🤝 친구끼리</button>}
+      {/* The top row, right of 홈 (#143): the room-type chip "🌐 공개방" / "🤝 친구방" (lobby and
+          result only; a tap switches), then in a friends room 🔗 초대 + QR. The quiz lobby's band
+          has its own invite. On the result screen the template's own "친구 초대" replaces the
+          pill (MP-09) and only QR stays. QR once connected: the wide "방에 들어가는 중" chip needs
+          the room on a 360 px screen. The bottom corners belong to the templates' buttons. */}
+      {withRoom && conn !== "failed" && (
+        <div style={inviteDockTop}>
+          {!inResult && !quizInvite && inviteFeedback}
+          <div style={{ display: "flex", gap: 4 }}>
+            {chipShown && <RoomTypeChip icon={chip.icon} label={chip.label} aria={chip.aria} busy={minting} onClick={onChip} />}
+            {!inResult && !quizInvite && code && (
+              // Under ~380 px with the chip there, the 🔗 alone (the people chip keeps its room at 10명+).
+              <button className="blk" style={{ ...pill, padding: "0 10px", minWidth: 44, justifyContent: "center" }} onClick={requestInvite} aria-label="친구 초대 링크 보내기">
+                {chipShown && rowNarrow ? "🔗" : chipShown ? "🔗 초대" : "🔗 친구 초대"}
+              </button>
+            )}
+            {(inResult || (!quizInvite && code && conn === "connected")) && <QrButton style={{ padding: "0 10px" }} onClick={() => setQrOpen(true)} />}
+          </div>
         </div>
       )}
+      {withRoom && conn !== "failed" && inResult && <div style={resultNoteDock}>{inviteFeedback}</div>}
       {nameCard && <NameCard nick={getNick() ?? meRef.current?.nick ?? ""} onKeep={keepName} onChange={changeName} />}
       {makerOpen && (
         <Suspense fallback={<LoadingScreen />}>
@@ -687,8 +726,23 @@ export function LiveApp({ slug, params }: { slug: string; params: URLSearchParam
       )}
       <ReactionLayer handle={fxRef} />
       {extras.overlay}
-      {/* The result screen's own "친구 초대" is the template's; its QR sits in the top row. */}
-      {withRoom && conn !== "failed" && inResult && <div style={inviteDockTop}><QrButton onClick={() => setQrOpen(true)} /></div>}
+      {leaveAsk && chipShown && (
+        <ChoiceSheet title={leaveCopy.title} body={leaveCopy.body} testId="leave-friends"
+          primary={{ label: leaveCopy.go, onClick: () => { setLeaveAsk(false); toPublicRoom(); } }}
+          secondary={{ label: leaveCopy.stay, onClick: () => setLeaveAsk(false) }} onClose={() => setLeaveAsk(false)} />
+      )}
+      {inviteAsk && (
+        <ChoiceSheet title={INVITE_PIN_ASK.title} body={INVITE_PIN_ASK.body} testId="invite-ask"
+          primary={{ label: INVITE_PIN_ASK.send, onClick: () => { pinAsked.add(roomId); setInviteAsk(false); void shareInvite(); } }}
+          secondary={{ label: INVITE_PIN_ASK.withPin, onClick: () => { setInviteAsk(false); setPinSet({ checking: false, send: true }); } }}
+          onClose={() => setInviteAsk(false)} />
+      )}
+      {sendReady && !pinGate && (
+        <ChoiceSheet title="비밀번호를 걸었어요" testId="invite-send"
+          body={hostPinValue ? `비밀번호 ${hostPinValue} · 링크를 보낼 때 함께 알려 주세요.` : "링크를 보낼 때 비밀번호도 함께 알려 주세요."}
+          primary={{ label: "🔗 링크 보내기", onClick: () => { setSendReady(false); void shareInvite(); } }}
+          secondary={{ label: "나중에", onClick: () => setSendReady(false) }} onClose={() => setSendReady(false)} />
+      )}
       {qrOpen && <InviteQrSheet url={inviteUrl()} pin={invitePin} manual={qrManual} onClose={() => { setQrOpen(false); setQrManual(false); }} onCopied={() => trackShare("copy", code ? "invite" : "app", slug)} />}
       {lastResult && (
         <Suspense fallback={null}>
@@ -726,20 +780,15 @@ const inviteDock: React.CSSProperties = {
   position: "fixed", left: 10, bottom: "calc(var(--snack-safe-bottom) + 10px)", maxWidth: "70vw",
   display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, zIndex: 13,
 };
-// Top row, between 홈 (left) and the people chip (right): never over a template's
-// bottom buttons. Column-reverse keeps the pill on the row and notes under it.
+// Top row, between 홈 (left, 12–70) and the people chip (right): never over a template's
+// bottom buttons. Column-reverse keeps the pills on the row and notes under it.
+// #143: 🌐 공개방 / 🤝 친구방 · 🔗 초대 · QR, 76–273 at 390 px; under TOP_ROW_FULL_W the 🔗 drops its
+// word (76–251) so "👥 10명" still fits at 360 (room-rules-e2e measures both).
+const TOP_ROW_FULL_W = 380;
 const inviteDockTop: React.CSSProperties = {
-  position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", left: 84, maxWidth: "calc(100vw - 180px)",
+  position: "fixed", top: "calc(var(--snack-safe-top) + 10px)", left: 76, maxWidth: "calc(100vw - 160px)",
   display: "flex", flexDirection: "column-reverse", alignItems: "flex-start", gap: 8, zIndex: 13,
 };
-// "비밀번호 걸기" in the quiz invite band: a quiet pill beside the lime 친구 초대하기 (lime stays the
-// one hero). Below ~330 px of band it wraps to two lines so 친구 초대하기 keeps its width.
-const bandPinBtn: React.CSSProperties = {
-  flex: "none", justifyContent: "center", padding: "0 12px", whiteSpace: "nowrap", lineHeight: 1.15, textAlign: "center",
-  font: `700 ${TOKENS.size.bodySm}px ${TOKENS.font.body}`,
-};
-const bandPinNarrow: React.CSSProperties = { whiteSpace: "normal", padding: "0 6px", maxWidth: 68 };
-const BAND_NARROW_W = 330;
 const inviteNote: React.CSSProperties = {
   ...pill, minHeight: 0, padding: "8px 12px", whiteSpace: "normal", wordBreak: "break-all", fontWeight: 600, alignItems: "flex-start",
 };

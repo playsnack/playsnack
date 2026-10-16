@@ -4,10 +4,12 @@
 // shows it itself (speed-trivia-score); for every other one the shell shows a small notice.
 
 /** Room variables a template only gets when it declares them (the shell reads some itself): spectating, who starts (#135 / #136, docs/bite-format.md §6.2), and the tap batch interval (#179 — only tap games declare it). */
-export const SHELL_ROOM_VARS = new Set(["iAmSpectator", "spectators", "roomMode", "hostNick", "iAmHost", "tapBatchMs"]);
+export const SHELL_ROOM_VARS = new Set(["iAmSpectator", "spectators", "roomMode", "hostNick", "iAmHost", "tapBatchMs", "roomPin"]);
 
 type Doc = { vars?: Record<string, unknown> } | null | undefined;
 const declares = (doc: Doc, id: string) => Boolean(doc?.vars && Object.prototype.hasOwnProperty.call(doc.vars, id));
+/** Does the template declare this variable? (the shell sets its own ones — roomPin, autoStartIn — only then) */
+export const declaresVar = declares;
 
 /** Hand this room variable to the template? (no "host set undeclared variable" for the shell's own) */
 export const forTemplate = (doc: Doc, id: string) => !SHELL_ROOM_VARS.has(id) || declares(doc, id);
