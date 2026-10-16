@@ -77,12 +77,15 @@ jobs:
 
       - name: Smoke check
         run: |
+          # Durable Objects restart onto the new code for a few seconds after a deploy (one
+          # "internal error" on /usage right after PR #227): retry before calling it broken.
+          R="--retry 6 --retry-delay 5 --retry-all-errors"
           sleep 5
           for p in / /p/tpl-speed-trivia-score /stats /data/bite/index.json; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE$p")
+            code=$(curl -s $R -o /dev/null -w '%{http_code}' "$SITE$p")
             echo "$p $code"; [ "$code" = 200 ] || exit 1
           done
           if [ "$GITHUB_REF_NAME" = main ]; then
-            curl -sf "$SITE/api/ev" | grep -q '"store":"kv"'
+            curl -sf $R "$SITE/api/ev" | grep -q '"store":"kv"'
           fi
-          curl -sf "https://$ROOM_HOST/usage" > /dev/null
+          curl -sf $R "https://$ROOM_HOST/usage" > /dev/null
