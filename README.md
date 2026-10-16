@@ -55,7 +55,7 @@ pnpm player:build    # → snack-player/dist; any static host that serves index.
 ```
 
 **Links** are plain paths: `https://<host>/p/tpl-tap-battle` opens an app's public room,
-`…/p/tpl-tap-battle?room=K7MNP2QRS4` a friends-only room (the 🤝 친구끼리 pill makes the
+`…/p/tpl-tap-battle?room=K7MNP2QRS4` a friends-only room (the top-row "🌐 공개방 ⇄ 🤝 친구방" chip makes the
 code: 10 symbols from a 32-letter alphabet, 50 bits), and a made app travels inside its
 link's fragment (`/p/app-<hash>#d=…`, never sent to a server). The static host must serve
 `index.html` for `/p/*` (Cloudflare Pages `_redirects`, see `cloudflare/pages/`; snack-server has the same fallback). Old

@@ -62,6 +62,12 @@ const ANSWER_GRACE_MS = 500;
 // Early reveal: once every present answerer has answered, the round is revealed this long
 // later instead of at the end of the window (a beat to see "모두 골랐어요" — not a dead wait; 600 felt slow, #116).
 export const EARLY_REVEAL_MS = 300;
+// Quiz answer change (#211): after a player's first pick they may switch to another option
+// for this long — measured on the room's clock from when the room took the first pick, and
+// never past the round's answer window (less left → only what is left). Then the pick is
+// locked ("확정!"). The score uses the LAST pick's time, so a fast random tap then a switch
+// gains nothing; the early reveal waits until every answerer's change window has closed.
+export const CHANGE_WINDOW_MS = 3000;
 const RECAP_PLAYERS_MAX = 20; // answerers listed per round in quizRecap (snapshot size)
 // The subject switching apps (e.g. to share the invite in KakaoTalk) drops out of the
 // roster after ~3.5 s of silence; only this long away counts as "left" for the quiz rules.
@@ -76,9 +82,22 @@ export const AUTO_START_RANGE = [3000, 60000];
 // …and only with at least this many players here (#141: a public room never starts with one
 // person alone; spectators don't count). Fewer during the countdown → it stops and waits again.
 export const AUTO_START_MIN = 2;
-// …and after a game the result stays up this long, then the lobby (and its countdown) again.
-export const RESULT_HOLD_MS = 8000;
+// …and after a game the result STAYS (#212: no automatic next game — that looped forever). Someone
+// tapping "한 판 더" (the result's again button sends `start`) brings the lobby back and arms the
+// countdown (still only with AUTO_START_MIN players); nobody taps → nothing restarts, no timer runs.
 const AUTO_OPTS_MAX = 1024; // bytes of a start payload kept for auto-start (JSON)
+// 시작 시간 예약 (#218): in a friends room the host (방장 — a stored 나 맞히기 quiz: its subject) may
+// set when the game starts: `schedule {in, start}` — `in` ms from now on the ROOM's clock, at least
+// SCHEDULE_MIN_MS (the engine option `scheduleMinMs`, tests only go lower) and at most
+// SCHEDULE_MAX_MS ahead; `start` = the app's start payload. One schedule per room (a new one
+// replaces it); `unschedule` drops it; any start (지금 시작) ends it. At the time: SCHEDULE_MIN_PLAYERS
+// here → the game starts by itself (3·2·1 as always); fewer → it waits and starts the moment the
+// next person joins. Not a session timer: the host wakes the engine (`scheduleWake(at)` → `wake()`,
+// on the edge the room's one storage alarm — the room can hibernate meanwhile); without that hook
+// the engine keeps its own timer.
+export const SCHEDULE_MIN_MS = 10000;
+export const SCHEDULE_MAX_MS = 24 * 60 * 60 * 1000;
+export const SCHEDULE_MIN_PLAYERS = 2;
 // Also at most 4 UTF-16 units per allowed grapheme: one "grapheme" can carry thousands of
 // combining marks (a size bomb in every snapshot). Text with more than 2 marks per base
 // character is dropped (an emoji's variation selector / keycap is 1–2).
@@ -176,10 +195,13 @@ const buildMatchups = (cands) => {
  * @param {"any" | "host" | "auto"} [o.startRule]  who starts a game (docs/bite-format.md §6.1 "방장 · 자동 시작"):
  *   "any" (default) anyone; "host" (friends room, #135) only the host (방장) — the first person in,
  *   handed on after HOST_GRACE_MS away; "auto" (public room, #136) nobody: once a client sent the app's
- *   start payload (`configureAuto`) the lobby counts down and starts by itself, and returns after the result.
+ *   start payload (`configureAuto`) the lobby counts down and starts by itself; after a game the result
+ *   stays until someone taps "한 판 더" (`start` — back to the lobby and its countdown, #212).
  * @param {number} [o.autoStartMs]   "auto": default lobby countdown (AUTO_START_MS)
  * @param {number} [o.autoStartMin]  "auto": players needed for the countdown to run (AUTO_START_MIN, at least 1)
- * @param {number} [o.resultHoldMs]  "auto": how long the result stays before the lobby (RESULT_HOLD_MS)
+ * @param {(at: number | null) => void} [o.scheduleWake]  "host" (#218): the engine needs `wake()` called at
+ *   `at` (its own clock; null = no longer). Unset → the engine sets its own timer.
+ * @param {number} [o.scheduleMinMs]  "host": the shortest `schedule {in}` taken (SCHEDULE_MIN_MS; tests go lower)
  */
 export function createRoom(o) {
   const {
@@ -204,8 +226,10 @@ export function createRoom(o) {
     startRule = "any",
     autoStartMs = AUTO_START_MS,
     autoStartMin = AUTO_START_MIN,
-    resultHoldMs = RESULT_HOLD_MS,
+    scheduleWake = null,
+    scheduleMinMs = SCHEDULE_MIN_MS,
   } = o;
+  const schedMin = clampInt(scheduleMinMs, 0, SCHEDULE_MAX_MS) ?? SCHEDULE_MIN_MS;
   const rule = startRule === "host" || startRule === "auto" ? startRule : "any";
   const autoMin = clampInt(autoStartMin, 1, 1000) ?? AUTO_START_MIN;
   // A claim never better than the referee's own elapsed time minus the window (network + render).
@@ -227,7 +251,7 @@ export function createRoom(o) {
     roster: new Map(), // anonId → nick (live participants, insertion order)
     nicks: new Map(), // anonId → nick (score owner names)
     pids: new Map(), // anonId → "p1", "p2"… (join order; a stable per-room key — two players may share a nick)
-    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null, sid: "", done: 0, subject: "", answerers: undefined, acted: undefined, subjectAwayAt: null, packDone: -1, host: "", hostAwayAt: null, autoOpts: null, autoMs: 0 },
+    session: { phase: "lobby", round: 0, num: 0, timers: [], rounds: [], bracket: null, gen: 0, quizPack: null, sid: "", done: 0, subject: "", answerers: undefined, acted: undefined, subjectAwayAt: null, packDone: -1, host: "", hostAwayAt: null, autoOpts: null, autoMs: 0, sched: null },
     destroyed: false,
     // Variable stores — what a (re)joining player needs to see the room as it is:
     vars: new Map(), // shared: id → latest broadcast value (round content too)
@@ -324,7 +348,6 @@ export function createRoom(o) {
     if (ended) S.done += 1; // sessions finished in this room (telemetry §9.3)
     S.phase = phase;
     if (ended && S.sid) report(onSessionEnd, sessionEnded());
-    if (ended && autoOn()) later("autoLobby", null, resultHoldMs); // a public room goes on by itself
     setVar("sessionPhase", phase);
     for (const [k, v] of Object.entries(extra)) {
       if (k === "sessionCountdown") S.num = v;
@@ -429,9 +452,9 @@ export function createRoom(o) {
   // An "auto" room (public room) starts by itself once a client told it the app's start payload
   // (configureAuto — the template's `room.start`): the lobby counts down S.autoMs once autoMin
   // players are here (#141 — default 2: one person alone waits for a second; one timer — everyone
-  // who joins meanwhile plays; dropping below autoMin stops it, back to waiting), and after a game
-  // the result holds resultHoldMs, then the lobby again — counting down only if someone played (two
-  // phones left open do not loop games), else idle until someone joins or taps start. The countdown
+  // who joins meanwhile plays; dropping below autoMin stops it, back to waiting). After a game the
+  // result stays (#212 — no timer: the DO may hibernate) until someone taps "한 판 더" (`start` from the
+  // result): then the lobby again and its countdown (autoMin players; fewer → it waits). The countdown
   // goes out as {t: "autoStart", d: {endsIn, ms}} (endsIn −1 = none): a client runs it on its own
   // clock. The timer is session data (S.timers), so a snapshot / hand-over / hibernation keeps it.
   const autoOn = () => rule === "auto" && S.autoOpts != null;
@@ -455,6 +478,77 @@ export function createRoom(o) {
     if (!autoTimer() || autoPlayers() >= autoMin) return;
     cancel("autoStart");
     broadcastOut("autoStart", autoMsg());
+  };
+
+  // ── 시작 시간 예약 (#218) ──
+  // S.sched = {at, opts, by, due} (at on this engine's clock; due = the time came, waiting for a
+  // second player). It goes out as {t: "schedule", d: {on, endsIn, due}} — "the game starts in
+  // endsIn ms" (negative once due): a client runs it on its own clock (no per-second message).
+  // Not in S.timers: the host wakes the engine (scheduleWake), so a waiting room can hibernate.
+  let schedTimer = null;
+  const schedMsg = () => (S.sched ? { on: true, endsIn: Math.round(S.sched.at - now()), due: Boolean(S.sched.due) } : { on: false, endsIn: -1, due: false });
+  const armSched = () => {
+    const at = S.sched && !S.sched.due ? S.sched.at : null;
+    if (scheduleWake) {
+      try {
+        scheduleWake(at);
+      } catch (err) {
+        console.error("[snack-room] scheduleWake failed", err);
+      }
+      return;
+    }
+    if (schedTimer != null) clearTimer(schedTimer);
+    schedTimer = null;
+    if (at != null) {
+      schedTimer = setTimer(() => {
+        schedTimer = null;
+        wakeSched();
+      }, Math.max(0, at - now()));
+    }
+  };
+  const clearSched = (tell) => {
+    if (!S.sched) return;
+    S.sched = null;
+    armSched();
+    if (tell) broadcastOut("schedule", schedMsg());
+  };
+  // Who may set / drop the schedule here (null = this player may).
+  const schedRefusal = (anonId) => {
+    if (rule === "auto") return "auto_start"; // a public room starts by itself (2명 · 10초)
+    if (rule !== "host") return "not_friends_room";
+    if (S.phase !== "lobby") return "not_in_lobby";
+    if (S.quizPack) return notSubject(anonId) ? "not_subject" : null; // 나 맞히기: its subject is the host
+    return notHost(anonId) ? "not_host" : null;
+  };
+  const schedPlayers = () => [...r.roster.keys()].filter((id) => !isSpectator(id)).length;
+  const quizStartOf = (opts) => Boolean(opts) && typeof opts === "object" && Boolean(opts.quiz);
+  // The time came: start now if enough are here (else wait — the next join starts it).
+  const trySchedStart = ({ quiet = false } = {}) => {
+    const s = S.sched;
+    if (!s?.due || S.phase !== "lobby" || r.destroyed) return false;
+    const few = schedPlayers() < SCHEDULE_MIN_PLAYERS || (S.quizPack && quizStartOf(s.opts) && !answerersHere().length);
+    if (few) {
+      if (!quiet) broadcastOut("schedule", schedMsg());
+      return false;
+    }
+    startSession(s.opts, null).catch((e) => console.error("[snack-room] scheduled start failed", e));
+    return true;
+  };
+  const wakeSched = () => {
+    const s = S.sched;
+    if (!s || r.destroyed || s.due) return;
+    if (S.phase !== "lobby") return clearSched(false); // (a start always clears it — never here)
+    if (now() < s.at) return armSched(); // woken early: again at the time
+    s.due = true;
+    armSched();
+    trySchedStart();
+  };
+  /** A start payload a room may keep (auto-start / a schedule): a copy, or null. */
+  const keepOpts = (opts) => {
+    const ok = typeof opts === "number" ? Number.isFinite(opts) : Boolean(opts) && typeof opts === "object" && !Array.isArray(opts);
+    if (!ok) return null;
+    const json = JSON.stringify(opts);
+    return json.length > AUTO_OPTS_MAX ? null : JSON.parse(json);
   };
 
   // Round-based (vote / content) — each round is a fresh vote.
@@ -575,6 +669,10 @@ export function createRoom(o) {
   // a join (someone new, or back without an answer) can only reopen it, back to the
   // window's own end. The reveal timer is data, so the beat survives a hand-over
   // (timers[].remaining); S.early says it was pulled in.
+  //
+  // Change windows (#211): "everyone answered" reveals only once every present answerer's
+  // pick is locked — EARLY_REVEAL_MS after the last change window closes (a window that runs
+  // to the round's end means no early reveal). A leave can only bring that earlier.
   const syncReveal = ({ mayPull = true } = {}) => {
     if (!S.quiz || S.phase !== "play" || !S.accepting) return;
     const t = S.timers.find((x) => x.step === "revealQuizRound");
@@ -582,11 +680,15 @@ export function createRoom(o) {
     const p = quizProgress();
     const allIn = p.of > 0 && p.answered >= p.of;
     const fullIn = S.roundStart + S.answerMs - now();
-    if (allIn && !S.early && mayPull && fullIn > EARLY_REVEAL_MS) {
+    const locks = S.pickLock ?? {};
+    const lastLock = Math.max(0, ...playersHere().filter((id) => !isSubject(id) && locks[id]).map((id) => locks[id].at));
+    const wait = Math.max(0, S.roundStart + lastLock - now()) + EARLY_REVEAL_MS;
+    if (allIn && (S.early || mayPull) && fullIn > wait && (!S.early || now() + wait < t.at)) {
       S.early = true;
       cancel("revealQuizRound");
-      later("revealQuizRound", S.roundIdx, EARLY_REVEAL_MS);
-    } else if (!allIn && S.early) {
+      later("revealQuizRound", S.roundIdx, wait);
+    } else if (!allIn && p.of > 0 && S.early) {
+      // someone here has not answered (nobody here yet — e.g. the subject back first after a hand-over — keeps the beat)
       S.early = false;
       cancel("revealQuizRound");
       later("revealQuizRound", S.roundIdx, Math.max(0, fullIn));
@@ -613,6 +715,20 @@ export function createRoom(o) {
     const ok = Number.isFinite(m) && m >= 0 && m <= S.answerMs + ANSWER_GRACE_MS;
     return Math.min(ok ? floorClaim(Math.min(Math.round(m), host + REACTION_TOLERANCE_MS), host) : host, S.answerMs);
   };
+  // How long this player's pick may still change (0 = locked, or no pick this round).
+  const lockLeft = (anonId) => {
+    const lock = S.pickLock?.[anonId];
+    return lock && S.quiz && S.phase === "play" && S.accepting ? Math.max(0, S.roundStart + lock.at - now()) : 0;
+  };
+  // What the room took for this player this round, back to all their connections (a reload
+  // mid-round restores it): option, the scored time, n (the device's pick count it answers)
+  // and lockMs (change time left on the room's clock when sent — the device counts it down).
+  const sendMyPick = (anonId) => {
+    const p = S.picks[S.roundIdx]?.[anonId];
+    if (!p) return;
+    const value = { sessionNo: S.round, round: S.roundIdx, option: p.option, ms: p.ms, n: S.pickLock?.[anonId]?.n ?? 1, lockMs: lockLeft(anonId) };
+    for (const [id, x] of r.peers) if (x.anonId === anonId) send(id, "setVar", { id: "myPick", value });
+  };
   const quizRecap = () => {
     const players = S.players.slice(0, RECAP_PLAYERS_MAX);
     const m = S.quizMeta ?? {};
@@ -637,6 +753,7 @@ export function createRoom(o) {
     if (i >= S.rounds.length) return toResult();
     S.roundIdx = i;
     S.answered = new Set();
+    S.pickLock = {}; // anonId → {at: ms after roundStart when the pick locks, n: last pick count seen}
     S.accepting = true;
     S.early = false;
     S.roundStart = now();
@@ -786,14 +903,9 @@ export function createRoom(o) {
       if (autoPlayers() < autoMin) return void broadcastOut("autoStart", autoMsg());
       startSession(S.autoOpts, null, true).catch((e) => console.error("[snack-room] auto start failed", e));
     },
-    autoLobby: () => {
-      if (S.phase !== "result") return;
-      S.accepting = false;
-      S.playAt = 0;
-      S.lateUntil = 0;
-      setPhase("lobby", { sessionCountdown: 0 });
-      if (S.acted?.size) armAuto();
-    },
+    // Before #212 a result went back to the lobby by itself: a snapshot from then may still hold
+    // this timer — the result now stays (only "한 판 더" leaves it).
+    autoLobby: () => {},
   };
 
   // A session / pack id that is the same whichever host applies the action (telemetry §9.3).
@@ -806,6 +918,8 @@ export function createRoom(o) {
   };
   const startSession = async (opts, clientMsgId, auto = false) => {
     if (S.phase === "countdown" || S.phase === "play") return; // already running
+    // A schedule ends with any start (its own, or 지금 시작) — no message: the countdown follows.
+    clearSched(false);
     if (typeof opts === "number") opts = { duration: opts };
     opts = opts || {};
     S.sid = idOf(clientMsgId);
@@ -1097,9 +1211,11 @@ export function createRoom(o) {
       }
       ack(peerId, d?.clientMsgId);
     } else if (name === "answer") {
-      // One answer per player per round; the subject only watches. Scores show at the reveal.
-      // A late resend (mesh resends for up to 10 s, a new host replays) names the round it
-      // answered: another round or game is refused, so it never lands in the next one.
+      // One pick per player per round, changeable for CHANGE_WINDOW_MS (#211); the subject only
+      // watches. Scores show at the reveal. A late resend (mesh resends for up to 10 s, a new
+      // host replays) names the round it answered: another round or game is refused, so it
+      // never lands in the next one; `n` (the device's pick count this round) drops a resend
+      // of an older pick.
       const said = (k) => d?.payload?.[k] != null && d.payload[k] !== "";
       if (S.quiz && ((said("round") && Number(d.payload.round) !== S.roundIdx) || (said("sessionNo") && Number(d.payload.sessionNo) !== S.round))) {
         return ack(peerId, d?.clientMsgId, { accepted: false, reason: "stale_round" });
@@ -1107,19 +1223,39 @@ export function createRoom(o) {
       const round = S.rounds[S.roundIdx];
       const option = Number(d?.payload?.option);
       const valid = round && Number.isInteger(option) && option >= 0 && option < round.options.length;
+      const claimN = said("n") && Number.isInteger(Number(d.payload.n)) ? Number(d.payload.n) : null;
+      const score = (ms) => (option === round.answer ? Math.max(100, 1000 - Math.round((ms / S.answerMs) * 800)) : 0); // faster = more
+      const prev = S.quiz && S.answered?.has(anonId) ? S.picks[S.roundIdx]?.[anonId] : null;
+      if (prev && valid && !isSubject(anonId)) {
+        // A change: only inside this player's window, on the room's clock.
+        const lock = ((S.pickLock ??= {})[anonId] ??= { at: 0, n: 1 });
+        if (claimN !== null && claimN <= lock.n) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "duplicate" });
+        lock.n = claimN ?? lock.n + 1;
+        if (!(S.phase === "play" && S.accepting && lockLeft(anonId) > 0) || option === prev.option) {
+          sendMyPick(anonId); // what the room still holds — the device shows that again
+          return ack(peerId, d?.clientMsgId, { accepted: false, reason: option === prev.option ? "duplicate" : "locked" });
+        }
+        // Timed from the question to THIS pick, never faster than the pick it replaces.
+        const ms = Math.max(prev.ms, answerTime(d.payload.ms));
+        const points = score(ms);
+        S.picks[S.roundIdx][anonId] = { option, ms, correct: option === round.answer, points };
+        r.scores.set(anonId, (r.scores.get(anonId) ?? 0) - prev.points + points);
+        sendMyPick(anonId);
+        return ack(peerId, d?.clientMsgId);
+      }
       if (S.quiz && S.phase === "play" && S.accepting && valid && S.answered && !S.answered.has(anonId) && !isSubject(anonId)) {
         S.answered.add(anonId);
         S.answerers?.add(anonId);
         took(anonId);
         addQuizPlayer(anonId, peerNick(peer) || r.nicks.get(anonId) || "게스트");
         const ms = answerTime(d.payload.ms);
-        const correct = option === round.answer;
-        const points = correct ? Math.max(100, 1000 - Math.round((ms / S.answerMs) * 800)) : 0; // faster = more
-        S.picks[S.roundIdx][anonId] = { option, ms, correct, points };
-        // the device's own record of what the room took (a reload mid-round restores it)
-        send(peerId, "setVar", { id: "myPick", value: { sessionNo: S.round, round: S.roundIdx, option, ms } });
+        const points = score(ms);
+        S.picks[S.roundIdx][anonId] = { option, ms, correct: option === round.answer, points };
+        const elapsed = Math.max(0, now() - S.roundStart);
+        (S.pickLock ??= {})[anonId] = { at: Math.min(elapsed + CHANGE_WINDOW_MS, S.answerMs), n: claimN ?? 1 };
+        sendMyPick(anonId);
         r.scores.set(anonId, (r.scores.get(anonId) ?? 0) + points);
-        onPoints(anonId, nick, correct ? 2 : 1);
+        onPoints(anonId, nick, points > 0 ? 2 : 1);
         setVar("quizProgress", quizProgress());
         syncReveal();
       }
@@ -1171,8 +1307,18 @@ export function createRoom(o) {
       // room — and needs someone to guess: the subject plus at least one friend.
       // Any start payload: a crafted {} or number must not start another game in this room.
       const p = d?.payload;
-      // A public room starts by itself: a tap only wakes an idle lobby's countdown.
+      // A public room starts by itself: a tap only wakes an idle lobby's countdown — or, on the
+      // result, is "한 판 더" (#212): back to the lobby, whose countdown runs once autoMin are here.
       if (autoOn()) {
+        if (S.phase === "result") {
+          clearSessionTimers();
+          S.accepting = false;
+          S.playAt = 0;
+          S.lateUntil = 0;
+          setPhase("lobby", { sessionCountdown: 0 });
+          // alone: the lobby waits ("한 명 더 오면 시작해요"); the 2nd arrival's join arms it
+          return ack(peerId, d?.clientMsgId, armAuto() ? { accepted: true } : { accepted: true, waiting: "need_players" });
+        }
         if (armAuto()) return ack(peerId, d?.clientMsgId);
         const few = S.phase === "lobby" && !autoTimer() && autoPlayers() < autoMin;
         return ack(peerId, d?.clientMsgId, { accepted: false, reason: few ? "need_players" : "auto_start" });
@@ -1195,6 +1341,24 @@ export function createRoom(o) {
       S.playAt = 0;
       S.lateUntil = 0;
       setPhase("lobby", { sessionCountdown: 0 });
+      ack(peerId, d?.clientMsgId);
+    } else if (name === "schedule") {
+      // 시작 시간 예약 (#218): the host sets when the game starts (in ms from now, the room's clock).
+      const no = schedRefusal(anonId);
+      if (no) return ack(peerId, d?.clientMsgId, { accepted: false, reason: no });
+      const ms = Math.round(Number(d?.payload?.in));
+      if (!Number.isFinite(ms) || ms < schedMin || ms > SCHEDULE_MAX_MS) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_time" });
+      const opts = keepOpts(d?.payload?.start);
+      if (opts == null) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_start" });
+      S.sched = { at: now() + ms, opts, by: anonId, due: false };
+      armSched();
+      broadcastOut("schedule", schedMsg());
+      ack(peerId, d?.clientMsgId);
+    } else if (name === "unschedule") {
+      // 예약 취소: back to "방장이 시작해요" (nothing scheduled → still fine: it is not there).
+      const no = schedRefusal(anonId);
+      if (no) return ack(peerId, d?.clientMsgId, { accepted: false, reason: no });
+      clearSched(true);
       ack(peerId, d?.clientMsgId);
     }
   }
@@ -1252,6 +1416,9 @@ export function createRoom(o) {
       }
       if (r.scores.has(anonId)) setKnown("raceBoard", raceBoard()); // back after a flap: unmarked (MP-12)
       if (autoOn() && !armAuto() && autoTimer()) sendOut(peerId, "autoStart", autoMsg()); // the lobby's countdown, on their clock
+      // A scheduled start (#218): its countdown, on their clock — or, the time already came and
+      // the room waited for a second person, the game starts now.
+      if (S.sched && !trySchedStart({ quiet: true })) sendOut(peerId, "schedule", schedMsg());
       onActivity("join", "입장");
     },
     /**
@@ -1270,8 +1437,12 @@ export function createRoom(o) {
         watchHostAway();
       }
     },
-    /** A peer leaves. Returns true when the room is now empty (and torn down). */
-    leave(peerId) {
+    /**
+     * A peer leaves. Returns true when the room is now empty (and torn down). `awaySince`: it had
+     * been in the background since then (edge rooms, #213) — a host's / quiz subject's grace counts from it.
+     */
+    leave(peerId, { awaySince } = {}) {
+      const awayAt = Number.isFinite(awaySince) ? Math.min(now(), awaySince) : now();
       const peer = r.peers.get(peerId);
       if (!peer) return r.peers.size === 0;
       r.peers.delete(peerId);
@@ -1293,11 +1464,11 @@ export function createRoom(o) {
         syncVoteReveal(); // the last one still to pick left: everyone here has
       }
       if (gone && S.quizPack && peer.anonId === S.quizPack.subject.anonId) {
-        S.subjectAwayAt = now(); // counts as left only after SUBJECT_GRACE_MS
+        S.subjectAwayAt = awayAt; // counts as left only after SUBJECT_GRACE_MS
         watchSubjectAway();
       }
       if (gone && rule === "host" && peer.anonId === S.host) {
-        S.hostAwayAt = now(); // hands over only after HOST_GRACE_MS
+        S.hostAwayAt = awayAt; // hands over only after HOST_GRACE_MS
         watchHostAway();
       }
       if (gone && autoOn()) disarmAuto(); // too few left to start for: wait again (#141)
@@ -1311,14 +1482,23 @@ export function createRoom(o) {
      */
     configureAuto(opts, ms) {
       if (rule !== "auto" || S.autoOpts != null) return false;
-      const ok = typeof opts === "number" ? Number.isFinite(opts) : Boolean(opts) && typeof opts === "object" && !Array.isArray(opts);
-      if (!ok) return false;
-      const json = JSON.stringify(opts);
-      if (json.length > AUTO_OPTS_MAX) return false;
-      S.autoOpts = JSON.parse(json);
+      const kept = keepOpts(opts);
+      if (kept == null) return false;
+      S.autoOpts = kept;
       S.autoMs = (ms == null ? undefined : clampInt(ms, ...AUTO_START_RANGE)) ?? clampInt(autoStartMs, ...AUTO_START_RANGE) ?? AUTO_START_MS;
       armAuto();
       return true;
+    },
+    /**
+     * The `scheduleWake` time came (#218 — on the edge: the room's alarm). Early or with nothing
+     * scheduled it changes nothing (it asks for the right time again).
+     */
+    wake() {
+      wakeSched();
+    },
+    /** The scheduled start (#218): {at (this engine's clock), due} or null. */
+    get scheduled() {
+      return S.sched ? { at: S.sched.at, due: Boolean(S.sched.due) } : null;
     },
     /** Would this player only watch the game in progress? (an auto room moves them on instead, #136) */
     wouldSpectate(anonId) {
@@ -1354,7 +1534,11 @@ export function createRoom(o) {
     /** Values sent to this player only (keyed by anonId — survives a reload). */
     playerVars(peerId) {
       const peer = r.peers.get(peerId);
-      return Object.fromEntries((peer && r.mine.get(peer.anonId)) || []);
+      const own = Object.fromEntries((peer && r.mine.get(peer.anonId)) || []);
+      // this round's pick: the change time left now, not when it was first sent (#211)
+      const p = own.myPick;
+      if (S.quiz && p && p.sessionNo === S.round && p.round === S.roundIdx && "lockMs" in p) own.myPick = { ...p, lockMs: lockLeft(peer.anonId) };
+      return own;
     },
     /** What a joining / resyncing player gets: shared state + its own values. */
     stateFor(peerId) {
@@ -1373,7 +1557,7 @@ export function createRoom(o) {
      */
     snapshot() {
       const t = now();
-      const { timers, answered, answerers, acted, eliminated, reacted, pending, members, spectators, roundStart, goAt, playAt, lateUntil, subjectAwayAt, hostAwayAt, ...rest } = S;
+      const { timers, answered, answerers, acted, eliminated, reacted, pending, members, spectators, roundStart, goAt, playAt, lateUntil, subjectAwayAt, hostAwayAt, sched, ...rest } = S;
       return {
         v: 1,
         voters: [...r.voters],
@@ -1401,6 +1585,8 @@ export function createRoom(o) {
           lateLeft: lateUntil ? Math.max(0, lateUntil - t) : undefined,
           subjectAwayAgo: subjectAwayAt != null ? t - subjectAwayAt : undefined,
           hostAwayAgo: hostAwayAt != null ? t - hostAwayAt : undefined,
+          // #218: ms left until the scheduled start (negative once due)
+          sched: sched ? { left: sched.at - t, opts: sched.opts, by: sched.by, due: Boolean(sched.due) } : undefined,
         },
         timers: timers.map((x) => ({ step: x.step, arg: x.arg, remaining: Math.max(0, x.at - t) })),
       };
@@ -1418,8 +1604,9 @@ export function createRoom(o) {
       r.pids = new Map(snap.pids ?? []);
       r.vars = new Map(snap.vars ?? []);
       r.mine = new Map((snap.mine ?? []).map(([anonId, own]) => [anonId, new Map(own)]));
-      const { answered, answerers, acted, members, spectators, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, subjectAwayAgo, hostAwayAgo, ...rest } = snap.session;
+      const { answered, answerers, acted, members, spectators, eliminated, reacted, pending, roundStartAgo, goAtAgo, playAtAgo, lateLeft, subjectAwayAgo, hostAwayAgo, sched, ...rest } = snap.session;
       Object.assign(S, rest, { timers: [] });
+      S.sched = sched && Number.isFinite(sched.left) ? { at: t + sched.left - age, opts: sched.opts, by: sched.by, due: Boolean(sched.due) } : null;
       if (answered) S.answered = new Set(answered);
       if (answerers) S.answerers = new Set(answerers);
       if (acted) S.acted = new Set(acted);
@@ -1441,11 +1628,15 @@ export function createRoom(o) {
       watchHostAway();
       if (snap.recap) r.vars.set("quizRecap", S.quiz && S.phase === "result" ? quizRecap() : { subject: null, about: null, title: "", packId: null, rounds: [] });
       for (const x of snap.timers) later(x.step, x.arg, Math.max(0, x.remaining - age));
+      // The scheduled start (#218): asked for again (a time that passed while asleep → wake() at once).
+      if (S.sched) armSched();
       return true;
     },
     destroy() {
       r.destroyed = true;
       clearSessionTimers();
+      if (schedTimer != null) clearTimer(schedTimer);
+      schedTimer = null;
       if (awayTimer != null) clearTimer(awayTimer);
       if (hostTimer != null) clearTimer(hostTimer);
     },

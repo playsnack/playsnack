@@ -1,13 +1,18 @@
-// Cloudflare Worker + Durable Objects: snack rooms at the edge (spike, not deployed).
-//   GET /room/<roomId>   (WebSocket) → GameRoom DO: the room engine runs here (server-authoritative)
-//   GET /room/<roomId>/result         → that friends room's last saved game (7 days) or 404
-//   GET /relay/<roomId>  (WebSocket) → Relay DO: a dumb relay for the serverless mesh
+// Cloudflare Worker + Durable Objects: snack rooms at the edge (docs/edge-rooms.md, docs/room-admission.md).
+//   POST /mint {slug, pin?, anonId?}  → a new signed room code + organizer ticket (+ pass with a PIN); no DO
+//   GET /room/<roomId>   (WebSocket) → checked here first (admit.js decideUpgrade: code tag, PIN,
+//                                      rate limits, Origin) → GameRoom DO with a signed admit claim;
+//                                      refused → a socket of the Worker's own carries `denied`, no DO woken
+//   GET /room/<roomId>/result         → that friends room's last saved game (7 days) or 404; + `startAt`
+//                                      when its start is scheduled (#218, for the link preview)
+//   /relay/<roomId>                   → 410: the mesh relay is retired (the live player uses /room only)
 //   anything else        → 404 (there is no room listing)
-// One DO per room id. The logic is game.js / core.js — the same modules the Node hub runs.
+// One DO per room id. The logic is admit.js / game.js / core.js — the same modules the Node hub runs.
 import { DurableObject } from "cloudflare:workers";
 import { RoomRelay, UsageMeter, ROOM_ID_RE } from "./core.js";
-import { GameRoom, roomAlarm } from "./game.js";
+import { GameRoom, roomAlarm, roomReadBody, PING, PONG } from "./game.js";
 import { StatsSender, isFriendRoom } from "./results.js";
+import { decideUpgrade, decideMint, decideResult, configFrom, limitersFrom, memoryLimiters, verifyAdmit, stripRoomHeaders, originAllowed, WorkerTally } from "./admit.js";
 
 const num = (v) => (v === undefined || v === "" || Number.isNaN(Number(v)) ? undefined : Number(v));
 // Test knobs (wrangler dev --var …); unset in production → the LIMITS in core.js / game.js.
@@ -16,22 +21,85 @@ const limitsFrom = (env) => {
   return Object.fromEntries(Object.entries(l).filter(([, v]) => v !== undefined));
 };
 
+// Per isolate (best effort — an evicted isolate forgets): the rate-limit fallback when a
+// `ratelimits` binding is missing, and the tally of refusals for the usage meter.
+const fallbackLimiters = memoryLimiters();
+const tally = new WorkerTally();
+/** Count a request the Worker answered itself; flush the batch to the meter when due (one DO call per ~200). */
+const counted = (env, ctx, d) => {
+  const due = tally.count(d);
+  if (due && env.METER) ctx.waitUntil(env.METER.get(env.METER.idFromName("global")).add(due).catch(() => {}));
+};
+
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (url.pathname === "/usage" && req.method === "GET") return usage(req, env, ctx);
+    if (url.pathname === "/mint") return mint(req, env, ctx);
     const res = /^\/room\/([^/]+)\/result$/.exec(url.pathname);
-    if (res) return result(req, env, res[1]);
-    const m = /^\/(room|relay)\/([^/]+)$/.exec(url.pathname);
-    if (!m || !ROOM_ID_RE.test(m[2])) return new Response("not found", { status: 404 });
+    if (res) return result(req, env, ctx, res[1], url);
+    if (/^\/relay(\/|$)/.test(url.pathname)) {
+      counted(env, ctx, { workerExtra: 1 });
+      return new Response("gone", { status: 410 });
+    }
+    const m = /^\/room\/([^/]+)$/.exec(url.pathname);
+    if (!m || !ROOM_ID_RE.test(m[1])) return new Response("not found", { status: 404 });
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("websocket only", { status: 426 });
     if (!env.ROOM_TOKEN_SECRET) return new Response("not configured", { status: 503 });
-    const ns = m[1] === "room" ? env.GAMES : env.ROOMS;
-    const fwd = new Request(req);
-    fwd.headers.set("x-room-id", m[2]);
-    return ns.get(ns.idFromName(m[2])).fetch(fwd);
+    const roomId = m[1];
+    const stub = () => env.GAMES.get(env.GAMES.idFromName(roomId));
+    const d = await decideUpgrade({
+      secret: env.ROOM_TOKEN_SECRET,
+      roomId,
+      params: url.searchParams,
+      ip: req.headers.get("cf-connecting-ip") ?? "",
+      origin: req.headers.get("origin"),
+      cfg: configFrom(env),
+      limiters: limitersFrom(env, fallbackLimiters),
+      pinAttempt: (ipKey) => stub().pinAttempt({ roomId, ipKey }),
+    });
+    if (d.deny) {
+      // W1 D0 (a wrong PIN: + the PIN-lock RPC, its rows and the alarm it may arm)
+      counted(env, ctx, { workerExtra: 1, doExtra: d.rpc ? 1 + (d.alarms ?? 0) : 0, rows: d.rows ?? 0 });
+      return refuse(d.deny);
+    }
+    // Forward without the token / PIN in the URL and without any client-sent x-room-* header.
+    const fwdUrl = new URL(url);
+    fwdUrl.searchParams.delete("k");
+    fwdUrl.searchParams.delete("pin");
+    const fwd = new Request(fwdUrl.toString(), req);
+    stripRoomHeaders(fwd.headers);
+    fwd.headers.set("x-room-id", roomId);
+    fwd.headers.set("x-room-admit", d.forward.admit);
+    return stub().fetch(fwd);
   },
 };
+
+/** A refused upgrade: the Worker's own socket says why (browsers hide an upgrade's HTTP status), then closes. */
+// (`wrangler dev` logs "Network connection lost" for each — local proxy noise; the client gets the frame and the code.)
+function refuse({ reason, close, ...extra }) {
+  const { 0: client, 1: server } = new WebSocketPair();
+  server.accept();
+  server.addEventListener("error", () => {}); // the client may drop it first: nothing to do
+  server.send(JSON.stringify({ t: "denied", d: { reason, ...extra } }));
+  server.close(close, reason);
+  return new Response(null, { status: 101, webSocket: client });
+}
+
+// POST /mint (text/plain → no CORS preflight; OPTIONS answered anyway). No Durable Object.
+async function mint(req, env, ctx) {
+  const origin = req.headers.get("origin");
+  const cfg = configFrom(env);
+  const cors = { "access-control-allow-origin": origin && originAllowed(origin, cfg.allowedOrigins) ? origin : "*", vary: "origin" };
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...cors, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type", "access-control-max-age": "86400" } });
+  counted(env, ctx, { workerExtra: 1 });
+  if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: { ...cors, allow: "POST" } });
+  if (!env.ROOM_TOKEN_SECRET) return new Response("not configured", { status: 503, headers: cors });
+  const len = Number(req.headers.get("content-length") ?? 0);
+  const text = len > 1024 ? null : await req.text().catch(() => null);
+  const r = await decideMint({ secret: env.ROOM_TOKEN_SECRET, text, ip: req.headers.get("cf-connecting-ip") ?? "", origin, cfg, limiters: limitersFrom(env, fallbackLimiters) });
+  return new Response(JSON.stringify(r.body), { status: r.status, headers: { ...cors, "content-type": "application/json", "cache-control": "no-store" } });
+}
 
 // GET /usage: today's estimate and % of each free limit. Cached 60 s at the edge so a page
 // refreshing it costs (almost) nothing; a cache miss counts itself as one Worker request.
@@ -49,17 +117,27 @@ async function usage(req, env, ctx) {
   ctx.waitUntil(cache.put(key, res.clone()));
   return res;
 }
-// GET /room/<id>/result: friends rooms only (anything else is 404 without waking a DO).
-// Unlisted like /api/room-result: whoever has the link may read it. Cached 10 s.
+// GET /room/<id>/result: friends rooms whose code checks out (admit.js decideResult); a PIN room
+// only with ?k=<pass | seat | organizer token>. Anything else is 404 without waking a DO.
+// Unlisted like /api/room-result: whoever has the link (and, for a PIN room, the pass) may read it.
 const CORS = { "access-control-allow-origin": "*" };
-async function result(req, env, roomId) {
+async function result(req, env, ctx, roomId, url) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...CORS, "access-control-allow-methods": "GET", "access-control-max-age": "86400" } });
   if (req.method !== "GET") return new Response("method not allowed", { status: 405, headers: { ...CORS, allow: "GET" } });
-  const notFound = () => new Response(JSON.stringify({ ok: false, error: "not_found" }), { status: 404, headers: { ...CORS, "content-type": "application/json", "cache-control": "public, max-age=10" } });
-  if (!isFriendRoom(roomId)) return notFound(); // ids are URL-unreserved chars: nothing to decode
+  const notFound = () => {
+    counted(env, ctx, { workerExtra: 1 });
+    return new Response(JSON.stringify({ ok: false, error: "not_found" }), { status: 404, headers: { ...CORS, "content-type": "application/json", "cache-control": "public, max-age=10" } });
+  };
+  if (!isFriendRoom(roomId)) return notFound(); // public / malformed ids never hold a result
   if (!env.ROOM_TOKEN_SECRET) return new Response("not configured", { status: 503, headers: CORS });
-  const fwd = new Request(req);
+  const d = await decideResult({ secret: env.ROOM_TOKEN_SECRET, roomId, params: url.searchParams, cfg: configFrom(env) });
+  if (d.notFound) return notFound(); // ids are URL-unreserved chars: nothing to decode
+  const fwdUrl = new URL(url);
+  fwdUrl.searchParams.delete("k");
+  const fwd = new Request(fwdUrl.toString(), req);
+  stripRoomHeaders(fwd.headers);
   fwd.headers.set("x-room-id", roomId);
+  if (d.forward.admit) fwd.headers.set("x-room-admit", d.forward.admit);
   return env.GAMES.get(env.GAMES.idFromName(roomId)).fetch(fwd);
 }
 const usageResponse = (body) => new Response(body, { headers: { "content-type": "application/json", "cache-control": "public, max-age=60", "access-control-allow-origin": "*" } });
@@ -73,6 +151,7 @@ class Sockets {
   of(ws) {
     let a = this.cache.get(ws);
     if (a) return a;
+    const ctx = this.ctx;
     let state;
     a = {
       ws,
@@ -98,6 +177,14 @@ class Sockets {
           /* closed */
         }
       },
+      /** When the auto-response last answered this socket's "ping" (#142; ms, null = never). Reading it wakes nothing. */
+      pongAt() {
+        try {
+          return ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null;
+        } catch {
+          return null;
+        }
+      },
     };
     this.cache.set(ws, a);
     return a;
@@ -116,7 +203,7 @@ class Sockets {
 
 const meterOf = (env) => {
   const meter = env.METER.get(env.METER.idFromName("global"));
-  return { admit: () => meter.admit(), add: (d) => meter.add(d) };
+  return { admit: (o) => meter.admit(o), add: (d) => meter.add(d) };
 };
 
 /** Server-authoritative game room (game.js). */
@@ -125,6 +212,10 @@ export class Game extends DurableObject {
     super(ctx, env);
     this.socks = new Sockets(ctx);
     this.room = null;
+    // #142 host keepalive: the exact text "ping" is answered "pong" by the runtime WITHOUT waking this
+    // object (no GB-s, no webSocketMessage); the time is kept per socket (Sockets pongAt). Any other
+    // text — "Ping", "ping\n", JSON — wakes it (game.js counts those as pingMiss).
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
   }
   core(roomId) {
     const base = this.env.PACK_BASE_URL;
@@ -154,16 +245,28 @@ export class Game extends DurableObject {
   }
   async fetch(req) {
     const roomId = req.headers.get("x-room-id");
+    const secret = this.env.ROOM_TOKEN_SECRET;
+    const adm = secret && roomId ? await verifyAdmit(secret, req.headers.get("x-room-admit"), roomId) : null;
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-      // GET /room/<id>/result (worker.js result: friends rooms only)
-      const rec = await this.core(roomId).readResult();
-      const headers = { "content-type": "application/json", "cache-control": "public, max-age=10", "access-control-allow-origin": "*" };
-      return new Response(JSON.stringify(rec ? { ok: true, result: rec } : { ok: false, error: "not_found" }), { status: rec ? 200 : 404, headers });
+      // GET /room/<id>/result (worker.js result: checked there; a PIN room's carries an admit claim)
+      // (+ the scheduled start, #218 — `startAt` for the link preview)
+      const { status, body } = roomReadBody(await this.core(roomId).readRoom(adm));
+      const headers = { "content-type": "application/json", "cache-control": adm ? "private, max-age=10" : "public, max-age=10", "access-control-allow-origin": "*" };
+      return new Response(JSON.stringify(body), { status, headers });
     }
+    // Only upgrades the Worker checked (admit.js): a signed claim for this room, ≤ 30 s old.
+    if (!adm) return new Response("forbidden", { status: 403 });
+    const room = this.core(roomId);
+    const no = await room.upgradeCheck(adm); // a right PIN while locked / closed: as a wrong one
+    if (no) return refuse({ ...no, close: 4003 });
     const { client, s } = this.socks.accept(roomId);
-    this.core(roomId).onOpen(s);
+    room.onOpen(s, adm);
     s.save({ ...s.state, room: roomId });
     return new Response(null, { status: 101, webSocket: client });
+  }
+  /** RPC from the Worker: a wrong PIN for this room (game.js pinAttempt). */
+  async pinAttempt({ roomId, ipKey }) {
+    return this.core(roomId).pinAttempt(ipKey);
   }
   async webSocketMessage(ws, msg) {
     await this.roomOf(ws).onMessage(this.socks.of(ws), msg);
@@ -176,6 +279,9 @@ export class Game extends DurableObject {
     await this.webSocketClose(ws);
   }
   async alarm() {
+    // Occupied: the alarm is a player's away deadline (#213) or the scheduled start (#218, game.js onAlarm) — the room of its sockets.
+    const live = this.socks.all().find((s) => s.state?.room);
+    if (live) return void (await this.core(live.state.room).onAlarm());
     if (this.ctx.getWebSockets().length) return;
     if (this.room) await this.room.onAlarm();
     else await roomAlarm({ store: this.ctx.storage, setAlarm: (at) => this.ctx.storage.setAlarm(at) }); // keeps a saved result (7 days)
@@ -231,8 +337,8 @@ export class Meter extends DurableObject {
     const stages = { newRooms: num(env.STAGE_NEW_ROOMS), newJoins: num(env.STAGE_NEW_JOINS) };
     this.m = new UsageMeter({ store: ctx.storage, stages: Object.fromEntries(Object.entries(stages).filter(([, v]) => v !== undefined)) });
   }
-  admit() {
-    return this.m.admit();
+  admit(o) {
+    return this.m.admit(o);
   }
   add(d) {
     return this.m.add(d);

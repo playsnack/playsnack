@@ -1,4 +1,4 @@
-// The shell's room buttons sit in the top row (🔗 친구 초대 + QR / 🤝 친구끼리, right of 홈)
+// The shell's room buttons sit in the top row (🌐 공개방 / 🤝 친구방 · 🔗 초대 · QR, right of 홈)
 // and under the people chip (😀), on every screen (MP-09). This checks that no
 // together template draws text or a tappable node there, in any session phase.
 // node --import tsx --test snack-player/test/   (pnpm player:test)
@@ -8,16 +8,19 @@ import { readFileSync } from "node:fs";
 import { createBite } from "../../packages/bite/src/index.js";
 import { absBoxes, computeScene, initLayout } from "../../packages/bite-layout/src/index.js";
 import { SPECTATOR_NOTICE_BOX, forTemplate, showSpectatorNotice } from "../src/spectate.ts";
+import { HOST_NOTICE_BOX } from "../src/roomAdmission.ts";
+import { nameCardRect } from "../src/nameChoice.ts";
 
 const DIR = new URL("../../snack-server/data/bite/", import.meta.url);
 const index = JSON.parse(readFileSync(new URL("index.json", DIR), "utf8")) as { id: string; mode: string; hidden?: boolean }[];
-const TOGETHER = index.filter((t) => t.mode === "multi" && !t.hidden).map((t) => t.id);
+// One file per game: an entry that plays another entry's file (`template`, #210) is covered by it.
+const TOGETHER = index.filter((t) => t.mode === "multi" && !t.hidden && !(t as { template?: string }).template).map((t) => t.id);
 
 type Box = { x: number; y: number; w: number; h: number };
 // Frame coordinates (390 wide): pills are 44 tall from y 10; 😀 is 46×46 at right 12, top 62.
 const ZONES: Record<string, Box> = {
-  // 🔗 친구 초대 (84–184) + QR (190–235, measured at 390 by scripts/qr-shots.mjs); the QR alone on the result screen.
-  invitePill: { x: 84, y: 10, w: 160, h: 44 },
+  // #143: 🌐 공개방 / 🤝 친구방 · 🔗 초대 · QR (76–273, measured at 390 by room-rules-e2e); chip + QR on the result screen.
+  invitePill: { x: 76, y: 10, w: 200, h: 44 },
   reactionFab: { x: 332, y: 62, w: 46, h: 46 },
   debugTab: { x: 294, y: 62, w: 32, h: 32 }, // 🪲 (?debug=1 only, DebugLog.tsx)
 };
@@ -104,4 +107,17 @@ for (const id of TOGETHER) {
 test("tapBatchMs (#179): reaches only templates that declare it (no undeclared-variable warning elsewhere)", () => {
   assert.equal(forTemplate({ vars: { sessionPhase: "lobby" } }, "tapBatchMs"), false);
   assert.equal(forTemplate({ vars: { tapBatchMs: 250 } }, "tapBatchMs"), true);
+});
+
+// #157: the PIN room host's notice ("새 링크로 옮기기") sits under the top-row pills and left of 😀
+// (others are in the room when it shows) at every phone width; it would cover the name card, so
+// LiveApp hides the card while it shows (`covered`). The PIN screens are full-screen (z 35) above both.
+test("host PIN notice: clear of the top-row pills and 😀 from 320 to 430 px; overlaps the name card (so the card steps aside)", () => {
+  for (const w of [320, 360, 390, 430]) {
+    const box = { x: HOST_NOTICE_BOX.x, y: HOST_NOTICE_BOX.y, w: w - HOST_NOTICE_BOX.x - HOST_NOTICE_BOX.right, h: HOST_NOTICE_BOX.h };
+    assert.ok(box.w >= 230, `${w}: room for the text and the button`);
+    assert.ok(!hit(box, ZONES.invitePill), `${w}: over the invite pill`);
+    assert.ok(!hit(box, { ...ZONES.reactionFab, x: w - 12 - 46 }), `${w}: over 😀`);
+    assert.ok(hit(box, nameCardRect(w)), `${w}: the name card is hidden while the notice shows`);
+  }
 });

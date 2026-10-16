@@ -10,6 +10,8 @@ import { engineMetrics, type RoomVia } from "./telemetry";
 import { engineResults } from "./roomResult";
 import type { Bus } from "@snack/room/mesh-client";
 import { browserEnv, isHidden, onPageBack, visibleTimeout, type PageBack, type PageEnv, type VisibleTimer } from "./visibleTimer";
+import { roomKindOf } from "./links";
+import { passes, PIN_REASONS } from "./roomAdmission";
 
 export type RoomMessage = { t: string; d: Record<string, unknown> };
 
@@ -22,7 +24,12 @@ export type RoomMessage = { t: string; d: Record<string, unknown> };
  * The screen shows connecting / failed (with retry and "혼자 하기") from this.
  */
 export type ConnState = "connecting" | "connected" | "reconnecting" | "failed";
-export type ConnStatus = { state: ConnState; reason?: string };
+/**
+ * A refusal's details (edge rooms, docs/room-admission.md §4): `left` = wrong PINs before this
+ * address is locked; `retryIn` = ms until a locked PIN / a rate limit lets it try again.
+ */
+export type ConnDetail = { left?: number; retryIn?: number };
+export type ConnStatus = { state: ConnState; reason?: string } & ConnDetail;
 
 export interface RoomTransport {
   /** Where the room runs: 'edge' room server, player-hosted 'mesh', or snack-'server' (room_join telemetry). */
@@ -35,6 +42,8 @@ export interface RoomTransport {
   onMessage(fn: (m: RoomMessage) => void): void;
   /** After "failed": try again (emits "connecting" → "connected" | "failed"). */
   retry?(): void;
+  /** Edge PIN rooms: try again with this PIN (after a refusal, or the first one typed). */
+  enterPin?(pin: string): void;
 }
 
 export type Identity = { slug: string; anonId: string; nick: string };
@@ -57,8 +66,12 @@ export const RECONNECT_BACKOFF_MS = [0, 500, 1000, 2000, 4000, 5000];
  * it still looks open — iOS may have frozen it without a close (the seat token keeps the seat).
  */
 export const STALE_AFTER_HIDDEN_MS = 3000;
-/** Close codes the room uses for "do not come back" (edge/room game.js: bad hello, seat replaced, full). */
-const FINAL_CLOSE = new Set([4000, 4001, 4009, 4029]);
+/**
+ * Close codes the room uses for "do not come back" (edge/room game.js / worker.js: bad hello or
+ * Origin 4000, seat replaced 4009, full / limits 4029, PIN refusals 4003, a link the server did
+ * not make or that ran out 4004). The `denied` frame before the close names the reason.
+ */
+const FINAL_CLOSE = new Set([4000, 4001, 4003, 4004, 4009, 4029]);
 
 /**
  * Shared plumbing: listeners and the connection status every transport reports
@@ -107,7 +120,7 @@ abstract class BaseTransport implements RoomTransport {
     this.emit(m);
   }
 
-  protected setConn(state: ConnState, reason?: string) {
+  protected setConn(state: ConnState, reason?: string, detail: ConnDetail = {}) {
     if (this.state === state) return;
     this.state = state;
     dlog("conn", reason ? `${state} (${reason})` : state);
@@ -121,7 +134,10 @@ abstract class BaseTransport implements RoomTransport {
         if (gen === this.gen && this.state === state) this.fail(state === "connecting" ? this.timeoutReason() : "disconnected");
       }, this.connectTimeoutMs, this.env);
     }
-    this.emit({ t: "conn", d: reason ? { state, reason } : { state } });
+    const d: ConnStatus = reason ? { state, reason } : { state };
+    if (typeof detail.left === "number") d.left = detail.left;
+    if (typeof detail.retryIn === "number") d.retryIn = detail.retryIn;
+    this.emit({ t: "conn", d });
   }
 
   /** Why a join that ran out of time failed. */
@@ -130,8 +146,8 @@ abstract class BaseTransport implements RoomTransport {
   }
 
   /** Give up on this attempt: report "failed" and stop its connection. */
-  protected fail(reason: string) {
-    this.setConn("failed", reason);
+  protected fail(reason: string, detail?: ConnDetail) {
+    this.setConn("failed", reason, detail);
     this.stop();
   }
 
@@ -161,6 +177,15 @@ export class ServerTransport extends BaseTransport {
   private opened = false;
   private retryTimer: unknown = null;
   private offBack: (() => void) | null = null;
+  private offLeave: (() => void) | null = null;
+  /**
+   * Leave signals (#213, edge rooms only): `away` when the page goes to the background with the
+   * socket open, `here` when it is back on that same socket, `bye` when the page goes away for good
+   * (pagehide: tab closed, ← 홈, a reload) or the room is closed — so everyone's count goes down at
+   * once instead of when (if ever) a frozen phone's socket closes. One frame per event, nothing periodic.
+   */
+  protected leaveSignals = false;
+  private awaySent = false;
 
   constructor(protected url: string, protected me: Identity) {
     super();
@@ -182,6 +207,20 @@ export class ServerTransport extends BaseTransport {
     return false;
   }
 
+  /** The address of each new socket (the edge room adds a PIN room's pass / PIN). */
+  protected socketUrl(): string {
+    return this.url;
+  }
+
+  /** Why the room closed us on purpose (a final close code without a `denied` frame before it). */
+  protected finalReason(code: number, reason: string): string {
+    if (code === 4009) return "replaced";
+    if (code === 4004) return "expired";
+    if (code === 4003) return reason === "pin" || reason === "locked" || reason === "closed" ? reason : "pin-required";
+    if (code === 4029 && reason === "slow") return "slow";
+    return this.connState === "connected" ? "disconnected" : "unreachable";
+  }
+
   connect() {
     const gen = ++this.gen;
     this.tries = 0;
@@ -189,6 +228,8 @@ export class ServerTransport extends BaseTransport {
     this.setConn("connecting");
     this.offBack?.();
     this.offBack = onPageBack((why, hiddenMs) => this.back(gen, why, hiddenMs), this.env);
+    this.offLeave?.();
+    this.offLeave = this.leaveSignals ? this.watchLeave(gen) : null;
     this.open(gen);
   }
 
@@ -200,7 +241,7 @@ export class ServerTransport extends BaseTransport {
   private open(gen: number) {
     this.clearRetry();
     this.stop();
-    const ws = new WebSocket(this.url);
+    const ws = new WebSocket(this.socketUrl());
     this.ws = ws;
     ws.onopen = () => {
       this.opened = true;
@@ -216,13 +257,18 @@ export class ServerTransport extends BaseTransport {
       if (gen !== this.gen || this.ws !== ws || this.control(m)) return;
       if (m.t === "state") this.tries = 0;
       this.receive(m);
+      // In while already in the background (a join that finished behind the share sheet): away now.
+      if (m.t === "state" && this.leaveSignals && isHidden(this.env) && !this.awaySent) {
+        this.send({ t: "away", d: {} });
+        this.awaySent = true;
+      }
     };
     ws.onclose = (ev) => {
       if (gen !== this.gen || this.ws !== ws) return;
       this.ws = null;
       // The room closed us on purpose — this seat was taken over by another tab of this
       // device, the room is full, a bad hello: coming back would not help (or would fight).
-      if (FINAL_CLOSE.has(ev?.code)) return this.fail(ev.code === 4009 ? "replaced" : this.connState === "connected" ? "disconnected" : "unreachable");
+      if (FINAL_CLOSE.has(ev?.code)) return this.fail(this.finalReason(ev.code, typeof ev.reason === "string" ? ev.reason : ""));
       this.lost(gen);
     };
   }
@@ -253,7 +299,12 @@ export class ServerTransport extends BaseTransport {
     // A socket that slept through a long background (or a network change) may be dead
     // without having said so: replace it. The room gives the same device its seat back.
     const stale = why !== "visible" || hiddenMs >= STALE_AFTER_HIDDEN_MS;
-    if (live && !stale) return;
+    if (live && !stale) {
+      if (this.awaySent) this.send({ t: "here", d: {} }); // the same socket: still here
+      this.awaySent = false;
+      return;
+    }
+    this.awaySent = false; // a new socket's hello says it
     dlog("conn", `page back (${why}${hiddenMs ? `, hidden ${Math.round(hiddenMs / 100) / 10} s` : ""}) → reconnect now`);
     this.tries = 0;
     if (st === "connected") this.setConn("reconnecting");
@@ -283,6 +334,9 @@ export class ServerTransport extends BaseTransport {
     this.gen++;
     this.offBack?.();
     this.offBack = null;
+    this.offLeave?.();
+    this.offLeave = null;
+    this.bye();
     this.stopTimer();
     this.stop();
   }
@@ -297,8 +351,46 @@ export class ServerTransport extends BaseTransport {
     this.send({ t: "react", d: { emoji } });
   }
 
+  /** The page hides → `away`; the page goes away (pagehide) → `bye` and the socket closes. → unsubscribe. */
+  private watchLeave(gen: number): () => void {
+    const { doc, win } = this.env;
+    const vis = () => {
+      if (gen !== this.gen || !isHidden(this.env) || this.awaySent) return;
+      if (this.ws?.readyState === 1 && this.connState === "connected") {
+        this.send({ t: "away", d: {} });
+        this.awaySent = true;
+      }
+    };
+    // Also on a page kept in the back/forward cache: it is not in the room meanwhile (pageshow
+    // brings it back — back() opens a new socket).
+    const hide = () => {
+      if (gen !== this.gen) return;
+      this.bye();
+      this.stop();
+    };
+    doc?.addEventListener("visibilitychange", vis);
+    win?.addEventListener("pagehide", hide);
+    return () => {
+      doc?.removeEventListener("visibilitychange", vis);
+      win?.removeEventListener("pagehide", hide);
+    };
+  }
+
+  /** Leaving for good: the room lets everyone know at once (edge rooms). */
+  private bye() {
+    if (this.leaveSignals && this.ws?.readyState === 1) this.send({ t: "bye", d: {} });
+    this.awaySent = false;
+  }
+
   private send(m: { t: string; d: unknown }) {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
+  }
+
+  /** A raw text frame on the open socket (the edge keepalive's exact "ping"). → sent? */
+  protected sendRaw(s: string): boolean {
+    if (!this.ws || this.ws.readyState !== 1) return false;
+    this.ws.send(s);
+    return true;
   }
 }
 
@@ -309,6 +401,7 @@ export class ServerTransport extends BaseTransport {
  */
 export class EdgeRoomTransport extends ServerTransport {
   override readonly via: RoomVia = "edge";
+  protected override leaveSignals = true;
   /** The room this transport is in now: the link's, or the next one a public room moved us to (#136). */
   roomId: string;
   /** Moved here from this room (a refused new room sends us back to watch there). */
@@ -322,28 +415,69 @@ export class EdgeRoomTransport extends ServerTransport {
   private here = 0;
   private phase = "lobby";
   private loneTimer: VisibleTimer | null = null;
+  /** This device hosts the room (방장, the room's per-player `iAmHost`). */
+  private iAmHost = false;
+  private pingTimer: unknown = null;
+  private offPingVis: (() => void) | null = null;
 
   /**
-   * `opts.organize`: this device made the room a moment ago (a new friends-room code) — it asks to
-   * organize it, and the organizer is the room's host (방장, #135).
+   * The PIN typed for a PIN room (#157): rides in the socket URL (`?pin=`, the Worker checks and
+   * strips it — never in the hello), and is wiped once the room's first state arrives: by then the
+   * room has sent this device its pass, which every later socket uses instead.
+   */
+  private pin: string | null;
+
+  /**
+   * The organizer (방장, #135) is whoever made the room: the room server's /mint ticket kept by
+   * rememberOrganizerTicket() rides in the hello as `organizerToken` (no more `organize: true`).
    * `opts.autoStart`: the app's start payload (its template's `room`) — a public room starts by
    * itself with it, and may move a late arrival to the next room (`moveTo`, #136).
+   * `opts.pin`: the PIN typed for a PIN room (see `pin`).
    */
   constructor(private roomUrl: string, me: Identity, private opts: EdgeRoomOptions = {}) {
     super(edgeRoomUrl(roomUrl, me.slug), me);
     this.roomId = me.slug;
+    this.pin = opts.pin ?? null;
+  }
+
+  /** Whether a PIN is held (tests: it is gone after the first state). */
+  get holdsPin(): boolean {
+    return this.pin !== null;
+  }
+
+  /** A PIN typed (first, or after a refusal — wrong / locked / needed): try (again) with it. */
+  enterPin(pin: string) {
+    this.pin = pin;
+    this.retry();
+  }
+
+  /**
+   * A PIN room (20-symbol code): `?k=` this device's pass (else its seat token) — the Worker lets
+   * it in without the PIN — or `?pin=` the PIN just typed. Other rooms: the plain room URL.
+   */
+  protected socketUrl() {
+    const code = this.roomId.includes("~") ? this.roomId.slice(this.roomId.indexOf("~") + 1) : "";
+    if (roomKindOf(code) !== "pin" || !code) return this.url;
+    const q = new URLSearchParams();
+    // A typed PIN goes alone: the Worker checks `k` first, and a seat token the room no longer
+    // takes (another incarnation) would shadow a right PIN.
+    const k = this.pin ? null : (passes.get(this.roomId)?.token ?? sessionTokens.get(this.roomId));
+    if (k) q.set("k", k);
+    if (this.pin) q.set("pin", this.pin);
+    const qs = q.toString();
+    return qs ? `${this.url}?${qs}` : this.url;
   }
 
   protected helloData() {
     const room = this.roomId;
     const token = sessionTokens.get(room);
     const organizerToken = sessionTokens.get(`org:${room}`);
-    const { organize, autoStart } = this.opts;
+    const { autoStart } = this.opts;
     return {
       ...this.me,
       slug: room,
       ...(token ? { token } : {}),
-      ...(organizerToken ? { organizerToken } : organize && room === this.me.slug ? { organize: true } : {}),
+      ...(organizerToken ? { organizerToken } : {}),
       ...(autoStart ? { autoStart } : {}),
       ...(this.stay ? { stay: true } : {}),
     };
@@ -365,6 +499,13 @@ export class EdgeRoomTransport extends ServerTransport {
     const token = typeof m.d?.token === "string" ? m.d.token : "";
     if (m.t === "token") sessionTokens.set(this.roomId, token);
     else if (m.t === "organizer") sessionTokens.set(`org:${this.roomId}`, token);
+    // A PIN room let us in on the PIN: this device's pass (12 h) — no PIN on a reload / later visit.
+    else if (m.t === "pass") {
+      const exp = Number(m.d?.exp);
+      if (token && Number.isFinite(exp)) passes.set(this.roomId, { token, exp });
+    }
+    // To the organizer of a PIN room: wrong PINs keep coming / the room closed to new PINs.
+    else if (m.t === "pinClosed" || m.t === "alert") this.emit({ t: m.t, d: m.d ?? {} });
     else if (m.t === "moveTo") {
       // A public room whose game is under way: its next room plays soon (the same one for every
       // late arrival). Only a next room of this same app is followed.
@@ -375,6 +516,17 @@ export class EdgeRoomTransport extends ServerTransport {
       this.moveTo(room);
     } else if (m.t === "denied") {
       const reason = String(m.d?.reason ?? "denied");
+      const detail: ConnDetail = {};
+      if (typeof m.d?.left === "number") detail.left = m.d.left;
+      if (typeof m.d?.retryIn === "number") detail.retryIn = m.d.retryIn;
+      // A PIN refusal (wrong, locked, needed): the PIN screen asks again — a typed PIN is not
+      // retried on its own (no reconnect loop), and a pass that did not hold is dropped.
+      if (PIN_REASONS.has(reason)) {
+        this.pin = null;
+        if (reason === "pin-required") passes.forget(this.roomId);
+        this.fail(reason, detail);
+        return true;
+      }
       const alone = this.moving ? this.leftAlone : null;
       // Our own seat still held by the old socket the room has not seen close yet (a long
       // background, an expired seat token): it lets go soon — keep trying within the budget.
@@ -387,7 +539,7 @@ export class EdgeRoomTransport extends ServerTransport {
       }
       // The next room could not open (today's free-tier guard): watch the game where we were.
       else if (this.movedFrom && !this.stay && this.moving) this.moveTo(this.movedFrom, true);
-      else this.fail(reason);
+      else this.fail(reason, detail);
     }
     else return false;
     return true;
@@ -396,15 +548,65 @@ export class EdgeRoomTransport extends ServerTransport {
   protected receive(m: RoomMessage) {
     super.receive(m);
     if (m.t === "state") {
+      this.pin = null; // in: the pass came with the hello's answer; the PIN is not kept
       this.moving = false;
       this.leftAlone = null;
       this.here = Number(m.d?.participants) || 0;
       const sh = m.d?.sharedState as Record<string, unknown> | undefined;
       this.phase = typeof sh?.sessionPhase === "string" ? sh.sessionPhase : "lobby";
+      this.iAmHost = sh?.iAmHost === true;
     } else if (m.t === "participants") this.here = Number(m.d?.count) || 0;
     else if (m.t === "setVar" && m.d?.id === "sessionPhase") this.phase = String(m.d.value);
+    else if (m.t === "setVar" && m.d?.id === "iAmHost") return this.keepalive((this.iAmHost = m.d.value === true));
     else return;
+    this.keepalive(m.t !== "participants");
     this.watchAlone();
+  }
+
+  /**
+   * Host keepalive (#142): a host phone that lost its network on screen (airplane mode, a tunnel)
+   * sends nothing, so the room could not tell it is gone. Only the host, only with the page on
+   * screen, only in the lobby / result (during play its own traffic and the game's timers keep the
+   * room going) sends the exact text frame "ping" every PING_EVERY_MS — the room's Durable Object
+   * answers it without waking (setWebSocketAutoResponse; any other text WOULD wake it) and keeps
+   * the time, which the room reads when something else wakes it (edge/room game.js hostLost).
+   * `now`: also one ping at once (became host, entered the lobby / result, a new socket's state).
+   * Nobody else sends anything periodic.
+   */
+  private keepalive(now = false) {
+    const on = this.iAmHost && (this.phase === "lobby" || this.phase === "result") && this.connState === "connected" && !isHidden(this.env);
+    if (!on) return this.stopPing();
+    if (now || this.pingTimer == null) this.ping();
+  }
+
+  private ping() {
+    this.stopPing();
+    if (!this.sendRaw(PING_TEXT)) return;
+    const gen = this.gen;
+    this.pingTimer = this.env.setTimeout(() => {
+      this.pingTimer = null;
+      if (gen === this.gen) this.keepalive(true);
+    }, PING_EVERY_MS);
+  }
+
+  private stopPing() {
+    if (this.pingTimer != null) this.env.clearTimeout(this.pingTimer);
+    this.pingTimer = null;
+  }
+
+  connect() {
+    super.connect();
+    this.offPingVis?.();
+    const doc = this.env.doc;
+    // hidden → no pings (the `away` frame covers the background); back on screen → one at once
+    const vis = () => (isHidden(this.env) ? this.stopPing() : this.keepalive(true));
+    doc?.addEventListener("visibilitychange", vis);
+    this.offPingVis = () => doc?.removeEventListener("visibilitychange", vis);
+  }
+
+  protected stop() {
+    this.stopPing();
+    super.stop();
   }
 
   /**
@@ -436,9 +638,16 @@ export class EdgeRoomTransport extends ServerTransport {
 
   close() {
     this.clearLone();
+    this.offPingVis?.();
+    this.offPingVis = null;
     super.close();
   }
 }
+
+/** The host keepalive frame (#142): exactly this text — the room's auto-response matches it byte for byte. */
+export const PING_TEXT = "ping";
+/** Host keepalive period (#142): ≤ 180 frames per room-hour; the room calls a host gone after 45 s without one. */
+export const PING_EVERY_MS = 20000;
 
 /**
  * Alone (no one else, no game running) this long on screen in a room a public room moved us to:
@@ -447,7 +656,7 @@ export class EdgeRoomTransport extends ServerTransport {
  */
 export const LONE_RETURN_MS = 20000;
 
-export type EdgeRoomOptions = { organize?: boolean; autoStart?: { start: unknown; ms?: number } };
+export type EdgeRoomOptions = { autoStart?: { start: unknown; ms?: number }; pin?: string };
 const edgeRoomUrl = (roomUrl: string, room: string) => `${roomUrl.replace(/\/+$/, "")}/room/${encodeURIComponent(room)}`;
 /** `slug` → `slug.g2` → `slug.g3` … (edge/room game.js nextRoomId): only a public room moves, one step on. */
 export function isNextRoom(from: string, to: string): boolean {
@@ -629,7 +838,17 @@ export type MeshBusTuning = { failAfterMs?: number; dropAfterMs?: number; connec
 /** Discovery wait in a room this device has just made (see MeshTransport). */
 export const FRESH_DISCOVERY_MS = 150;
 
-// Edge relay tokens (15 min) survive a reload of this tab, so a PIN room is not asked again.
+/**
+ * This device made `roomId` a moment ago (room server /mint): its organizer ticket (10 min) rides
+ * in the first hello, and the room answers with the 12 h organizer token that replaces it.
+ */
+export const rememberOrganizerTicket = (roomId: string, ticket: string) => sessionTokens.set(`org:${roomId}`, ticket);
+/** A seat token for `roomId` in this tab (a PIN room then opens without asking for the PIN). */
+export const hasSeatToken = (roomId: string) => Boolean(sessionTokens.get(roomId));
+/** Whether this tab holds the organizer token (or /mint ticket) of `roomId`. */
+export const isOrganizerHere = (roomId: string) => Boolean(sessionTokens.get(`org:${roomId}`));
+
+// Edge room seat / organizer tokens survive a reload of this tab (the seat is taken back).
 const TOKEN_KEY = "snk-room-token:";
 const sessionTokens = {
   get(room: string): string | null {

@@ -71,21 +71,26 @@ export function playPath(slug: string, params?: URLSearchParams): string {
 }
 
 // ── friends-only room codes ──
-// A code makes a room unlisted: only people holding the link meet there.
-// It is NOT private — serverless rooms ride a public MQTT broker where the
-// room id is the topic (packages/snack-room/src/mqttBus.js), so anyone
-// subscribing to the prefix sees codes and traffic. Real protection is U1
-// (token auth), see docs/master-plan.md §4 Q1.
+// A code makes a room unlisted: only people holding the link meet there. On the edge room
+// server (the live build, VITE_ROOM_URL — docs/room-admission.md) codes are signed: the server
+// makes them (`POST /mint`, roomAdmission.ts) and refuses a code it did not make before any room
+// wakes. A PIN room's code also carries a tag of its 4-digit PIN, so the link alone does not get
+// in. Codes from before signing (10 symbols, made on the device) still open for a while
+// ("legacy"). A build without the room server (dev / mesh rollback) still makes device codes.
 // 32 symbols — no 0/O or 1/I, so a code read aloud or typed is never ambiguous.
 // 32 = 2^5, so one random byte masked to 5 bits is uniform (no modulo bias).
 export const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-/** 10 symbols × 5 bits = 50 bits: not guessable, which is all a code gives. */
+/** 10 symbols × 5 bits = 50 bits: the random part of every code (a device-made code is only this). */
 export const ROOM_CODE_LENGTH = 10;
+/** A signed code without a PIN: random(10) + server tag(5) (edge/room/src/admit.js). */
+export const OPEN_CODE_LENGTH = 15;
+/** A signed PIN-room code: random(10) + server tag(5) + PIN tag(5). */
+export const PIN_CODE_LENGTH = 20;
 /** A link must carry at least this many symbols to count as a room code (40 bits). */
 export const ROOM_CODE_MIN = 8;
 export const ROOM_CODE_MAX = 32;
 export const ROOM_PARAM = "room";
-/** Joins the app slug and the code into the room id (MQTT-topic and file-name safe). */
+/** Joins the app slug and the code into the room id (URL-path and file-name safe). */
 const ROOM_SEP = "~";
 /** `?room=` values from before codes existed: they only force a room (catalog.ts needsRoom). */
 const LEGACY_ROOM_VALUES = new Set(["", "1", "true"]);
@@ -115,6 +120,16 @@ export function roomParamOf(params: URLSearchParams): RoomParam {
   return ok ? { kind: "code", code } : { kind: "invalid", raw };
 }
 
+/**
+ * What kind of room a code names, by its length alone (no network): "open" = a signed code
+ * without a PIN (15), "pin" = a signed PIN room (20) — its PIN is needed before joining unless
+ * this device holds a pass or a seat — anything else "legacy" (device-made codes from before).
+ */
+export type CodeKind = "open" | "pin" | "legacy";
+export function roomKindOf(code: string): CodeKind {
+  return code.length === PIN_CODE_LENGTH ? "pin" : code.length === OPEN_CODE_LENGTH ? "open" : "legacy";
+}
+
 /** The room code a link carries (normalized), or null when it has none / an invalid one. */
 export function roomCodeOf(params: URLSearchParams): string | null {
   const r = roomParamOf(params);
@@ -123,8 +138,8 @@ export function roomCodeOf(params: URLSearchParams): string | null {
 
 /**
  * The room a link lands in, as the transport sees it: the app's public room
- * (`slug`), or `slug~CODE` for a friends-only link. The room engine only ever
- * sees this id (mesh topic / server room key), so it needs no change.
+ * (`slug`), or `slug~CODE` for a friends-only link. The room server (or the mesh, in a build
+ * without it) keys the room by this id.
  * Callers must not join on an invalid `?room=` (roomParamOf → "invalid").
  */
 export function roomIdFor(slug: string, params: URLSearchParams): string {

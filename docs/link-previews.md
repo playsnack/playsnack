@@ -34,6 +34,8 @@ node scripts/og-images.mjs --check  # 확인만
 | `/p/tpl-worldcup-food` | 야식 월드컵 — 친구랑 같이 골라 봐요 | 설치·가입 없이 링크만 열면 바로 시작해요. … | `og/app/worldcup-food.png` |
 | `/p/tpl-tap-battle` (같이) | 탭 배틀 — 한 판 붙어 볼래? | 링크를 받은 친구들과 같은 방에서 바로 시작해요. … | `og/app/tap-battle.png` |
 | `/p/<앱>?room=<코드>` | (앱 제목) | 친구가 방에 초대했어요. 링크를 열면 같은 방으로 바로 들어가요. | 앱 그림 |
+| `/p/tpl-speed-trivia-score?room=<코드>` (나 맞히기) | 나 맞히기 퀴즈 — 나를 얼마나 알까? | 친구가 방에 초대했어요. … | `og/app/speed-trivia-score.png` |
+| `/p/tpl-speed-quiz` (스피드 퀴즈: 같은 템플릿·기본 문제, #210) · 코드 없는 `/p/tpl-speed-trivia-score`도 이 카드(앱이 이리로 보냄) | 스피드 퀴즈 — 한 판 붙어 볼래? | 링크를 받은 친구들과 같은 방에서 바로 시작해요. … | `og/app/speed-quiz.png` |
 | `/p/tpl-speed-trivia-score?room=<코드>` + 방에 지난 판 결과 있음 | 민수 맞히기 · 나를 얼마나 알까? | 민수님에 대한 퀴즈예요. … | 앱 그림 |
 | `/p/tpl-race-tap` (합쳐진 앱) | 탭 배틀 — … | | `tap-battle.png` |
 | `/p/app-<hash>`, 모르는 슬러그 | 기본값 | 기본값 | `default.png` |
@@ -45,6 +47,7 @@ node scripts/og-images.mjs --check  # 확인만
 ### 친구 방 퀴즈 제목 (crawler 전용, 막지 않음)
 - 조건: 앱 = `speed-trivia-score`, `?room=`이 유효한 코드, User-Agent가 미리보기 크롤러(`PREVIEW_BOT_RE`: facebookexternalhit·kakaotalk-scrap·Slackbot·Twitterbot·Discordbot·TelegramBot·WhatsApp…). 사람 브라우저는 조회하지 않는다(방 서버 요청을 쓰지 않음, 페이지 지연 0).
 - `GET https://snack-room.playsnack.workers.dev/room/tpl-speed-trivia-score~<CODE>/result`(docs/edge-rooms.md) — **300 ms** 안에 안 오면 포기(앱 기본 카드), isolate 메모리에 60초 캐시(없음도 캐시, 시간 초과는 캐시 안 함). 환경 변수 `ROOM_HTTP_URL`로 주소 변경 가능(로컬 시험용).
+- **시작 시간 예약**(#218): 어느 앱이든 친구 방 링크(PIN 아닌 코드)를 크롤러가 열면 같은 요청 하나(`GET …/room/tpl-<앱>~<CODE>/result`, 같은 300 ms·60초 캐시)로 방이 정한 시작 시각 `startAt`(epoch ms — 저장된 판이 없어도 404 본문에 있음)을 읽어 제목 "<앱> · 오후 8:30 시작", 설명 "오후 8:30 시작! …"(한국 시간, 오늘이 아니면 "내일 …", 지났거나 24시간 넘게 먼 시각은 무시). PIN 방은 조회도 표시도 안 한다. 비용: 크롤러 미리보기 1번 = Worker 요청 1 + DO 요청 1(캐시 히트 0).
 - 결과 본문에서 **`about`만** 읽는다. 문제·보기·정답·고른 답(quizRecap)·점수판은 메타에 절대 안 들어간다(가짜 방 서버가 `SECRET` 문제/정답을 줘도 HTML에 0건 — 아래 4).
 - 한계: 방에 **한 판이 끝난 뒤에만** 결과가 있다(엣지 방, 7일). 퀴즈를 만들고 첫 판 전에 보낸 링크는 앱 기본 카드("스피드 퀴즈 — …")다. 메시 방(`PAGES_ROOM_URL=` 빌드)의 결과(`/api/room-result`, Upstash)는 조회하지 않는다.
 - 방별 그림은 만들지 않는다(런타임 렌더링 = Workers Free CPU 10 ms 초과 위험).

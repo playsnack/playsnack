@@ -55,6 +55,8 @@
     "seenRound": -1,
     "seenAt": 0,
     "myMs": -1,
+    "myLockAt": 0,
+    "myPickN": 0,
     "myPid": "",
     "sessionNo": 0,
     "resultView": {
@@ -80,14 +82,21 @@
       "sessionNo": 0,
       "round": -1,
       "option": -1,
-      "ms": -1
+      "ms": -1,
+      "n": 0,
+      "lockMs": 0
     },
     "iAmSpectator": false,
     "spectators": 0,
     "roomMode": "",
+    "roomPin": false,
     "hostNick": "",
     "iAmHost": false,
-    "autoStartIn": 0
+    "autoStartIn": 0,
+    "startAt": 0,
+    "startIn": 0,
+    "startAtText": "",
+    "reduceMotion": false
   },
   "room": {
     "start": {
@@ -282,6 +291,14 @@
         {
           "set": "myMs",
           "to": "-1"
+        },
+        {
+          "set": "myLockAt",
+          "to": "0"
+        },
+        {
+          "set": "myPickN",
+          "to": "0"
         }
       ],
       "tick": [
@@ -295,6 +312,14 @@
             {
               "set": "seenAt",
               "to": "now"
+            },
+            {
+              "set": "myLockAt",
+              "to": "0"
+            },
+            {
+              "set": "myPickN",
+              "to": "0"
             }
           ]
         },
@@ -312,6 +337,31 @@
             {
               "set": "myMs",
               "to": "myPick.ms"
+            },
+            {
+              "set": "myPickN",
+              "to": "myPick.n || 1"
+            },
+            {
+              "set": "myLockAt",
+              "to": "now + (myPick.lockMs || 0)"
+            }
+          ]
+        },
+        {
+          "if": "myPick.sessionNo === sessionNo && myPick.round === roundIdx && roundIdx >= 0 && myAnswerRound === roundIdx && (myPick.n || 1) >= myPickN && myPick.option !== myAnswer",
+          "then": [
+            {
+              "set": "myAnswer",
+              "to": "myPick.option"
+            },
+            {
+              "set": "myMs",
+              "to": "myPick.ms"
+            },
+            {
+              "set": "myPickN",
+              "to": "myPick.n || 1"
             }
           ]
         },
@@ -402,8 +452,8 @@
             "id": "navL",
             "use": "NavBar",
             "props": {
-              "title": "{packPending != '' ? packPending : (quizInfo.custom ? (quizInfo.about + ' 맞히기') : '스피드 퀴즈')}",
-              "subtitle": "대기실"
+              "title": "{packPending != '' ? packPending : (quizInfo.custom ? (quizInfo.title || (quizInfo.about + ' 맞히기')) : '스피드 퀴즈')}",
+              "subtitle": "{roomMode == 'auto' ? '🌐 누구나 함께하는 방 · 2명 모이면 시작' : roomMode == 'host' ? ((roomPin ? '🤝🔒' : '🤝') + ' 초대받은 친구만 들어오는 방 · 방장이 시작') : '대기실'}"
             }
           },
           {
@@ -425,7 +475,7 @@
               },
               {
                 "id": "lobbyTitle",
-                "text": "{packPending != '' ? (packPending + ' · 준비 중…') : (quizInfo.custom ? (quizInfo.about + ' 맞히기 · ' + quizInfo.count + '문제' + (iAmSubject ? '' : ' · 곧 시작해요')) : '스피드 퀴즈')}",
+                "text": "{packPending != '' ? (packPending + ' · 준비 중…') : (quizInfo.custom ? ((quizInfo.title || (quizInfo.about + ' 맞히기')) + ' · ' + quizInfo.count + '문제' + (iAmSubject ? '' : ' · 곧 시작해요')) : '스피드 퀴즈')}",
                 "width": 320,
                 "size": 22,
                 "weight": 700,
@@ -477,6 +527,42 @@
             "grow": 1
           },
           {
+            "id": "schedCard",
+            "box": "column",
+            "width": "fill",
+            "height": 76,
+            "gap": 2,
+            "align": "center",
+            "justify": "center",
+            "fill": "{startIn > 0 && startIn < 60 ? '#d9ff00' : '#16181c'}",
+            "stroke": {
+              "color": "#d9ff00",
+              "width": 2
+            },
+            "opacity": "{startIn > 0 && startIn < 60 && !reduceMotion && startIn % 2 == 1 ? 0.78 : 1}",
+            "show": "roomMode == 'host' && startAt > 0",
+            "children": [
+              {
+                "id": "schedMain",
+                "text": "{startIn > 0 ? (floor(startIn / 60) + ':' + pad(startIn % 60, 2) + ' 뒤 시작!') : '친구가 오면 바로 시작해요'}",
+                "size": 28,
+                "weight": 800,
+                "color": "{startIn > 0 && startIn < 60 ? '#0b0c0e' : '#d9ff00'}",
+                "align": "center",
+                "lines": 1
+              },
+              {
+                "id": "schedSub",
+                "text": "{startIn > 0 ? (startAtText + ' 시작 · 지금 ' + roster.length + '명') : '한 명 더 오면 3·2·1 바로 시작'}",
+                "size": 14,
+                "weight": 600,
+                "color": "{startIn > 0 && startIn < 60 ? '#0b0c0e' : '#9aa3af'}",
+                "align": "center",
+                "lines": 1
+              }
+            ]
+          },
+          {
             "id": "lobbyStatus",
             "text": "{quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject ? (quizInfo.about + ' 님이 나갔어요 · 대신 시작할 수 있어요') : (quizInfo.custom ? (iAmSubject && roster.length >= 2 ? '준비 완료 · 시작하기를 눌러요' : '') : (roster.length >= 2 ? '' : '친구를 초대하면 같이 할 수 있어요'))}",
             "width": "fill",
@@ -490,7 +576,7 @@
             "id": "startBtn",
             "use": "PrimaryButton",
             "props": {
-              "label": "시작하기 🚀"
+              "label": "{roomMode == 'host' && startAt > 0 ? '지금 시작 🚀' : '시작하기 🚀'}"
             },
             "onTap": [
               {
@@ -519,9 +605,37 @@
             "id": "waitBtn",
             "use": "GhostButton",
             "props": {
-              "label": "{packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2)) ? (roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 시작해요' : (autoStartIn + '초 뒤 시작 · ' + roster.length + '명')) : '방장이 시작하길 기다리는 중') : (packPending != '' ? '준비 중…' : (quizInfo.custom && !iAmSubject ? (quizInfo.about + ' 님이 시작하면 바로 시작돼요') : '친구를 기다리는 중…'))}"
+              "label": "{packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2)) ? (roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 시작해요' : (autoStartIn + '초 뒤 시작 · ' + roster.length + '명')) : (startAt > 0 ? '시간이 되면 저절로 시작해요' : '방장이 시작하길 기다리는 중')) : (packPending != '' ? '준비 중…' : (quizInfo.custom && !iAmSubject ? (roomMode == 'host' && startAt > 0 ? '시간이 되면 저절로 시작해요' : (quizInfo.about + ' 님이 시작하면 바로 시작돼요')) : '친구를 기다리는 중…'))}"
             },
             "show": "phase == 'lobby' ? (packPending != '' || !(!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) || !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2))) : false"
+          },
+          {
+            "id": "schedBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "{startAt > 0 ? '예약 취소' : '⏰ 시작 시간 정하기'}"
+            },
+            "show": "roomMode == 'host' && (quizInfo.custom ? iAmSubject : iAmHost)",
+            "onTap": [
+              {
+                "if": "phase == 'lobby' && roomMode == 'host' && (quizInfo.custom ? iAmSubject : iAmHost)",
+                "then": [
+                  {
+                    "if": "startAt > 0",
+                    "then": [
+                      {
+                        "emit": "unschedule"
+                      }
+                    ],
+                    "else": [
+                      {
+                        "emit": "scheduleOpen"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "id": "inviteBand",
@@ -615,6 +729,17 @@
                 "weight": 700,
                 "color": "#ffffff",
                 "align": "center"
+              },
+              {
+                "id": "cdHint",
+                "text": "{phase == 'countdown' ? '한 번 고르면 3초 뒤 확정돼요 · 빠를수록 점수 UP' : ''}",
+                "show": "!iAmSubject && !iAmSpectator",
+                "width": 320,
+                "size": 15,
+                "weight": 600,
+                "color": "#9aa3af",
+                "align": "center",
+                "lines": 2
               }
             ]
           }
@@ -725,11 +850,11 @@
           },
           {
             "id": "statusText",
-            "text": "{phase == 'play' ? (roundAnswer >= 0 ? ((iAmSubject || iAmSpectator) ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : ((iAmSubject || iAmSpectator) || myAnswerRound === roundIdx ? ((quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('다 골랐어요! 곧 공개 (' + quizProgress.answered + '/' + quizProgress.of + ')') : ((iAmSubject || iAmSpectator) ? ('친구들이 고르는 중… (' + quizProgress.answered + '/' + quizProgress.of + ')') : '선택 완료! 공개를 기다려요')) : ((seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!'))))) : ''}",
+            "text": "{phase == 'play' ? (roundAnswer >= 0 ? ((iAmSubject || iAmSpectator) ? '정답 공개!' : (myAnswerRound === roundIdx ? (myAnswer === roundAnswer ? ('정답! ✓ ' + round(myMs / 100) / 10 + '초') : '땡! ✗') : '시간 초과 ⌛')) : ((iAmSubject || iAmSpectator) ? ((quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('다 골랐어요! 곧 공개' + ' (' + quizProgress.answered + '/' + quizProgress.of + ')') : ('친구들이 고르는 중…' + ' (' + quizProgress.answered + '/' + quizProgress.of + ')')) : (myAnswerRound === roundIdx ? (now < myLockAt ? (ceil((myLockAt - now) / 1000) + '초 안에 바꿀 수 있어요') : ((quizProgress.round === roundIdx && quizProgress.sessionNo === sessionNo && quizProgress.of > 0 && quizProgress.answered >= quizProgress.of) ? ('확정! 곧 공개' + ' (' + quizProgress.answered + '/' + quizProgress.of + ')') : '확정! 공개를 기다려요')) : (seenRound === roundIdx && now - seenAt >= (quizInfo.answerMs || 9000) ? '시간 초과 ⌛' : (roundIdx === 0 ? '고르고 3초 뒤 확정 · 빠를수록 점수 UP' : (quizInfo.custom ? (quizInfo.about + ' 님을 맞혀라!') : '⏱ 정답을 빠르게!')))))) : ''}",
             "width": "fill",
             "size": 15,
             "weight": 700,
-            "color": "{phase == 'play' ? (roundAnswer >= 0 ? ((iAmSubject || iAmSpectator) ? '#ffffff' : (myAnswerRound === roundIdx && myAnswer === roundAnswer ? '#22c55e' : '#ff5a5f')) : ((iAmSubject || iAmSpectator) || myAnswerRound === roundIdx ? '#9aa3af' : '#d9ff00')) : '#d9ff00'}",
+            "color": "{phase == 'play' ? (roundAnswer >= 0 ? ((iAmSubject || iAmSpectator) ? '#ffffff' : (myAnswerRound === roundIdx && myAnswer === roundAnswer ? '#22c55e' : '#ff5a5f')) : ((iAmSubject || iAmSpectator) ? '#9aa3af' : (myAnswerRound === roundIdx ? (now < myLockAt ? '#d9ff00' : '#ffffff') : '#d9ff00'))) : '#d9ff00'}",
             "align": "center"
           },
           {
@@ -747,13 +872,22 @@
             "justify": "center",
             "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (0 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 0 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 0 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
             "stroke": {
-              "color": "{phase == 'play' && roundAnswer >= 0 && 0 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "color": "{phase == 'play' && roundAnswer >= 0 && 0 === roundAnswer ? '#22c55e' : (phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 0 && now < myLockAt ? '#ffffff' : '#2a2d33')}",
               "width": 2
             },
             "onTap": [
               {
-                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
+                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000) && (myAnswerRound !== roundIdx || (myAnswer !== 0 && now < myLockAt))",
                 "then": [
+                  {
+                    "if": "myAnswerRound !== roundIdx",
+                    "then": [
+                      {
+                        "set": "myLockAt",
+                        "to": "now + min(3000, (quizInfo.answerMs || 9000) - (now - seenAt))"
+                      }
+                    ]
+                  },
                   {
                     "set": "myAnswer",
                     "to": "0"
@@ -767,12 +901,17 @@
                     "to": "now - seenAt"
                   },
                   {
+                    "set": "myPickN",
+                    "to": "myPickN + 1"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
                       "option": 0,
                       "ms": "{myMs}",
                       "round": "{roundIdx}",
-                      "sessionNo": "{sessionNo}"
+                      "sessionNo": "{sessionNo}",
+                      "n": "{myPickN}"
                     }
                   }
                 ]
@@ -806,13 +945,22 @@
             "justify": "center",
             "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (1 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 1 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 1 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
             "stroke": {
-              "color": "{phase == 'play' && roundAnswer >= 0 && 1 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "color": "{phase == 'play' && roundAnswer >= 0 && 1 === roundAnswer ? '#22c55e' : (phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 1 && now < myLockAt ? '#ffffff' : '#2a2d33')}",
               "width": 2
             },
             "onTap": [
               {
-                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
+                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000) && (myAnswerRound !== roundIdx || (myAnswer !== 1 && now < myLockAt))",
                 "then": [
+                  {
+                    "if": "myAnswerRound !== roundIdx",
+                    "then": [
+                      {
+                        "set": "myLockAt",
+                        "to": "now + min(3000, (quizInfo.answerMs || 9000) - (now - seenAt))"
+                      }
+                    ]
+                  },
                   {
                     "set": "myAnswer",
                     "to": "1"
@@ -826,12 +974,17 @@
                     "to": "now - seenAt"
                   },
                   {
+                    "set": "myPickN",
+                    "to": "myPickN + 1"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
                       "option": 1,
                       "ms": "{myMs}",
                       "round": "{roundIdx}",
-                      "sessionNo": "{sessionNo}"
+                      "sessionNo": "{sessionNo}",
+                      "n": "{myPickN}"
                     }
                   }
                 ]
@@ -866,13 +1019,22 @@
             "show": "phase == 'play' ? (roundContent.options && roundContent.options.length > 2) : true",
             "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (2 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 2 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 2 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
             "stroke": {
-              "color": "{phase == 'play' && roundAnswer >= 0 && 2 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "color": "{phase == 'play' && roundAnswer >= 0 && 2 === roundAnswer ? '#22c55e' : (phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 2 && now < myLockAt ? '#ffffff' : '#2a2d33')}",
               "width": 2
             },
             "onTap": [
               {
-                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
+                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000) && (myAnswerRound !== roundIdx || (myAnswer !== 2 && now < myLockAt))",
                 "then": [
+                  {
+                    "if": "myAnswerRound !== roundIdx",
+                    "then": [
+                      {
+                        "set": "myLockAt",
+                        "to": "now + min(3000, (quizInfo.answerMs || 9000) - (now - seenAt))"
+                      }
+                    ]
+                  },
                   {
                     "set": "myAnswer",
                     "to": "2"
@@ -886,12 +1048,17 @@
                     "to": "now - seenAt"
                   },
                   {
+                    "set": "myPickN",
+                    "to": "myPickN + 1"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
                       "option": 2,
                       "ms": "{myMs}",
                       "round": "{roundIdx}",
-                      "sessionNo": "{sessionNo}"
+                      "sessionNo": "{sessionNo}",
+                      "n": "{myPickN}"
                     }
                   }
                 ]
@@ -926,13 +1093,22 @@
             "show": "phase == 'play' ? (roundContent.options && roundContent.options.length > 3) : true",
             "fill": "{phase == 'play' ? (roundAnswer >= 0 ? (3 === roundAnswer ? '#18351f' : (myAnswerRound === roundIdx && myAnswer === 3 ? '#3a171a' : '#16181c')) : (myAnswerRound === roundIdx && myAnswer === 3 ? '#d9ff00' : '#1e2127')) : '#1e2127'}",
             "stroke": {
-              "color": "{phase == 'play' && roundAnswer >= 0 && 3 === roundAnswer ? '#22c55e' : '#2a2d33'}",
+              "color": "{phase == 'play' && roundAnswer >= 0 && 3 === roundAnswer ? '#22c55e' : (phase == 'play' && roundAnswer < 0 && myAnswerRound === roundIdx && myAnswer === 3 && now < myLockAt ? '#ffffff' : '#2a2d33')}",
               "width": 2
             },
             "onTap": [
               {
-                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && myAnswerRound !== roundIdx && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000)",
+                "if": "phase == 'play' && !iAmSubject && !iAmSpectator && roundAnswer < 0 && seenRound === roundIdx && now - seenAt < (quizInfo.answerMs || 9000) && (myAnswerRound !== roundIdx || (myAnswer !== 3 && now < myLockAt))",
                 "then": [
+                  {
+                    "if": "myAnswerRound !== roundIdx",
+                    "then": [
+                      {
+                        "set": "myLockAt",
+                        "to": "now + min(3000, (quizInfo.answerMs || 9000) - (now - seenAt))"
+                      }
+                    ]
+                  },
                   {
                     "set": "myAnswer",
                     "to": "3"
@@ -946,12 +1122,17 @@
                     "to": "now - seenAt"
                   },
                   {
+                    "set": "myPickN",
+                    "to": "myPickN + 1"
+                  },
+                  {
                     "emit": "answer",
                     "payload": {
                       "option": 3,
                       "ms": "{myMs}",
                       "round": "{roundIdx}",
-                      "sessionNo": "{sessionNo}"
+                      "sessionNo": "{sessionNo}",
+                      "n": "{myPickN}"
                     }
                   }
                 ]
@@ -1677,13 +1858,13 @@
           {
             "id": "againBtn",
             "use": "PrimaryButton",
-            "show": "packPending == '' && resultView.next == 'again' && (roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost))",
+            "show": "packPending == '' && resultView.next == 'again' && (roomMode == '' || roomMode == 'auto' || quizInfo.custom || (roomMode == 'host' && iAmHost))",
             "props": {
-              "label": "다시 하기 🔁"
+              "label": "{roomMode == 'auto' ? '한 판 더 🔁' : '다시 하기 🔁'}"
             },
             "onTap": [
               {
-                "if": "packPending == '' && phase == 'result' && (roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost))",
+                "if": "packPending == '' && phase == 'result' && (roomMode == '' || roomMode == 'auto' || quizInfo.custom || (roomMode == 'host' && iAmHost))",
                 "then": [
                   {
                     "set": "myAnswer",
@@ -1716,11 +1897,11 @@
               "color": "#2a2d33",
               "width": 1
             },
-            "show": "packPending == '' && resultView.next == 'again' && !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost))",
+            "show": "packPending == '' && resultView.next == 'again' && !(roomMode == '' || roomMode == 'auto' || quizInfo.custom || (roomMode == 'host' && iAmHost))",
             "children": [
               {
                 "id": "againWaitMain",
-                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 다음 판을 시작해요' : '잠시 뒤 다음 판이 자동으로 시작돼요') : '방장이 다시 시작하길 기다리는 중'}",
+                "text": "방장이 다시 시작하길 기다리는 중",
                 "size": 16,
                 "weight": 700,
                 "color": "#d9ff00",
@@ -1729,7 +1910,7 @@
               },
               {
                 "id": "againWaitSub",
-                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '링크를 친구에게 보내도 돼요' : '그대로 있으면 같이 해요') : ('방장 · ' + hostNick)}",
+                "text": "{'방장 · ' + hostNick}",
                 "size": 13,
                 "weight": 600,
                 "color": "#9aa3af",

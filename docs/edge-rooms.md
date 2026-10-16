@@ -1,6 +1,8 @@
-# 엣지 방 — Cloudflare Workers + Durable Objects (스파이크)
+# 엣지 방 — Cloudflare Workers + Durable Objects
 
-> 2026-10-14 · 브랜치 `claude/edge-relay` · **아직 배포 안 함** (주인 확인 후 §9 명령 한 줄).
+> 2026-10-14 시작 · 2026-10-16 갱신(#157 입장 확인 · 선택 PIN) · **배포됨**: `main` → 사이트 playsnack.pages.dev +
+> 방 서버 `snack-room.playsnack.workers.dev`, `develop` → develop.playsnack.pages.dev + `snack-room-dev.playsnack.workers.dev`
+> (`.github/workflows/deploy-cloudflare.yml`). 입장 확인의 위협 모델·토큰·제한은 **`docs/room-admission.md`**가 기준이다.
 > 목표 시나리오: **공원 이벤트** — 주최자가 QR을 띄우면 모르는 사람 30–200명이 한 방에 들어와
 > 퀴즈를 풀고, 1등이 상품을 받는다. 그래서 방은 "멍청한 중계"가 아니라 **서버 권한(server-authoritative)**:
 > 방 엔진이 방의 Durable Object(DO) 안에서 돈다. 플레이어 기기는 답·시계·점수를 갖지 않는다.
@@ -12,25 +14,34 @@
    ◀── state / setVar / participants / actionAck ─────────────  createRoom() = @snack/room 엔진
                                                                  │ 30초마다(묶어서) 사용량 보고
  GET /usage ──▶ Worker ──(60초 캐시)──────────────────────────▶ Meter DO (계정에 1개)
- (옛 메시 방식) 폰 ──/relay/<방 id>──▶ Room DO (중계만, VITE_ROOM_MODE=relay)
+ (옛 메시 방식) /relay/<방 id> → Worker가 410 (#157 — 라이브 빌드는 /room만 씀; Node 허브에는 로컬 시뮬용으로 남음)
 ```
+
+입장 확인(서명된 방 코드 · 선택 PIN · 속도 제한 · Worker 단계 거절)은 `docs/room-admission.md`(#157).
 
 | 파일 | 역할 |
 |---|---|
 | `edge/room/src/game.js` | **GameRoom** — 서버 권한 방. 엔진 실행, hello 인증, 주최자, 좌석, 팬아웃 큐, 스냅샷 |
 | `edge/room/src/core.js` | RoomGate(방 만들기·PIN·잠금·토큰) · UsageMeter/UsageReporter(무료 한도) · RoomRelay(메시 중계) |
+| `edge/room/src/admit.js` | 입장 확인(#157): 방 코드 v2 · PIN 태그 · admit/pass/orgt 토큰 · `decideUpgrade`/`decideMint`/`decideResult` · 속도 제한 대체 |
 | `edge/room/src/worker.js` | Worker + DO 클래스 3개(Game · Room · Meter). 플랫폼 코드만 |
 | `packages/snack-room/tools/edgeHub.js` | 같은 game.js/core.js를 `ws`로 돌리는 Node 허브 — 테스트·시뮬레이션용 |
 | `packages/snack-room/src/room.js` | 엔진: `claimWindowMs`(서버 시계 판정) · `rejoin()`(동면 후 복구) 추가 |
-| `snack-player/src/roomTransport.ts` | `EdgeRoomTransport` = ServerTransport + 좌석/주최자 토큰. `VITE_ROOM_URL` 있을 때만 |
+| `snack-player/src/roomTransport.ts` | `EdgeRoomTransport` = ServerTransport + 좌석/주최자 토큰 + PIN 방의 `?k=`/`?pin=`. `VITE_ROOM_URL` 있을 때만 |
+| `snack-player/src/roomAdmission.ts` | `/mint`로 방 만들기(`mintRoom`) · PIN 방 pass 저장(localStorage, 12시간, 최대 20개) · 실패 문구 표 |
 
-**기본값은 안 바뀐다**: `VITE_ROOM_URL`이 없으면 지금처럼 MQTT 메시. 있으면 엣지 방(서버 권한),
-`VITE_ROOM_MODE=relay`면 메시를 엣지 중계로(`wsBus.js`).
+**라이브 빌드 = 엣지 방**: Pages 빌드(`scripts/pages-build.mjs`)가 `VITE_ROOM_URL`을 넣는다(배포 워크플로가 환경별
+주소를 넘김). `VITE_ROOM_URL`이 없는 빌드(개발·`PAGES_ROOM_URL=` 롤백)만 MQTT 메시. `VITE_ROOM_MODE=relay`(메시를
+엣지 중계로)는 이제 쓰지 않는다 — Worker의 `/relay`가 410(#157).
 
 ### 와이어 프로토콜 = snack-server `/ws` 그대로
-- 폰 → `{t:"hello", d:{slug, anonId, nick, pin?, token?, organize?, organizerToken?}}` (반드시 첫 프레임 — 아니면 4001로 끊음)
+- 소켓 주소 `/room/<방 id>` — PIN 방(20글자 코드)만 `?k=<pass 또는 좌석 토큰>` 또는 `?pin=dddd`(Worker가 확인하고 지운 뒤 넘김).
+- 폰 → `{t:"hello", d:{slug, anonId, nick, token?, organizerToken?, autoStart?, stay?}}` (반드시 첫 프레임 — 아니면 4001로 끊음).
+  `organizerToken` = 방금 만든 방이면 `/mint`의 주최자 표(`orgt`, 10분), 그 뒤엔 방이 준 12시간 주최자 토큰.
+  `organize`·`pin`은 옛 코드(10글자, legacy)에서만 뜻이 있고 플레이어는 더 보내지 않는다(#157).
 - 폰 → `{t:"action", d:{name, payload, clientMsgId}}` · `{t:"react", d:{emoji}}`
-- 방 → 엔진 메시지(`state`·`setVar`·`participants`·`reaction`·`actionAck`) + `token`(좌석) · `organizer` · `denied{reason}`
+- 방 → 엔진 메시지(`state`·`setVar`·`participants`·`reaction`·`actionAck`) + `token`(좌석) · `organizer` · `pass`(PIN 방, 12시간) ·
+  `pinClosed`·`alert`(PIN 방 주최자에게) · `denied{reason, retryIn?, left?}` — 사유와 close 코드는 `docs/room-admission.md` §4.
 - 개인 변수(`iAmSubject`·`myPid`·`myPick`·`iAmSpectator`·`iAmOut`)는 엔진 `send`로 **그 소켓에만**.
 - 메시 하트비트(1초) 없음 — 소켓 닫힘 = 퇴장.
 
@@ -40,17 +51,57 @@
    - 측정: 600 ms 창일 때 multiclient-sim의 "느린 네트워크" 반응속도 행(의도적으로 560 ms+ 늦게 보냄)이 깎였다 → 창 < 실제 지연이면 정직한 사람이 손해. 그래서 1 s.
 3. **기기당 좌석 1개**: 같은 `anonId`의 두 번째 소켓은 `seat_taken`(4009). 그 좌석의 토큰(HMAC `{r,p,a:anonId,exp}`)을 보이면 재접속으로 보고 **이전 소켓을 밀어낸다**. 한계: anonId는 기기가 만든 값 → 새 브라우저 = 새 좌석(계정 없이 sybil은 못 막음). 이벤트 상품은 §8의 "우승자 확인 코드"로 보완.
 
-## 3. 주최자 · PIN
-- `hello.d.organize = true`로 **방을 만든 사람**이 주최자 → HMAC 주최자 토큰(12시간). 플레이어는 이 기기가 방금 만든 친구 방 코드(`markFreshRoom`)일 때 보낸다. 라운드 진행은 엔진 타이머라 별도 "advance"는 없음(필요하면 다음 단계에서 엔진에 추가).
+## 3. 주최자 · 입장 확인 · PIN (#157)
+- **방 만들기 = `/mint`**: "🤝 친구끼리"(또는 퀴즈 만들기 완료)를 누르면 플레이어가 `POST /mint {slug}`(text/plain — CORS 사전 요청 없음)를 보내고
+  서버가 서명한 **15글자 코드**와 주최자 표(`orgt`, 10분)를 받는다(DO는 깨우지 않음, 서울 기준 ~0.1초). 플레이어는 표를 탭의
+  sessionStorage에 두고 링크를 `?room=<코드>`로 바꾼 뒤 들어간다 — 첫 hello의 `organizerToken`이 표라서 방을 만든 기기가 주최자가 된다.
+  `/mint`가 실패하면 "방을 만들지 못했어요. 잠시 후 다시 눌러 주세요"(토스트) — 기기에서 코드를 만들어 대신하지 않는다(그 코드는 곧 만료).
+  `VITE_ROOM_URL`이 없는 빌드(메시)는 예전처럼 기기에서 10글자 코드를 만든다.
+- **문 앞 확인**: Worker가 코드의 서명 태그를 확인하고(저장소 0), 서버가 만들지 않은 코드는 DO를 깨우지 않고 `expired`(4004)로 돌려보낸다.
+  PIN 없는 친구 참가는 예전과 같은 한 번 탭(추가 왕복 0, W1 D2 R0). 방이 24시간 넘게 비어 지워졌으면 조용히 다시 만든다(주인 결정 2).
 - **주최자 = 방장(#135)**: 친구 방(`slug~CODE`)과 주최 방은 엔진 `startRule: "host"` — 주최자(= 첫 입장자)가 방장이고 `start`·`lobby`는 방장만(`not_host`, 엔진이 판정 — 예전 `organizer_only` 게이트를 대신). 방장이 30초 넘게 없으면 가장 먼저 들어온 사람에게 넘어가고, 돌아와도 되찾지 않는다. `quizPack`은 엔진 규칙(나 맞히기 주인공) 그대로 — 주최자 전용 아님. 동면 뒤 스냅샷 없이 다시 만들 때는 주최자 소켓을 먼저 넣는다. 자세히: `docs/bite-format.md` §6.2.
-- **공개 방 자동 시작(#136)**: 공개 방(`slug`, `slug.gN`)은 `startRule: "auto"`. hello의 `autoStart: {start, ms}`(앱 문서의 `room`)로 대기실이 스스로 세고 시작한다 — 단 **2명 이상일 때만**(#141, 엔진 `AUTO_START_MIN`·옵션 `autoStartMin`, 관전자 제외): 혼자면 기다리고, 두 번째 사람이 오면 세기 시작, 세는 중 1명으로 줄면 멈춘다. 카운트다운 타이머는 엔진 세션 데이터라 동면 스냅샷에 남고, 복구 뒤 끝났을 때 사람이 모자라면 시작하지 않는다. 판이 진행 중일 때 처음 온 사람(`autoStart`를 보낸 새 클라이언트만)은 `moveTo {room: nextRoomId(id)}` + 4010 — `slug` → `slug.g2` → `slug.g3`(결정적: 늦은 사람들이 같은 방에 모인다 — 먼저 옮겨 간 사람은 거기서 두 번째로 옮겨 오는 사람을 기다린다). 옮겨 간 방에서 판 없이 혼자인 채로 `LONE_RETURN_MS`(20초, 화면에 보이는 시간)가 지나면 클라이언트가 링크의 방(`slug`)으로 돌아간다(#141) — 링크의 방이 대기실로 돌아오면 새로 온 사람은 거기로 가지 `.gN`으로 오지 않으므로; 링크의 방이 아직 진행 중이면 같은 `.gN`으로 다시 옮겨진다. 새 방은 `RoomGate`의 사용량 가드를 그대로 거치고, 거절되면 클라이언트가 원래 방에 `stay: true`로 돌아와 관전. 왜 이 방식: 방(DO)끼리 대화 없이 각 방이 자기 상태만 보고 정할 수 있고(DO 간 호출·저장 0), 클라이언트는 같은 소켓 재접속 경로(#115)를 그대로 쓴다. 대가 = 다음 방도 진행 중이면 한 번 더 이동(판 길이 ≈ 1분이라 보통 0–1번). 결과 뒤에는 같은 방이 대기실로 돌아온다(모두를 새 방으로 옮기는 것보다 재접속 0번이라 단순).
-- PIN(선택, 친구 방): PBKDF2-SHA256 · 방별 salt · 50,000회(Free CPU 고려, 해시는 DO 밖으로 안 나가 온라인 시도 제한이 진짜 방어). 틀림 5번 → 1분 잠금(매번 2배, 최대 1시간), 시간당 20회, 연결당 3회 → 끊음. 토큰(15분, 트래픽에 실어 5분마다 갱신)으로 PIN 없이 재접속.
+- **공개 방 자동 시작(#136)**: 공개 방(`slug`, `slug.gN`)은 `startRule: "auto"`. hello의 `autoStart: {start, ms}`(앱 문서의 `room`)로 대기실이 스스로 세고 시작한다 — 단 **2명 이상일 때만**(#141, 엔진 `AUTO_START_MIN`·옵션 `autoStartMin`, 관전자 제외): 혼자면 기다리고, 두 번째 사람이 오면 세기 시작, 세는 중 1명으로 줄면 멈춘다. 카운트다운 타이머는 엔진 세션 데이터라 동면 스냅샷에 남고, 복구 뒤 끝났을 때 사람이 모자라면 시작하지 않는다. 판이 진행 중일 때 처음 온 사람(`autoStart`를 보낸 새 클라이언트만)은 `moveTo {room: nextRoomId(id)}` + 4010 — `slug` → `slug.g2` → `slug.g3`(결정적: 늦은 사람들이 같은 방에 모인다 — 먼저 옮겨 간 사람은 거기서 두 번째로 옮겨 오는 사람을 기다린다). 옮겨 간 방에서 판 없이 혼자인 채로 `LONE_RETURN_MS`(20초, 화면에 보이는 시간)가 지나면 클라이언트가 링크의 방(`slug`)으로 돌아간다(#141) — 링크의 방이 대기실로 돌아오면 새로 온 사람은 거기로 가지 `.gN`으로 오지 않으므로; 링크의 방이 아직 진행 중이면 같은 `.gN`으로 다시 옮겨진다. 새 방은 `RoomGate`의 사용량 가드를 그대로 거치고, 거절되면 클라이언트가 원래 방에 `stay: true`로 돌아와 관전. 왜 이 방식: 방(DO)끼리 대화 없이 각 방이 자기 상태만 보고 정할 수 있고(DO 간 호출·저장 0), 클라이언트는 같은 소켓 재접속 경로(#115)를 그대로 쓴다. 대가 = 다음 방도 진행 중이면 한 번 더 이동(판 길이 ≈ 1분이라 보통 0–1번). 결과 뒤에는 결과 화면에 머물고(#212: 타이머 없음 — DO가 잠들 수 있다), 누군가 "한 판 더"를 누르면 같은 방이 대기실로 돌아와 다시 센다(모두를 새 방으로 옮기는 것보다 재접속 0번이라 단순).
+- **PIN(선택, 친구 방)** — 숫자 정확히 4자리. 방장이 **혼자일 때만** 초대 시트(QR)의 "비밀번호 걸기 / 바꾸기"로 건다:
+  `POST /mint {slug, pin, anonId}` → **20글자 새 링크** + 주최자 표 + 이 기기의 pass. 방장은 pass로 들어가 PIN을 직접 치지 않고,
+  초대 시트에 "비밀번호 4821 · 링크를 보낼 때 비밀번호도 함께 알려 주세요"(숫자 숨기기)가 보인다. PIN은 방장 기기의
+  localStorage(`snk-room-pass`, pass와 함께 12시간)에만 있고 **서버는 PIN을 저장하지 않는다**(코드 안의 태그 V = HMAC(서버 키, slug, R, PIN)).
+- **참가자**: 코드가 20글자이고 이 기기에 pass·좌석이 없으면 소켓을 열기 **전에** PIN 화면(숫자 키패드, `one-time-code`, 32px)을
+  띄우고 앱은 뒤에서 불러온다. 4번째 숫자에서 바로 `?pin=`으로 연결 → 맞으면 방이 `pass`(12시간, 이 기기의 anonId에 묶임)를 주고,
+  첫 `state` 뒤 메모리의 PIN을 지운다. 다시 들어올 땐 `?k=pass`. 틀리면 화면이 흔들리고 "비밀번호가 달라요 · N번 더 틀리면 잠시 입력이
+  막혀요", 잠기면 "잠시 후 다시 입력해 주세요 · m분 s초 뒤에…"(실시간 카운트다운, 0이면 다시 켜짐). PIN 거절은 실패 시트도 재연결
+  반복도 띄우지 않는다.
+- **제한**(바깥부터): Worker `PIN_RL` 방·주소당 60초 10회 · `PINIP_RL` 주소당 60초 20회 → DO `pinlock` 주소별 연속 5번 틀림 → 1분 잠금
+  (잠금마다 2배, 최대 1시간, 맞으면 초기화, 다른 주소는 영향 없음) → 코드당 누적 50번 틀림 → `closed`(새 PIN 입장 막힘, pass·좌석·주최자는 계속).
+  방장에게 10분 안 5번째 틀림마다 `alert`, 닫히면 `pinClosed` → 화면 위 알림 "누군가 비밀번호를 계속 틀리고 있어요" /
+  "…새로 들어오기가 막혔어요" + 한 번 탭 **"새 링크로 옮기기"**(같은 PIN으로 새 링크를 만들어 방장을 옮기고 초대 시트를 연다).
+  4자리라도 뚫릴 확률은 방당 50/10,000 = 0.5% 이하.
+- **실패 화면**(표 기반, `roomAdmission.ts failCopy`): `expired` "링크가 만료됐어요"(다시 시도 없음, 혼자 하기 · 홈으로) · `closed`
+  "이 방은 지금 들어갈 수 없어요" · `slow` "잠시 후 다시 시도해 주세요"(다시 시도는 `retryIn` 뒤 켜짐) · `seat_taken` · `full` · `room_full_today`(그대로).
+  텔레메트리 `room_join` 실패 사유에 `pin`·`locked`·`closed`·`expired`·`slow`·`seat_taken`·`full` 추가 — 코드·PIN은 절대 보내지 않음.
+- **옛 링크(10글자)**: 플레이어 새 버전 배포 뒤 **7일** 동안 그대로 열린다(`LEGACY_CREATE_UNTIL` = +24시간, `LEGACY_JOIN_UNTIL` = +7일을
+  설정만 바꿔 켬 — 아직 비어 있음 = 기한 없음). 옛 PBKDF2 PIN 경로·`organize`는 그 기간 legacy 코드에서만 남고 정리 PR에서 지운다.
+- 링크 미리보기(`functions/p/[[path]].js`, `api/_lib/og.js`)는 15·20글자 코드를 받고, **20글자(PIN 방)는 퀴즈 주인공 이름을 조회하지 않는다**
+  (결과가 pass 없이는 안 열리고, 이름도 비공개로 둔다).
+
+### 나가기 — 모두의 인원수가 줄어야 한다 (#213)
+- **명시적으로 나감**(← 홈, 탭 닫기, 새로고침 — `pagehide`): 클라이언트가 `{t:"bye"}`를 보내고 소켓을 닫는다 → 방이 바로 `leave` → 모두의 👥 n명·참가자 n명이 ~0.5–1초 안에 준다. `bye` 없이 소켓만 닫혀도 바로 나간다(예전 그대로). 새로고침은 새 소켓의 hello가 곧 따라와 roster 묶음(150 ms)에 흡수돼 보통 깜빡임이 없다(느린 망이면 짧은 깜빡임).
+- **동면 뒤 닫힘(실제 원인)**: 한가한 대기실은 ~10초면 동면해 메모리를 잃는다. 그 뒤 소켓이 닫히면 깨어난 DO가 엔진을 스냅샷에서 다시 만드는데, 예전 `closed()`는 떠나는 소켓을 `joined=false`로 먼저 바꾼 뒤 다시 만들어서 **엔진이 그 사람을 몰라** `leave`가 아무것도 안 하고 아무에게도 알리지 않았다 → 남은 사람들 화면의 인원이 그대로. 이제 떠나는 사람을 넣은 채로 다시 만든 뒤 `leave`한다.
+- **백그라운드로 가서 안 돌아옴**(앱 전환·화면 잠금 후 종료 — iOS는 페이지를 얼리고 소켓은 닫지 않는다): 페이지가 숨겨질 때 `{t:"away"}` 1번. 방은 `awayGraceMs`(30초) 동안 자리를 둔다(카톡 공유하러 갔다 오는 동안 깜빡임 없음). 그 안에 같은 소켓으로 `{t:"here"}`(또는 아무 프레임)·새 소켓(좌석 토큰, #115)이 오면 그대로; 아니면 방이 그 소켓을 4011로 닫고 `leave`(방장·나 맞히기 주인공의 유예는 `away` 시각부터). 마감은 **방의 저장소 알람**(타이머 아님 — 그동안 DO가 동면할 수 있다). 클라이언트는 4011을 일반 끊김으로 받아 돌아오면 다시 들어온다.
+- **비용**(무료 한도): 주기 메시지 없음. 나갈 때 `bye` 수신 1 + 닫힘 이벤트 1; 백그라운드 1번당 `away` 1(+ 돌아오면 `here` 1) + 알람 1(row 1 + 발화 시 DO 요청 1). 200명 공원 이벤트에서 모두가 한 번씩 앱을 전환해도 ≈ 800 요청·200 rows(일 한도의 ≈ 0.8 %·0.2 %).
+- **화면을 켠 채 망이 끊긴 방장(#142)**(비행기 모드·터널): 아무것도 보내지 못한다 → 방장만 keepalive.
+  - 클라이언트(`roomTransport.ts` EdgeRoomTransport): **방장(`iAmHost`)만, 화면이 보일 때만, 대기실·결과에서만** 정확히 텍스트 `"ping"`(JSON 아님·개행 없음)을 20초마다(`PING_EVERY_MS`) + 시작할 때(방장이 됨·대기실/결과로 바뀜·새 소켓의 state·다시 보임) 1번. 게임 중엔 안 보낸다. 다른 사람은 주기 메시지 없음.
+  - DO(`worker.js` Game 생성자): `setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping","pong"))` — 런타임이 DO를 **깨우지 않고** 답하고 소켓별 시각을 남긴다. 문자열이 한 글자라도 다르면 DO가 깨어나 GB-s를 쓴다 → 그런 프레임은 `pingMiss`로 세어 `/usage`에 보인다(0이어야 함).
+  - 서버(`game.js` hostCheck): **타이머·알람으로 확인하지 않는다.** 이미 방을 깨운 이벤트(입장 hello·프레임(리액션·액션)·닫힘·#213 away 알람) 안에서만 `getWebSocketAutoResponseTimestamp(ws)`를 읽는다. 방장이 대기실·결과에 있고 `away`가 아니며 마지막 pong·마지막 프레임·마지막 단계 변경이 모두 **45초**(`HOST_STALE_MS`, ping 2번 놓침 + 여유)보다 오래면 → 4012로 닫고 `leave`(유예는 마지막 생존 신호부터 → `HOST_GRACE_MS` 30초가 이미 지나 바로 인계). pong이 한 번도 없으면(`null`) = 모름(죽음 아님). 방장 본인이 새 소켓으로 돌아온 hello는 판정하지 않는다(좌석 인계).
+  - 한계: 판정은 다음 이벤트 때 — 아무도 아무것도 안 하면 그대로(누가 리액션·입장·나가기를 하면 그때 정리). 손님의 오프라인은 여전히 소켓이 닫힐 때까지 남는다(주기 메시지 없음이 우선).
+  - **비용**: 방당 시간당 ≤ 180 ping(3/분). Workers 요청 0(소켓 메시지는 요청 아님), GB-s 0(자동응답은 깨우지 않음). DO 요청으로 세어지는지는 문서에 없음 → 최악(1:1)으로 미터에 추정 반영(`pings` = 방장 소켓 × 경과 / 20초, 소켓 attachment에 기록해 동면에도 안 잃음, away 시간 제외; 게임 시간은 과대 계산 = 보수적) → 하루 100k의 **0.18 %/방-시간**.
+- 테스트: `edge-leave.test.js`(bye·닫힘·away→유예 뒤 퇴장·here·좌석 인계·동면 뒤 닫힘/bye/away), `edge-keepalive.test.js`(판정 함수·자동응답 에뮬·pingMiss·45초 뒤 인계·null=모름·게임 중/away 제외·동면 뒤·미터 180/시간), `snack-player/test/hostKeepalive.test.ts`(방장만·보일 때만·대기실/결과만·정확한 문자열·20초), `snack-player/scripts/room-leave-e2e.mjs`(실브라우저 3대: 탭 닫기·동면 뒤 탭 닫기·← 홈·새로고침·백그라운드 고정·오프라인·**방장 오프라인 → 45–75초 안에 인계**·keepalive 켠 채 정상 게임).
 
 ## 4. 저장하는 것 (그 외 없음)
 | 키 | 내용 | 언제 지움 |
 |---|---|---|
-| `meta` | `{epoch, created, org?, salt?, iter?, hash?}` | 마지막 사람이 나가고 24시간 뒤 알람 |
-| `lock` | 틀린 PIN 카운터(타임스탬프) | 〃 |
+| `meta` | `{epoch, created, org?, pin?}` (legacy 코드만 `salt?, iter?, hash?`) | 마지막 사람이 나가고 24시간 뒤 알람 |
+| `pinlock` | PIN 방: `{wrong, ip:{<ipKey>:{f, until, step}}}` (주소 키는 HMAC 앞 8바이트 — 원래 주소 아님, 최대 50개) | **7일** 자체 만료 — 24시간 정리에서 지우지 않음(방을 비워 50회 상한을 초기화할 수 없게) |
+| `lock` | legacy PIN 방의 틀린 PIN 카운터 | 24시간 알람 · 정리 PR에서 제거 |
 | `snap` | 엔진 스냅샷(닉네임·점수 포함) — **방에 사람이 있는 동안만** | 마지막 사람이 나갈 때 즉시 |
 | `result` | 친구 방의 마지막 판 결과 `{sid, exp, rec}`(닉네임·점수·퀴즈 회고 — `docs/room-results.md`의 레코드) | 저장 7일 뒤 알람(24시간 알람은 이것만 남기고 나머지를 지움) |
 | Meter `usage` | 오늘 숫자(요청·메시지·GB-s·rows) — 개인정보 없음 | 날짜 바뀌면 덮어씀 |
@@ -90,6 +141,21 @@ Free 한도 (developers.cloudflare.com/durable-objects/platform/pricing/): DO �
 | **엣지 방(서버 권한)** · 10문제 퀴즈 | 10–11 /판 (+hello 1) | **0** | 측정(§5) |
 | 메시 over 엣지 중계 · 대기 | — | **62–66** (here 1/s + 스냅샷) | 2/4/8명 60 s 측정 |
 | 메시 over 엣지 중계 · 짧은 sim 판(2/5/8명) | 17–31 /판 | — | multiclient-sim 계정(허브), 대부분 하트비트 |
+
+**입장 확인 비용 (#157)** — W = Worker 요청, D = DO 요청, R = 쓰는 행. 자세한 근거·최악의 경우: `docs/room-admission.md` §7.
+
+| 경우 | 예전 | 지금 |
+|---|---|---|
+| 친구 참가, PIN 없음 | W1 D2 R0 | **W1 D2 R0 (같음)** |
+| 방장이 방 만들기 (PIN 있든 없든) | W1 D3 R2 | W2 D3 R2 (`/mint` +1 W, DO 0) |
+| PIN 참가, 첫 시도에 맞음 | — | W1 D2 R0 (그 주소에 틀린 기록이 있었으면 +1 R) |
+| pass·좌석으로 다시 들어옴 | W1 D2 | W1 D2 |
+| 틀린 PIN (세는 시도) | D1 R1 | W1 D1 R1 |
+| 잠김·닫힘 상태의 시도 | D1 R0 | W1 D1 R0 |
+| 속도 제한·위조 코드·잘못된 Origin·`/relay`·pass 없는 PIN 방 결과 조회 | W1 D1–2+, 방이 생기면 R2 | **W1 D0 R0** (Meter에 묶어서 집계) |
+
+Worker가 직접 거절한 요청은 isolate별로 모아 200건 또는 60초마다 Meter에 한 번 보낸다(부담 ≈ 0.5 %). 평소 트래픽에선 1 % 미만 증가,
+베타 하루 2,000 참가 기준 W ≈ +2 %, D ≈ +0 %(PIN 방이 아닐 때).
 
 **공원 이벤트 (폰 30–200대 × 1시간, 엣지 방 퀴즈) — 1:1로 다시 계산**. 폰이 보내는 것(`snack-player/src/roomTransport.ts` `ServerTransport`): 접속마다 `hello` 1, 탭한 액션마다 `action` 1, 반응마다 `react` 1 — **하트비트·주기 전송 없음**(대기실 0/분). 방 쪽 묶음: Meter 보고 = 30초에 1번 또는 미보고 1,000건마다 1번(방당 시간당 ≤ 120 + 수신 1,000건당 1), 송신 합치기(150 ms)는 송신이라 무료. 가정: 폰당 접속 3번(처음 + 재접속·다음 방 이동 2), 퀴즈 한 판 = 폰당 11(답 10 + 1, §5 측정), `/usage` 캐시 미스 ≤ 60/시간.
 
@@ -157,9 +223,15 @@ npx wrangler deploy                           # → wss://snack-room.playsnack.w
 curl https://snack-room.playsnack.workers.dev/usage
 ```
 - **결과 · 통계(#96) 배포**: ① (권장) `S=$(openssl rand -base64 32)` → Vercel 환경 변수 `ROOM_SERVER_SECRET=$S`(Production · Preview) 넣고 재배포 → ② `cd edge/room && printf %s "$S" | npx wrangler secret put ROOM_SERVER_SECRET` → ③ `npx wrangler deploy`. 순서가 바뀌면(Worker 먼저) API는 비밀이 없어 헤더를 무시하고 보통 클라이언트로 받는다(동작은 함, 주소 버킷 공유). 확인: `curl -i https://snack-room.playsnack.workers.dev/room/tpl-speed-trivia-score~ABCDEFGH/result` → 404 `not_found`(빈 방).
+- **`ROOM_TOKEN_SECRET` 교체 (#157)**: 모든 키(코드 태그 Kc · PIN 태그 Kv · 주소 키 Ki · admit Ka · pass Kp · 주최자 표 Ko)가 이 비밀 하나에서
+  HKDF로 나온다(`docs/room-admission.md` §2). 바꾸면 **그 순간 모든 v2 링크·pass·좌석/주최자 토큰이 무효** — 진행 중인 방의 사람은 다음
+  재접속에서 "링크가 만료됐어요"를 보고, 새 링크가 필요하다. 방은 휘발성이라 감수(새는 의심이 있을 때만, 사람이 적은 시간에).
+  순서: ① `openssl rand -base64 32 | npx wrangler secret put ROOM_TOKEN_SECRET` (dev는 `--env dev`) → ② 배포가 따로 필요 없음(비밀은 즉시 반영)
+  → ③ 확인: 새로 만든 방에 친구가 들어가지는지, 옛 링크가 `expired`로 거절되는지(`/usage`의 Worker 요청만 늘고 DO는 안 늘어야 함).
+  `ROOM_SERVER_SECRET`(통계·결과 API용)은 별개 — 위 "결과 · 통계 배포" 순서.
 - 사이트를 옮기면 `wrangler.jsonc`의 `STATS_URL` · `PACK_BASE_URL`을 새 주소로(예: `https://playsnack.pages.dev/...`).
 - 라운드 콘텐츠는 `wrangler.jsonc`의 `PACK_BASE_URL`(= playsnack.pages.dev의 정적 `data/multi-content`).
-- 플레이어 시험 빌드만: `VITE_ROOM_URL=wss://snack-room.playsnack.workers.dev pnpm player:build` (프로덕션 기본값은 그대로 MQTT).
+- 플레이어 빌드: `node scripts/pages-build.mjs`(기본 `VITE_ROOM_URL=wss://snack-room.playsnack.workers.dev`; `PAGES_ROOM_URL=`이면 MQTT 메시로 롤백 빌드).
 - 되돌리기: `npx wrangler delete snack-room` (방은 휘발성이라 잃을 데이터 없음).
 
 ## 10. 실계정에서만 확인 가능한 것
@@ -184,6 +256,9 @@ curl https://snack-room.playsnack.workers.dev/usage
 ¹ 첫 실행에서 majority-guess 8명 행 1개가 countdown에 멈춤 — 그 시각에 `wrangler.jsonc`를 고쳐 wrangler가 핫리로드(DO 재시작)한 탓(로그로 확인), 재실행 11/11.
 - 명령: `SIM_EDGE_ROOM=1 node snack-server/tools/multiclient-sim.mjs` (허브 자동) / `+ SIM_EDGE_URL=ws://127.0.0.1:4551`(wrangler dev, 콘텐츠는 `--var PACK_BASE_URL:http://127.0.0.1:4550` + 정적 서버).
 - 결과 · 통계(#96): `edge-results`(7) — 허브에서 통과. 포트 `EDGE_TEST_PORT_RESULTS`(기본 4556). 2026-10-14 wrangler dev(Miniflare)에서: 친구 방 퀴즈 → `GET /room/<id>/result` 200(혼자 들어온 사람도), 정적 서버로 받은 통계 POST 1번(`game_created` + `session_done` 각 1, UA · `X-Room-Server` 확인, 방 코드 없음); `SIM_EDGE_ROOM=1` multiclient-sim 허브 11/11 · Miniflare 11/11; `edge-room` EDGE_URL 6/6(+1 허브 전용 skip).
+- **#157 플레이어(PR 2)**: `snack-player/test/roomAdmission.test.ts`(코드 종류 · `/mint` · pass 저장소 · 거절 사유별 전송 처리 · PIN 지우기 · 실패 문구 표),
+  `shellDocks.test.ts`(방장 PIN 알림 자리), `api/_test/og.test.js`(15·20글자 · PIN 방 조회 안 함), `api/_test/telemetry-client.test.js`(사유).
+  E2E `snack-server/tools/pin-room-e2e.mjs`(gate-all 포함, 포트 `PIN_E2E_PORT` 4931 · `PIN_E2E_HUB_PORT` 4930).
 - 포트: 4550 허브(sim) · 4551 wrangler dev · 4552 relay 테스트 · 4553 room 테스트 · 4554 usage 테스트 · 4555 wrangler inspector. wrangler sim 때 콘텐츠 정적 서버는 4550(허브 안 쓸 때).
 
 ## 12. 결과 · 통계 — 호스트 폰이 하던 일을 DO가 (#96)
@@ -198,3 +273,4 @@ curl https://snack-room.playsnack.workers.dev/usage
 - **동면**: 통계 큐는 메모리. 대기 중인 10초 타이머가 있는 동안 DO는 동면하지 않고, 방이 비면 바로 보낸다. 그래도 사라지면 그 이벤트만 빠진다(통계, 게임 아님). 결과는 저장소에 있으므로 동면과 무관.
 - **변수 · 비밀**: `STATS_URL`(wrangler.jsonc vars, 지금 `https://playsnack.pages.dev/api/ev`, `""` = 끔) · `ROOM_SERVER_SECRET`(Worker와 Pages 프로젝트에 같은 값). §9 배포 순서 참고.
 - 테스트: `packages/snack-room/test/edge-results.test.js` · `api/_test/room-server.test.js` · `snack-player/test/roomResult.test.ts`(`roomResultUrl`).
+- PIN 방(#157)의 결과는 pass(또는 좌석 토큰)로만 읽힌다: 플레이어는 `GET /room/<id>/result?k=<pass>`(`roomResultUrl(id, server, k)`), 없으면 Worker가 DO 없이 404.

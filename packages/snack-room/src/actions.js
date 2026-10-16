@@ -58,13 +58,18 @@ export const HOST_ACTIONS = Object.freeze({
   // + 50 ms. One answer per player per round, only while a round is open; the quiz's subject
   // (pack sender) is ignored. round / sessionNo = what the device answered (roundIdx /
   // sessionNo): another round or game → actionAck {accepted:false, reason:"stale_round"}.
-  // Early reveal: the answer that completes quizProgress (every present answerer, the subject
-  // excluded) brings the reveal to EARLY_REVEAL_MS (600 ms) from now; so does the leave of the
-  // last one still to answer. A join never does — a newcomer reopens it to the window's end.
+  // Change (#211): a later answer is a switch, taken only within CHANGE_WINDOW_MS (3 s, never
+  // past the answer window) of the room taking the first one — scored from the last pick's ms
+  // (never faster than the pick it replaces); else actionAck {accepted:false, reason:"locked"}
+  // and myPick (what stands) goes back. n = the device's pick count this round: n at or below
+  // the last one seen (a resend), or the same option → reason "duplicate".
+  // Early reveal: once every present answerer (the subject excluded) has answered AND their
+  // change windows have closed, EARLY_REVEAL_MS (300 ms) later; the leave of the last one still
+  // to answer can complete it. A join never does — a newcomer reopens it to the window's end.
   answer: {
     payload: "object",
-    fields: { option: { type: "number", required: true }, ms: { type: "number" }, round: { type: "number" }, sessionNo: { type: "number" } },
-    description: "quiz answer — 0-based choice index, plus the answer time this device measured (ms)",
+    fields: { option: { type: "number", required: true }, ms: { type: "number" }, round: { type: "number" }, sessionNo: { type: "number" }, n: { type: "number" } },
+    description: "quiz answer — 0-based choice index, the answer time this device measured (ms), n = this device's pick count this round (switch within 3 s)",
   },
   // 나 맞히기: sanitizeQuizPack(payload) — title ≤40, 1–20 questions {q ≤80, options 2–4
   // each ≤30, answer}, settings {rounds 1–20, answerMs 3000–20000}; invalid questions are
@@ -117,4 +122,18 @@ export const HOST_ACTIONS = Object.freeze({
   },
   // payload unused: back to the lobby
   lobby: { payload: "none", description: "end the session and return to the lobby" },
+  // 시작 시간 예약 (#218, docs/bite-format.md §6.2): friends rooms only ("host" rule — a public room
+  // says "auto_start", any other "not_friends_room"), lobby only ("not_in_lobby"), only the host
+  // (a stored 나 맞히기 quiz: its subject — "not_host" / "not_subject"). in = ms from now on the
+  // room's clock, SCHEDULE_MIN_MS (10 s) … SCHEDULE_MAX_MS (24 h), else "invalid_time"; start = the
+  // app's start payload (≤ 1 KB JSON, else "invalid_start"). Replaces any earlier schedule. Sent by
+  // the shell's time sheet (the template's button opens it with the shell event `scheduleOpen`).
+  schedule: {
+    payload: "object",
+    fields: { in: { type: "number", required: true }, start: { type: ["object", "number"], required: true } },
+    sample: { in: 60000, start: { duration: 10000 } },
+    description: "host: start the game by itself `in` ms from now (with `start`'s payload)",
+  },
+  // payload unused: the schedule is dropped (same rules as schedule; nothing scheduled is fine)
+  unschedule: { payload: "none", description: "host: cancel the scheduled start (예약 취소)" },
 });

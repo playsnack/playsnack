@@ -18,9 +18,14 @@
     "sentAt": 0,
     "tapBatchMs": 250,
     "roomMode": "",
+    "roomPin": false,
     "hostNick": "",
     "iAmHost": false,
-    "autoStartIn": 0
+    "autoStartIn": 0,
+    "startAt": 0,
+    "startIn": 0,
+    "startAtText": "",
+    "reduceMotion": false
   },
   "room": {
     "start": {
@@ -338,7 +343,7 @@
             "use": "NavBar",
             "props": {
               "title": "탭 배틀",
-              "subtitle": "대기실"
+              "subtitle": "{roomMode == 'auto' ? '🌐 누구나 함께하는 방 · 2명 모이면 시작' : roomMode == 'host' ? ((roomPin ? '🤝🔒' : '🤝') + ' 초대받은 친구만 들어오는 방 · 방장이 시작') : '대기실'}"
             }
           },
           {
@@ -395,10 +400,74 @@
             "grow": 1
           },
           {
+            "id": "schedCard",
+            "box": "column",
+            "width": "fill",
+            "height": 84,
+            "gap": 2,
+            "align": "center",
+            "justify": "center",
+            "fill": "{startIn > 0 && startIn < 60 ? '#d9ff00' : '#16181c'}",
+            "stroke": {
+              "color": "#d9ff00",
+              "width": 2
+            },
+            "opacity": "{startIn > 0 && startIn < 60 && !reduceMotion && startIn % 2 == 1 ? 0.78 : 1}",
+            "show": "roomMode == 'host' && startAt > 0",
+            "children": [
+              {
+                "id": "schedMain",
+                "text": "{startIn > 0 ? (floor(startIn / 60) + ':' + pad(startIn % 60, 2) + ' 뒤 시작!') : '친구가 오면 바로 시작해요'}",
+                "size": 28,
+                "weight": 800,
+                "color": "{startIn > 0 && startIn < 60 ? '#0b0c0e' : '#d9ff00'}",
+                "align": "center",
+                "lines": 1
+              },
+              {
+                "id": "schedSub",
+                "text": "{startIn > 0 ? (startAtText + ' 시작 · 지금 ' + roster.length + '명') : '한 명 더 오면 3·2·1 바로 시작'}",
+                "size": 14,
+                "weight": 600,
+                "color": "{startIn > 0 && startIn < 60 ? '#0b0c0e' : '#9aa3af'}",
+                "align": "center",
+                "lines": 1
+              }
+            ]
+          },
+          {
+            "id": "schedBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "{startAt > 0 ? '예약 취소' : '⏰ 시작 시간 정하기'}"
+            },
+            "show": "roomMode == 'host' && iAmHost",
+            "onTap": [
+              {
+                "if": "phase == 'lobby' && roomMode == 'host' && iAmHost",
+                "then": [
+                  {
+                    "if": "startAt > 0",
+                    "then": [
+                      {
+                        "emit": "unschedule"
+                      }
+                    ],
+                    "else": [
+                      {
+                        "emit": "scheduleOpen"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "id": "startBtn",
             "use": "PrimaryButton",
             "props": {
-              "label": "시작하기 🚀"
+              "label": "{roomMode == 'host' && startAt > 0 ? '지금 시작 🚀' : '시작하기 🚀'}"
             },
             "onTap": [
               {
@@ -440,7 +509,7 @@
             "children": [
               {
                 "id": "startWaitMain",
-                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 시작해요' : (autoStartIn + '초 뒤 시작 · ' + roster.length + '명')) : '방장이 시작하길 기다리는 중'}",
+                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 시작해요' : (autoStartIn + '초 뒤 시작 · ' + roster.length + '명')) : (startAt > 0 ? '시간이 되면 저절로 시작해요' : '방장이 시작하길 기다리는 중')}",
                 "size": 16,
                 "weight": 700,
                 "color": "#d9ff00",
@@ -839,11 +908,11 @@
             "id": "againBtn",
             "use": "PrimaryButton",
             "props": {
-              "label": "다시 하기 🔁"
+              "label": "{roomMode == 'auto' ? '한 판 더 🔁' : '다시 하기 🔁'}"
             },
             "onTap": [
               {
-                "if": "phase == 'result' && (roomMode == '' || (roomMode == 'host' && iAmHost))",
+                "if": "phase == 'result' && (roomMode == '' || roomMode == 'auto' || (roomMode == 'host' && iAmHost))",
                 "then": [
                   {
                     "set": "myTaps",
@@ -862,7 +931,7 @@
                 ]
               }
             ],
-            "show": "(roomMode == '' || (roomMode == 'host' && iAmHost))"
+            "show": "(roomMode == '' || roomMode == 'auto' || (roomMode == 'host' && iAmHost))"
           },
           {
             "id": "againWait",
@@ -877,11 +946,11 @@
               "color": "#2a2d33",
               "width": 1
             },
-            "show": "!(roomMode == '' || (roomMode == 'host' && iAmHost))",
+            "show": "!(roomMode == '' || roomMode == 'auto' || (roomMode == 'host' && iAmHost))",
             "children": [
               {
                 "id": "againWaitMain",
-                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 다음 판을 시작해요' : '잠시 뒤 다음 판이 자동으로 시작돼요') : '방장이 다시 시작하길 기다리는 중'}",
+                "text": "방장이 다시 시작하길 기다리는 중",
                 "size": 16,
                 "weight": 700,
                 "color": "#d9ff00",
@@ -890,7 +959,7 @@
               },
               {
                 "id": "againWaitSub",
-                "text": "{roomMode == 'auto' ? (roster.length < 2 ? '링크를 친구에게 보내도 돼요' : '그대로 있으면 같이 해요') : ('방장 · ' + hostNick)}",
+                "text": "{'방장 · ' + hostNick}",
                 "size": 13,
                 "weight": 600,
                 "color": "#9aa3af",

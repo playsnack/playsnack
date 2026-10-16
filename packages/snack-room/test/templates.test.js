@@ -21,6 +21,9 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
   let t = 0;
   // The shell's "10초 뒤 시작" (snack-player autoStart.ts): device → when the room said the game starts.
   const autoAt = new Map();
+  // …and its scheduled start (#218, snack-player schedule.ts): device → {at, due} (startAt / startIn / startAtText).
+  const schedAt = new Map();
+  const shellEvents = []; // template host events the shell keeps (scheduleOpen): {i, name}
   let seq = 0;
   const timers = new Map();
   const devices = new Map(); // peerId → app
@@ -58,6 +61,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
     startRule,
     broadcast: (type, d) => {
       if (type === "autoStart") for (const peerId of devices.keys()) autoAt.set(peerId, d.endsIn >= 0 ? t + d.endsIn : null);
+      if (type === "schedule") for (const peerId of devices.keys()) schedAt.set(peerId, d.on ? { at: t + d.endsIn, due: d.due } : null);
       if (type !== "setVar") return;
       for (const [peerId, app] of devices) toDevice(peerId, () => put(app, d.id, d.value));
     },
@@ -65,6 +69,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
       const app = devices.get(peerId);
       if (!app) return;
       if (type === "autoStart") autoAt.set(peerId, d.endsIn >= 0 ? t + d.endsIn : null);
+      if (type === "schedule") schedAt.set(peerId, d.on ? { at: t + d.endsIn, due: d.due } : null);
       if (type === "setVar") toDevice(peerId, () => put(app, d.id, d.value));
       if (type === "state") toDevice(peerId, () => Object.entries(d.sharedState).forEach(([k, v]) => put(app, k, v)));
     },
@@ -74,6 +79,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
     const app = createBite(load(id), { now: () => t + (clock[i] ?? 0), warn: (m) => assert.fail(`${nick}: ${m}`) });
     app.on("emit", (e) => {
       if (devices.get(peerId) !== app) return; // a closed tab
+      if (e.name === "scheduleOpen") return void shellEvents.push({ i, name: e.name }); // the shell's sheet (LiveApp)
       sent.push({ i, name: e.name, payload: e.payload, at: t, phase: app.phase }); // what this phone sent (message counts)
       const act = () => room.action(peerId, { name: e.name, payload: e.payload, clientMsgId: `${peerId}-${++seq}` });
       if (up[i]) later(up[i], act);
@@ -112,6 +118,11 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
           const left = at == null || app.vars.sessionPhase !== "lobby" ? 0 : Math.max(0, Math.ceil((at - t) / 1000));
           if (app.vars.autoStartIn !== left) app.setVar("autoStartIn", left);
         }
+        if (Object.hasOwn(app.vars, "startIn") && schedAt.has(peerId)) {
+          const sc = app.vars.sessionPhase === "lobby" ? schedAt.get(peerId) : null;
+          const v = sc ? { startAt: sc.at + 1e12, startIn: sc.due ? 0 : Math.max(0, Math.ceil((sc.at - t) / 1000)), startAtText: "오후 8:30" } : { startAt: 0, startIn: 0, startAtText: "" };
+          for (const [k, x] of Object.entries(v)) if (app.vars[k] !== x) app.setVar(k, x);
+        }
         app.tick();
       }
       await flush();
@@ -130,7 +141,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
   // Is node `nid` (and every ancestor) shown on device i now?
   const pathTo = (nid, n = load(id).view) => (n?.id === nid ? [n] : (n?.children ?? []).map((c) => pathTo(nid, c)).find(Boolean)?.concat(n, []) ?? null);
   const shown = (i, nid) => pathTo(nid).every((n) => n.show == null || Boolean(app(i).eval(n.show)));
-  return { room, sent, advance, app, prop, shown, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
+  return { room, sent, shellEvents, advance, app, prop, shown, gone, reload, late, now: () => t, tap: (i, node) => app(i).tap(node), v: (i, name) => app(i).eval(name), phase: (i) => app(i).phase };
 }
 
 test("tap-battle: game 2 started by the OTHER device — board == 내 탭 card on the non-starter", async () => {
@@ -231,7 +242,7 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   const seenB = T.v(1, "seenAt");
   const seenC = T.v(2, "seenAt");
   assert.match(T.prop(0, "statusText"), /친구들이 고르는 중… \(0\/2\)/);
-  assert.equal(T.prop(1, "statusText"), "A 님을 맞혀라!");
+  assert.equal(T.prop(1, "statusText"), "고르고 3초 뒤 확정 · 빠를수록 점수 UP", "the rule on the first question (#211)");
   assert.ok(T.prop(1, "timerBar", "width") > 280, "the bar starts full");
   // the subject's tap does nothing
   T.tap(0, `tile${right(0)}`);
@@ -248,22 +259,24 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   assert.equal(msC, T.v(2, "now - seenAt"));
   assert.ok(msC >= 2332 - 32 && msC <= 2332, `C measured ${msC} (clock a day off)`);
   assert.ok(seenC > 86_400_000, "C's own clock");
-  assert.equal(T.prop(1, "statusText"), "선택 완료! 공개를 기다려요");
+  assert.equal(T.prop(1, "statusText"), "3초 안에 바꿀 수 있어요", "B may still change for 3 s (#211)");
   assert.ok(T.prop(1, "timerBar", "width") < 298 * 0.8, "the bar runs down");
-  T.tap(1, `tile${(right(1) + 1) % 4}`); // a second tap changes nothing
   await T.advance(50);
   assert.match(T.prop(0, "statusText"), /친구들이 고르는 중… \(1\/2\)/, "B's tap is still on its way");
   await T.advance(250); // B's tap lands (900 ms uplink): everyone has answered
-  // early reveal: the beat — bar and seconds clear at once, the reveal follows in 300 ms
+  // everyone answered: bar and seconds clear at once; the reveal waits for the change windows
   assert.equal(T.prop(0, "statusText"), "다 골랐어요! 곧 공개 (2/2)");
-  assert.equal(T.prop(2, "statusText"), "다 골랐어요! 곧 공개 (2/2)");
+  assert.equal(T.prop(2, "statusText"), "3초 안에 바꿀 수 있어요", "C's own window is still open");
   for (const i of [0, 2]) {
     assert.equal(T.prop(i, "timerBar", "width"), 0, "the bar jumps empty");
     assert.equal(T.prop(i, "timerSecs"), "");
   }
   assert.equal(T.v(0, "roundAnswer"), -1, "not revealed yet");
-  await T.advance(500 + 300); // + B's 300 ms downlink
-  assert.ok(T.v(1, "roundAnswer") >= 0, "revealed ~300 ms after the last answer — not at the end of the 8 s window");
+  await T.advance(2700);
+  assert.equal(T.prop(2, "statusText"), "확정! 곧 공개 (2/2)", "C's 3 s are over on its device");
+  assert.equal(T.v(0, "roundAnswer"), -1, "B's window (from when the room took its pick) is still open");
+  await T.advance(300 + 300 + 300); // B's window closes 3 s after its pick landed, + the 300 ms beat, + B's 300 ms downlink
+  assert.ok(T.v(1, "roundAnswer") >= 0, "revealed once every change window closed — not at the end of the 8 s window");
   // reveal: B and C both right — B was faster on its own device, so B leads
   const pts = (ms) => Math.max(100, 1000 - Math.round((ms / 8000) * 800));
   const board = T.v(0, "raceBoard");
@@ -273,7 +286,7 @@ test("speed-trivia (나 맞히기): answer time measured on each device's clock;
   assert.equal(T.prop(0, "statusText"), "정답 공개!");
   assert.match(T.prop(1, `tile${right(1)}Txt`), /^✓ /);
   // round 2: B misses, C lets the clock run out on its device
-  await T.advance(1500); // reveal 1.8 s (#116)
+  await T.advance(1700); // reveal 1.8 s (#116) + B's downlink
   assert.equal(T.v(1, "roundNum"), 2);
   T.tap(1, `tile${(right(1) + 1) % 3}`);
   await T.advance(6000); // C never answers: the full window
@@ -318,7 +331,7 @@ test("speed-trivia R1: the subject left for good → a friend gets 시작하기 
   assert.equal(T.v(1, "quizInfo.about"), "A");
 });
 
-test("speed-trivia R10: a reload mid-round restores the answer the room took — no second tap", async () => {
+test("speed-trivia R10: a reload mid-round restores the answer the room took and the change time left (#211)", async () => {
   const T = table("speed-trivia-score", ["A", "B"]);
   T.room.action("p0", { name: "quizPack", payload: { title: "A 맞히기", questions: QS2 }, clientMsgId: "pack" });
   await T.advance(100);
@@ -333,11 +346,74 @@ test("speed-trivia R10: a reload mid-round restores the answer the room took —
   assert.equal(T.v(1, "myAnswerRound"), T.v(1, "roundIdx"), "restored from the room");
   assert.equal(T.v(1, "myAnswer"), first);
   assert.equal(T.v(1, "myMs"), ms);
-  assert.equal(T.prop(1, "statusText"), "다 골랐어요! 곧 공개 (1/1)", "1:1 — the only answerer is in: the reveal beat");
-  T.tap(1, `tile${(first + 1) % 4}`); // a second tap does nothing
+  const left = T.v(1, "myLockAt - now");
+  assert.ok(left > 2700 && left <= 3000, `the change time left came back with it (${left} ms)`);
+  assert.equal(T.prop(1, "statusText"), "3초 안에 바꿀 수 있어요");
+  await T.advance(2900);
+  assert.equal(T.prop(1, "statusText"), "확정! 곧 공개 (1/1)", "1:1 — the only answerer is in and locked: the reveal beat");
+  T.tap(1, `tile${(first + 1) % 4}`); // locked: a tap does nothing
   assert.equal(T.v(1, "myAnswer"), first);
-  await T.advance(9000);
+  await T.advance(1000); // the reload did not reopen the round: revealed 300 ms after the lock
   assert.match(T.prop(1, "statusText"), /^정답! ✓ /, "the restored pick gets its feedback");
+});
+
+// #211: after the first pick a player may switch for 3 s ("N초 안에 바꿀 수 있어요"), then
+// "확정!". The score uses the last pick's time; a switch the room refuses (past its window
+// on the room's clock) puts the room's pick back on the device.
+test("speed-trivia answer change (#211): switch within 3 s → the last pick scores; then 확정!; a refused switch is undone", async () => {
+  const T = table("speed-trivia-score", ["A", "B", "C"]);
+  T.room.action("p0", { name: "quizPack", payload: { title: "A 맞히기", questions: QS2, settings: { answerMs: 8000 } }, clientMsgId: "pack" });
+  await T.advance(100);
+  T.tap(0, "startBtn");
+  await T.advance(1000);
+  assert.equal(T.prop(1, "cdHint"), "한 번 고르면 3초 뒤 확정돼요 · 빠를수록 점수 UP", "the rule at quiz start");
+  assert.equal(T.shown(1, "cdHint"), true);
+  assert.equal(T.shown(0, "cdHint"), false, "not for the subject (who only watches)");
+  await T.advance(2000 + 300);
+  assert.equal(T.phase(1), "play");
+  const right = rightOf(T, 1);
+  const wrong = (right + 1) % 4;
+  await T.advance(400);
+  T.tap(1, `tile${wrong}`); // B: a fast random tap…
+  const ms1 = T.v(1, "myMs");
+  assert.equal(T.prop(1, "statusText"), "3초 안에 바꿀 수 있어요");
+  assert.equal(T.prop(1, `tile${wrong}`, "fill"), "#d9ff00", "the pick is highlighted");
+  assert.equal(T.prop(1, `tile${wrong}`, "stroke.color"), "#ffffff", "…with the open-window edge");
+  await T.advance(1100);
+  assert.equal(T.prop(1, "statusText"), "2초 안에 바꿀 수 있어요", "the countdown runs");
+  assert.equal(T.tap(1, `tile${right}`), true); // …then the right one
+  const msB = T.v(1, "myMs");
+  assert.equal(msB, ms1 + 1100, "timed to the last tap");
+  assert.equal(T.v(1, "myAnswer"), right);
+  assert.equal(T.prop(1, `tile${wrong}`, "fill"), "#1e2127", "the old pick is cleared");
+  assert.equal(T.prop(1, `tile${right}`, "fill"), "#d9ff00");
+  await T.advance(32);
+  assert.equal(T.v(1, "myPick.option"), right, "the room took the switch");
+  assert.equal(T.v(0, "quizProgress.answered"), 1, "a switch is not a second answer");
+  T.tap(2, `tile${rightOf(T, 2)}`); // C answers once
+  await T.advance(1900); // B's window: 3 s from its first tap
+  assert.equal(T.prop(1, "statusText"), "확정! 곧 공개 (2/2)");
+  assert.equal(T.prop(1, `tile${right}`, "stroke.color"), "#2a2d33", "locked: no open-window edge");
+  T.tap(1, `tile${wrong}`); // locked: a tap does nothing
+  assert.equal(T.v(1, "myAnswer"), right);
+  await T.advance(2000); // C's window closes, then the 300 ms beat
+  assert.ok(T.v(1, "roundAnswer") >= 0, "revealed after every window closed");
+  assert.match(T.prop(1, "statusText"), /^정답! ✓ /);
+  const pts = (ms) => Math.max(100, 1000 - Math.round((ms / 8000) * 800));
+  assert.equal(T.v(0, "raceBoard").find((x) => x.nick === "B").score, pts(msB), "scored from the switch, not the first tap");
+  // round 2: the device thinks its window is still open (e.g. a stalled clock) — the room refuses
+  await T.advance(1800);
+  assert.equal(T.v(1, "roundNum"), 2);
+  const r2 = rightOf(T, 1);
+  T.tap(1, `tile${r2}`);
+  await T.advance(3100); // locked on the room's clock
+  T.app(1).setVar("myLockAt", T.now() + 5000);
+  assert.equal(T.tap(1, `tile${(r2 + 1) % 3}`), true);
+  assert.equal(T.v(1, "myAnswer"), (r2 + 1) % 3, "shown at once on the device…");
+  await T.advance(32);
+  assert.equal(T.v(1, "myAnswer"), r2, "…then the room's pick comes back (refused: locked)");
+  assert.equal(T.v(1, "myPick.n"), 2);
+  assert.equal(T.room._state.session.picks[1].a1.option, r2);
 });
 
 // Early reveal on the template: "everyone answered" is read only from a quizProgress for THIS
@@ -355,7 +431,7 @@ test("speed-trivia early reveal: a stale quizProgress (last round / last game) n
   const lastRound = T.v(1, "quizProgress");
   assert.equal(lastRound.round, 0);
   assert.equal(lastRound.sessionNo, T.v(1, "sessionNo"));
-  await T.advance(300 + 1800); // reveal → round 2 (#116 pace)
+  await T.advance(3000 + 300 + 1800); // change window → reveal → round 2 (#116 pace)
   assert.equal(T.v(1, "roundNum"), 2);
   assert.ok(T.prop(1, "timerBar", "width") > 280, "round 2 starts with a full bar");
   for (const stale of [lastRound, { ...lastRound, round: 1, sessionNo: lastRound.sessionNo - 1 }]) {
@@ -390,6 +466,22 @@ test("speed-trivia: a pack still on its way → '<title> · 준비 중…', no s
   await T.advance(3100);
   assert.equal(T.phase(1), "play");
   assert.equal(T.v(1, "quizInfo.about"), "A");
+});
+
+// One template, two games (#210): the built-in questions are 스피드 퀴즈 (its own catalog entry
+// `speed-quiz`); a made pack is that quiz — its lobby is named by the quiz's own title.
+test("speed-trivia: lobby title — 스피드 퀴즈 for the built-in questions, the quiz's title for a made pack", async () => {
+  const T = table("speed-trivia-score", ["A", "B"]);
+  await T.advance(100);
+  for (const i of [0, 1]) {
+    assert.equal(T.prop(i, "navL", "props.title"), "스피드 퀴즈");
+    assert.equal(T.prop(i, "lobbyTitle"), "스피드 퀴즈");
+  }
+  T.room.action("p0", { name: "quizPack", payload: { title: "우리 MT 퀴즈", questions: QS2 }, clientMsgId: "pack" });
+  await T.advance(50);
+  for (const i of [0, 1]) assert.equal(T.prop(i, "navL", "props.title"), "우리 MT 퀴즈");
+  assert.equal(T.prop(0, "lobbyTitle"), "우리 MT 퀴즈 · 2문제");
+  assert.equal(T.prop(1, "lobbyTitle"), "우리 MT 퀴즈 · 2문제 · 곧 시작해요");
 });
 
 test("speed-trivia: 나도 만들기 from a default-quiz result — while the pack is on its way no 다시 하기", async () => {
@@ -437,7 +529,7 @@ test("speed-trivia spectate: a late joiner mid-quiz sees '관전 중 · A 맞히
   T.tap(2, `tile${rightOf(T, 2)}`);
   await T.advance(32);
   assert.equal(T.prop(d, "statusText"), "다 골랐어요! 곧 공개 (2/2)", "two spectators do not hold up the early reveal");
-  await T.advance(600);
+  await T.advance(3000 + 600);
   assert.ok(T.v(d, "roundAnswer") >= 0);
   assert.equal(T.prop(d, "statusText"), "정답 공개!");
   assert.match(T.prop(d, `tile${rightOf(T, d)}Txt`), /^✓ /, "the reveal is shown");
@@ -612,7 +704,6 @@ test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2�
   await T.advance(6000 + 3200);
   assert.equal(T.phase(0), "play");
   assert.equal(T.phase(1), "play");
-  // both play (so the room re-arms after the result — #136 "someone played")
   for (let k = 0; k < 10; k++) {
     T.tap(0, "tapArea");
     T.tap(1, "tapArea");
@@ -620,15 +711,26 @@ test("tap-battle public room (auto): no start button — '10초 뒤 시작 · 2�
   }
   await T.advance(10000);
   assert.equal(T.phase(0), "result");
-  assert.ok(T.room._state.session.acted.size >= 2, "someone played this game");
-  assert.equal(T.tap(0, "againBtn"), false);
-  assert.equal(T.prop(0, "againWaitMain"), "잠시 뒤 다음 판이 자동으로 시작돼요");
-  // #141: B leaves at the result — A alone: the next game waits for a second person
+  // #212: the result stays — nothing restarts by itself; everyone has "한 판 더"
+  assert.equal(T.shown(0, "againWait"), false);
+  assert.equal(T.prop(0, "againBtn", "props.label"), "한 판 더 🔁");
+  await T.advance(60000);
+  assert.equal(T.phase(0), "result", "no automatic next game");
+  assert.equal(T.phase(1), "result");
+  // B taps 한 판 더 → both back in the lobby, counting down from 10 (2 here)
+  assert.equal(T.tap(1, "againBtn"), true);
+  await T.advance(200);
+  assert.equal(T.phase(0), "lobby");
+  assert.equal(T.prop(0, "startWaitMain"), "10초 뒤 시작 · 2명");
+  await T.advance(10000 + 3200);
+  assert.equal(T.phase(0), "play");
+  await T.advance(10500);
+  assert.equal(T.phase(0), "result");
+  // #141: B leaves at the result — A alone taps 한 판 더: the lobby waits for a second person
   T.gone(1);
   await T.advance(200);
-  assert.equal(T.prop(0, "againWaitMain"), "한 명 더 오면 다음 판을 시작해요");
-  assert.equal(T.prop(0, "againWaitSub"), "링크를 친구에게 보내도 돼요");
-  await T.advance(8000); // RESULT_HOLD_MS: back to the lobby — which does not count down alone
+  assert.equal(T.tap(0, "againBtn"), true);
+  await T.advance(200);
   await waitsAlone(T, 0, 30000);
   assert.equal(T.prop(0, "startWaitMain"), "한 명 더 오면 시작해요");
   assert.equal(T.shown(0, "startBtn"), false);
@@ -937,4 +1039,62 @@ test("tapBatchMs (#179): 20 players keep 250 ms; 21 get 1 s; a room that shrank 
   assert.equal(T.phase(0), "play");
   assert.equal(T.v(0, "tapBatchMs"), 250, "20 players → back to 250 ms");
   assert.equal(T.v(7, "tapBatchMs"), 250);
+});
+
+// ── 시작 시간 예약 (#218): the host schedules, everyone's lobby counts down, the game starts by itself ──
+
+const SESSION_TEMPLATES = ["balance-game-vote", "speed-trivia-score", "worldcup-group-vote", "coop-click", "majority-guess", "tap-battle", "coop-tap-goal", "reaction-duel-score", "most-likely-roster-vote", "nunchi-tap"];
+for (const id of SESSION_TEMPLATES) {
+  test(`${id} friends room: the host's "⏰ 시작 시간 정하기" → the sheet sends schedule; both see "m:ss 뒤 시작!", it plays by itself at the time`, async () => {
+    const doc = load(id);
+    const T = table(id, ["A", "B"], { startRule: "host" });
+    await T.advance(100);
+    assert.equal(T.prop(0, "schedBtn", "props.label"), "⏰ 시작 시간 정하기");
+    assert.equal(T.shown(1, "schedBtn"), false, "a friend has no host controls");
+    assert.equal(T.tap(0, "schedBtn"), true);
+    assert.deepEqual(T.shellEvents, [{ i: 0, name: "scheduleOpen" }], "the shell's event — not sent to the room");
+    // the sheet's "1분 뒤" (LiveApp): schedule {in, start: the app's room.start}
+    T.room.action("p0", { name: "schedule", payload: { in: 60000, start: doc.room.start }, clientMsgId: "sched-1" });
+    await T.advance(1000);
+    for (const i of [0, 1]) assert.equal(T.prop(i, "schedMain"), "0:59 뒤 시작!", `device ${i}`);
+    assert.equal(T.prop(0, "schedBtn", "props.label"), "예약 취소");
+    assert.equal(T.prop(0, "startBtn", "props.label"), "지금 시작 🚀");
+    assert.equal(id === "speed-trivia-score" ? T.prop(1, "waitBtn", "props.label") : T.prop(1, "startWaitMain"), "시간이 되면 저절로 시작해요");
+    await T.advance(58000);
+    assert.equal(T.phase(1), "lobby");
+    await T.advance(1000 + 3200);
+    assert.equal(T.phase(0), "play", "started by itself");
+    assert.equal(T.phase(1), "play");
+    assert.equal(T.v(1, "startAt"), 0, "the countdown is gone");
+  });
+}
+
+test("tap-battle friends room: 예약 취소 — the countdown leaves both screens, nothing starts at the time", async () => {
+  const doc = load("tap-battle");
+  const T = table("tap-battle", ["A", "B"], { startRule: "host" });
+  await T.advance(100);
+  T.room.action("p0", { name: "schedule", payload: { in: 30000, start: doc.room.start }, clientMsgId: "s1" });
+  await T.advance(1000);
+  assert.equal(T.shown(1, "schedCard"), true);
+  assert.equal(T.tap(0, "schedBtn"), true); // 예약 취소
+  await T.advance(500);
+  assert.equal(T.shown(0, "schedCard"), false);
+  assert.equal(T.shown(1, "schedCard"), false);
+  assert.equal(T.prop(1, "startWaitMain"), "방장이 시작하길 기다리는 중");
+  await T.advance(40000);
+  assert.equal(T.phase(1), "lobby");
+});
+
+test("tap-battle friends room: alone at the time → '친구가 오면 바로 시작해요'; the friend who opens the link plays at once", async () => {
+  const doc = load("tap-battle");
+  const T = table("tap-battle", ["A"], { startRule: "host" });
+  await T.advance(100);
+  T.room.action("p0", { name: "schedule", payload: { in: 20000, start: doc.room.start }, clientMsgId: "s1" });
+  await T.advance(20500);
+  assert.equal(T.phase(0), "lobby");
+  assert.equal(T.prop(0, "schedMain"), "친구가 오면 바로 시작해요");
+  const b = T.late("B");
+  await T.advance(3300);
+  assert.equal(T.phase(0), "play");
+  assert.equal(T.phase(b), "play");
 });

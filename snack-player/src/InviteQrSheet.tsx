@@ -7,21 +7,40 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { QUIET_ZONE, qrMatrix, qrPath } from "./qr";
 import BlockButton from "./BlockButton";
 import { primaryBtn, secondaryBtn } from "./ui";
-import { C, S, TOKENS } from "./tokens.gen";
+import { C, R, S, TOKENS } from "./tokens.gen";
+import type { InvitePin } from "./InviteQr";
+import { isTouchDevice } from "./invite";
 
-export default function InviteQrSheet({ url, onClose, onCopied }: { url: string; onClose: () => void; onCopied?: () => void }) {
+export default function InviteQrSheet({ url, onClose, onCopied, pin, manual = false }: {
+  url: string; onClose: () => void; onCopied?: () => void; pin?: InvitePin;
+  /** Opened because the clipboard refused the invite button (#209): the link comes selected. */
+  manual?: boolean;
+}) {
   const qr = useMemo(() => {
     const m = qrMatrix(url);
     return m && { d: qrPath(m), side: m.size + 2 * QUIET_ZONE };
   }, [url]);
-  const [copy, setCopy] = useState<"copied" | "manual" | null>(null);
+  const [copy, setCopy] = useState<"copied" | "manual" | null>(manual ? "manual" : null);
+  const [pinHidden, setPinHidden] = useState(false);
   const linkRef = useRef<HTMLDivElement>(null);
+  const touch = useMemo(() => isTouchDevice(), []);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   const closeFn = useRef(onClose);
   closeFn.current = onClose; // the room re-renders the parent often; keep one listener
+  const selectLink = () => {
+    const el = linkRef.current;
+    const sel = getSelection();
+    if (el && sel) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  };
   useEffect(() => {
-    closeRef.current?.focus({ preventScroll: true });
+    if (manual) selectLink();
+    else closeRef.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeFn.current(); };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
@@ -35,14 +54,7 @@ export default function InviteQrSheet({ url, onClose, onCopied }: { url: string;
     } catch {
       // No clipboard (in-app browsers, http): select the link for a long-press copy.
       setCopy("manual");
-      const el = linkRef.current;
-      const sel = getSelection();
-      if (el && sel) {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
+      selectLink();
     }
   };
 
@@ -68,10 +80,27 @@ export default function InviteQrSheet({ url, onClose, onCopied }: { url: string;
         <div ref={linkRef} style={link} data-testid="qr-link">{url}</div>
         {copy && (
           <p style={{ ...muted, color: copy === "copied" ? C.accent : C.ink }} role="status">
-            {copy === "copied" ? "링크를 복사했어요" : "복사가 안 돼요. 위 링크를 길게 눌러 복사해 주세요"}
+            {copy === "copied" ? "링크를 복사했어요" : touch ? "복사가 안 돼요. 위 링크를 길게 눌러 복사해 주세요" : "복사가 안 돼요. 위 링크를 선택해서 복사해 주세요"}
           </p>
         )}
+        {pin?.value && (
+          // The host's own PIN (#157): the link alone does not get in — say it with the link.
+          <div style={pinChip} data-testid="pin-chip">
+            <div style={{ display: "flex", alignItems: "center", gap: S.s2 }}>
+              <span style={{ flex: 1 }}>비밀번호 <span style={{ color: C.accent, letterSpacing: "0.15em" }}>{pinHidden ? "••••" : pin.value}</span></span>
+              <button style={chipBtn} onClick={() => setPinHidden((h) => !h)}>{pinHidden ? "숫자 보기" : "숫자 숨기기"}</button>
+            </div>
+            <span style={{ ...muted, textAlign: "left" }}>링크를 보낼 때 비밀번호도 함께 알려 주세요</span>
+          </div>
+        )}
         <BlockButton style={primaryBtn} onClick={() => void copyLink()}>링크 복사</BlockButton>
+        {pin?.canSet && (
+          // Only while nobody else is in: a PIN means a new link (the old one stops being this room).
+          <button className="blk" style={{ ...secondaryBtn, textAlign: "left" }} onClick={pin.onSet} data-testid="pin-row">
+            <span style={{ display: "block" }}>{pin.value ? "비밀번호 바꾸기" : "비밀번호 걸기"}</span>
+            <span style={{ ...muted, display: "block", textAlign: "left", marginTop: 2 }}>링크가 퍼져도 비밀번호를 아는 친구만 들어와요</span>
+          </button>
+        )}
         <BlockButton buttonRef={closeRef} style={secondaryBtn} onClick={onClose}>닫기</BlockButton>
       </div>
     </div>
@@ -97,6 +126,15 @@ const muted: React.CSSProperties = {
 const card: React.CSSProperties = {
   alignSelf: "center", width: "min(100%, 360px, calc(100dvh - 430px))", minWidth: 200, aspectRatio: "1 / 1",
   background: "#FFFFFF", border: `${TOKENS.border.block}px solid ${C.borderBlock}`,
+};
+const pinChip: React.CSSProperties = {
+  display: "flex", flexDirection: "column", gap: S.s1, padding: `${S.s2}px ${S.s3}px`, background: C.surface,
+  border: `${TOKENS.border.block}px solid ${C.accent}`, borderRadius: R.block, color: C.ink,
+  font: `700 ${TOKENS.size.bodyMd}px ${TOKENS.font.body}`,
+};
+const chipBtn: React.CSSProperties = {
+  flex: "none", minHeight: 36, padding: "0 10px", borderRadius: R.block, border: `${TOKENS.border.hairline}px solid ${C.hairline}`,
+  background: C.surface2, color: C.ink, cursor: "pointer", font: `700 ${TOKENS.size.bodySm}px ${TOKENS.font.body}`,
 };
 const link: React.CSSProperties = {
   maxHeight: 64, overflowY: "auto", padding: `${S.s2}px ${S.s3}px`, background: C.surface,

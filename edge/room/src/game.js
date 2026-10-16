@@ -4,13 +4,22 @@
 // answers, the clock or the scores. Platform-free, so the Node hub runs it too.
 //
 // Wire protocol = snack-server's /ws (the player's ServerTransport speaks it):
-//   client → {t:"hello", d:{slug, anonId, nick, pin?, token?, organize?, organizerToken?, autoStart?, stay?}}  first
+//   client → {t:"hello", d:{slug, anonId, nick, token?, organizerToken?, autoStart?, stay?, pin?, organize?}}  first
+//            (pin / organize: legacy codes only — #157 v2 rooms take the PIN at the Worker and the
+//            organizer from the /mint ticket `orgt` in organizerToken; public ids never get either)
 //   client → {t:"action", d:{name, payload, clientMsgId}} | {t:"react", d:{emoji}}
+//   client → {t:"away"}   the page went to the background (#213) · {t:"here"} back on screen, same socket
+//            · {t:"bye"} leaving for good (← 홈, the tab closing): out of the room at once
 //   room   → {t:"state"|"setVar"|"participants"|"reaction"|"actionAck", d}   (engine messages)
 //   room   → {t:"token", d:{token}}        seat token (reconnect without the PIN, seat takeover)
-//   room   → {t:"organizer", d:{token}}    to the room's creator, when it asked to organize
-//   room   → {t:"denied", d:{reason, retryIn?}}   then usually a close
+//   room   → {t:"organizer", d:{token}}    to the room's creator (12 h organizer token)
+//   room   → {t:"pass", d:{token, exp}}    PIN room, entered with the PIN: no PIN for 12 h on this device
+//   room   → {t:"pinClosed"} · {t:"alert", d:{kind:"pin_failures", n}}   PIN room, to its organizer
+//   room   → {t:"denied", d:{reason, retryIn?, left?}}   then usually a close
 //   room   → {t:"moveTo", d:{room}}       public room mid-game: play in that room instead (then 4010)
+// Each socket arrives with the Worker's admit claim (admit.js decideUpgrade; null on the in-memory
+// tests = today's rules). Budget per socket (memory only): burst 30 frames, refilled 4/s, ≤ 1,800 an
+// hour; reactions ≤ 3/s from an allowlist (more are dropped, not spread); over → denied slow, 4029.
 // Per-player variables (iAmSubject, myPid, myPick, iAmSpectator, iAmOut) go to that socket
 // only (engine `send`); answers never leave before the reveal (engine: roundContent has no
 // answer, picks stay inside, raceBoard shows pre-round scores while a round is open).
@@ -29,6 +38,31 @@
 //   the first one waits there for the next) and is closed 4010. A new room goes through the same
 //   usage guard (RoomGate); refused, the client comes back here with `stay: true` and watches.
 //
+// Leaving (#213): a socket that closes leaves at once (the tab closed, ← 홈 — the client also says
+// `bye` first). A phone that only goes to the background keeps its socket open (iOS freezes the
+// page; the share sheet comes back), so it says `away`: still here for AWAY_GRACE_MS (no flicker
+// for a trip to KakaoTalk); not `here` / back on a new socket by then → the room closes that socket
+// (4011) and the person leaves — everyone's count goes down. The deadline is the room's storage
+// alarm (not a timer: the room can still hibernate meanwhile); one `away` (+ one `here`) per trip
+// to the background, nothing periodic. A phone that loses its network while on screen sends
+// nothing — for the host (방장) that matters (#142): see "Host keepalive" below.
+//
+// Host keepalive (#142): only the host's page, on screen, in the lobby / result, sends the exact
+// text "ping" every 20 s (snack-player roomTransport.ts). The DO answers it itself without waking
+// (worker.js setWebSocketAutoResponse "ping" → "pong") and keeps the time. No timer / alarm here
+// ever polls it: the room reads it (sock.pongAt()) only inside an event that already woke it — a
+// hello, a frame, a close, the away alarm. Host in the lobby / result, not away, its last pong,
+// frame and the phase change all older than HOST_STALE_MS → the host is gone: closed 4012 and out of
+// the roster as a leave whose grace began then (#213), so HOST_GRACE_MS has run — handed over at
+// once. No pong yet (null) = unknown, never "dead". A frame that looks like a ping but reached the
+// room (wrong text: it woke the DO) is counted in `pingMiss` (/usage; should stay 0).
+//
+// 시작 시간 예약 (#218): a friends room's host sets when the game starts (engine `schedule`). The
+// time is the room's storage alarm — the SAME one alarm as the away deadlines (the room's alarm is
+// always the earliest of the two; it fires, both are checked, it is set for the next) — never a
+// timer, so a room waiting for its start can hibernate; the schedule rides in the snapshot.
+// GET /room/<id>/result also says the scheduled time (`startAt`, epoch ms) for the link preview.
+//
 // Hibernation: engine state lives in memory; a pending engine timer (setTimeout) keeps the
 // DO awake through a game. Idle (lobby / result), the DO may hibernate and lose memory, so
 // the engine snapshot is kept in storage while the room is occupied and deleted when the
@@ -37,9 +71,33 @@
 // What the host phone did in mesh mode, the DO does here (results.js, #96): a friends room's
 // scored game is kept 7 days (`result`, write-once per game, GET /room/<id>/result) and the
 // engine's game stats go to the stats API server to server (StatsSender), never blocking play.
-import { createRoom } from "../../../packages/snack-room/src/room.js";
-import { RoomGate, UsageReporter, LIMITS, ROOM_FULL_TODAY } from "./core.js";
+import { createRoom, SCHEDULE_MIN_MS } from "../../../packages/snack-room/src/room.js";
+import { RoomGate, UsageReporter, PinLock, LIMITS, ROOM_FULL_TODAY } from "./core.js";
+import { signPass } from "./admit.js";
 import { resultRecord, RESULT_TTL_MS } from "./results.js";
+
+/** Close code for a host socket the room called gone (#142: no keepalive for HOST_STALE_MS; the client comes back on its own). */
+export const LOST_CLOSE = 4012;
+/** The host keepalive frame and its auto-response (#142) — byte for byte (worker.js, snack-player PING_TEXT). */
+export const PING = "ping";
+export const PONG = "pong";
+/** The host's page pings this often (snack-player PING_EVERY_MS) — the meter's estimate of the pings it never sees. */
+export const PING_EVERY_MS = 20000;
+/** No keepalive / frame from the host this long (two pings missed + slack) → gone. */
+export const HOST_STALE_MS = 45000;
+/** Something like a ping (wrong case, quotes, spaces, JSON) that reached the room instead of the auto-response. */
+const PINGISH = /^\W{0,4}ping\W{0,4}$/i;
+
+/**
+ * #142: is the host gone? `pongAt` = the last auto-response to its "ping" (null = it never pinged:
+ * unknown → no); `seenAt` = its last frame; `phaseAt` = when the room last changed phase (a ping
+ * may only begin then). Only in the lobby / result (no pings in a game) and not while away (#213's
+ * alarm handles that).
+ */
+export function hostStale({ now, phase, away, pongAt, seenAt = null, phaseAt = null, staleMs = HOST_STALE_MS }) {
+  if (away || pongAt == null || (phase !== "lobby" && phase !== "result")) return false;
+  return now - Math.max(pongAt, seenAt ?? 0, phaseAt ?? 0) > staleMs;
+}
 
 export const GAME_LIMITS = {
   ...LIMITS,
@@ -53,7 +111,22 @@ export const GAME_LIMITS = {
   persistMs: 1000,
   coalesceMs: 150, // roster / participants / quizProgress: at most one fan-out per this
   sendChunk: 100, // frames sent per task (the rest follow in the next task, in order)
+  // Per-socket budget (#157, free tier: one incoming frame = one DO request). A phone sends ≤ 4/s
+  // in a tap game (tapBatchMs 250) and far less otherwise. No per-IP frame budget: a park's NAT.
+  frameBurst: 30,
+  frameRate: 4, // refill per second
+  framesPerHour: 1800,
+  reactsPerSec: 3, // more are dropped (not spread to everyone)
+  squeezePerMin: 60, // usage stage 3 (≥ 95 %): a socket above 1 frame/s over 60 s is closed
+  awayGraceMs: 30000, // #213: in the background this long (no `here`, no new socket) → out of the room
+  hostStaleMs: HOST_STALE_MS, // #142
+  pingEveryMs: PING_EVERY_MS, // #142: the meter's estimate of the host's auto-answered pings
+  scheduleMinMs: SCHEDULE_MIN_MS, // #218: the soonest a host may schedule the start (tests go lower)
 };
+/** Close code for a socket the room let go after AWAY_GRACE_MS in the background (the client comes back on its own). */
+export const AWAY_CLOSE = 4011;
+/** The reactions the player offers (snack-player LiveApp REACTIONS); anything else is dropped. */
+export const REACTIONS = new Set(["❤️", "🔥", "😂", "👍", "😮"]);
 // The next generation of a public room: `slug` → `slug.g2` → `slug.g3` … (deterministic, so every
 // late arrival of one game lands in the same room). Never a friends room (no `~`).
 export const nextRoomId = (roomId) => {
@@ -62,20 +135,32 @@ export const nextRoomId = (roomId) => {
 };
 /** A friends room (`slug~CODE`) or an organized one hosts; a public room starts by itself. */
 export const startRuleFor = (roomId, meta) => (meta?.org || String(roomId).includes("~") ? "host" : "auto");
+/** GET /room/<id>/result's response (worker.js and the Node hub): the saved game and/or the scheduled start (#218). */
+export const roomReadBody = ({ rec, startAt }) => {
+  const at = startAt ? { startAt } : {};
+  return rec ? { status: 200, body: { ok: true, result: rec, ...at } } : { status: 404, body: { ok: false, error: "not_found", ...at } };
+};
 const COALESCED = new Set(["roster", "rosterPhotos", "quizProgress", "voteProgress"]);
 const ANON_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const rid = () => Math.random().toString(36).slice(2, 10);
 
 /**
  * The room's cleanup alarm (also the Worker's, which may run with no GameRoom in memory):
- * nobody came back → delete the room; a saved result younger than 7 days stays (everything
- * else goes) and the alarm moves to its expiry. → true when the storage is now empty.
+ * nobody came back → delete the room; a saved result and a PIN lock (#157) younger than 7 days
+ * stay (everything else goes) and the alarm moves to the earlier expiry. → true when the storage
+ * is now empty.
  */
 export async function roomAlarm({ store, now = Date.now, setAlarm }) {
-  const res = await store.get("result");
-  if (res && res.exp > now()) {
+  const t = now();
+  const keep = [];
+  for (const k of ["result", "pinlock"]) {
+    const v = await store.get(k);
+    if (v && v.exp > t) keep.push(v.exp);
+    else if (v) await store.delete(k);
+  }
+  if (keep.length) {
     for (const k of ["meta", "lock", "snap"]) await store.delete(k);
-    await setAlarm(res.exp);
+    await setAlarm(Math.min(...keep));
     return false;
   }
   await store.deleteAll();
@@ -98,10 +183,18 @@ export class GameRoom {
     this.timers = { setTimer: setTimer ?? ((fn, ms) => setTimeout(fn, ms)), clearTimer: clearTimer ?? ((h) => clearTimeout(h)) };
     this.meter = this.newMeter();
     this.gate = new RoomGate({ roomId, store, secret, usage, now, limits: this.L, meter: this.meter });
+    const L = this.L;
+    this.pins = new PinLock({ store, now, limits: { lockAfter: L.lockAfter, lockMs: L.lockMs, maxLockMs: L.maxLockMs, ...(L.pinCap ? { cap: L.pinCap } : {}) } });
+    this.budgets = new WeakMap(); // socket → frame budget (memory only)
     this.engine = null;
     this.meta = null;
     this.chain = Promise.resolve(); // every event of the room, in order
     this.persistTimer = null;
+    // The room's one alarm (memory): when it is set for, and the scheduled start it serves (#218).
+    this.alarmAt = null;
+    this.schedAt = null;
+    this.inAlarm = false;
+    this.restoring = false;
     this.rate = new WeakMap();
     // Accounting (memory only): frames in/out, bytes out, engine handling time.
     this.stats = { conns: 0, in: 0, out: 0, bytesOut: 0, broadcasts: 0, byType: {}, handleMs: 0, handled: 0 };
@@ -227,7 +320,11 @@ export class GameRoom {
       claimWindowMs: this.L.claimWindowMs,
       startRule: startRuleFor(this.roomId, this.meta),
       ...this.timers,
+      // #218: the scheduled start wakes the engine through the room's alarm (no timer)
+      scheduleWake: (at) => this.wakeAt(at),
+      scheduleMinMs: this.L.scheduleMinMs,
       broadcast: (t, d) => {
+        if (t === "setVar" && d?.id === "sessionPhase") this.phaseAt = this.now(); // #142 hostStale
         // Roster-ish updates (a join storm, an answer storm: one per incoming message) are
         // coalesced into one fan-out per tick; anything else first flushes them (order kept).
         const key = t === "participants" ? t : t === "setVar" && COALESCED.has(d?.id) ? d.id : null;
@@ -246,7 +343,13 @@ export class GameRoom {
       },
     });
     if (rejoin) {
-      this.engine.restore(rejoin.snap.s, this.now() - rejoin.snap.at);
+      // The schedule restored with it (#218) already has its alarm in storage (set before the sleep).
+      this.restoring = true;
+      try {
+        this.engine.restore(rejoin.snap.s, this.now() - rejoin.snap.at);
+      } finally {
+        this.restoring = false;
+      }
       for (const s of rejoin.sockets) this.engine.rejoin(s.state.peer, s.state);
     }
     return this.engine;
@@ -269,7 +372,9 @@ export class GameRoom {
     if (!this.engine?.size || this.meter.stage >= 1) return;
     if (this.engine._state.session.timers.length) return this.schedulePersist(); // mid-game: later
     const snap = this.engine.snapshot();
-    const key = JSON.stringify(snap.session) + JSON.stringify(snap.scores) + JSON.stringify(snap.vars);
+    // (the schedule's time left changes every ms — its absolute time says whether it changed, #218)
+    const sched = snap.session.sched;
+    const key = JSON.stringify({ ...snap.session, sched: sched ? { ...sched, left: this.engine.scheduled?.at } : undefined }) + JSON.stringify(snap.scores) + JSON.stringify(snap.vars);
     if (key === this.lastSnap) return;
     this.lastSnap = key;
     this.meter.count("rows");
@@ -290,7 +395,8 @@ export class GameRoom {
         this.stats.resultDupes = (this.stats.resultDupes ?? 0) + 1;
         return;
       }
-      await this.store.put("result", { sid: r.sid, exp: this.now() + RESULT_TTL_MS, rec });
+      // pin: 1 — a PIN room's result is read only with a pass / seat token (worker.js /result)
+      await this.store.put("result", { sid: r.sid, exp: this.now() + RESULT_TTL_MS, rec, ...(this.meta?.pin ? { pin: 1 } : {}) });
       this.meter.count("rows", 3); // the write, the alarm moved to its expiry, and its delete then
       this.meter.count("alarms"); // that alarm firing at the expiry (a DO request; upper bound — a later game re-arms it)
       this.stats.resultWrites = (this.stats.resultWrites ?? 0) + 1;
@@ -300,14 +406,110 @@ export class GameRoom {
     return this.resultChain;
   }
 
-  /** GET /room/<id>/result: the room's last saved game (null = none, or older than 7 days). */
-  async readResult() {
+  /**
+   * GET /room/<id>/result: the room's last saved game (null = none, or older than 7 days). A PIN
+   * room's result (`pin: 1`) only for a request the Worker checked a pass / seat token on (`adm`).
+   */
+  async readResult(adm = null) {
+    return (await this.readRoom(adm)).rec;
+  }
+
+  /**
+   * GET /room/<id>/result's answer: `rec` (readResult's) and `startAt` — the scheduled start (#218,
+   * epoch ms; null = none, or the time came) for the link preview. A PIN room's only with `adm`.
+   */
+  async readRoom(adm = null) {
     this.meter.count("conns"); // one Worker + one DO request
     if (!this.sockets().length) this.meter.flush(true);
     else this.meter.tick();
     await this.resultChain;
     const res = await this.store.get("result");
-    return res && res.exp > this.now() ? res.rec : null;
+    const admitted = Boolean(adm && (adm.v === "pass" || adm.v === "seat"));
+    const rec = res && res.exp > this.now() && (!res.pin || admitted) ? res.rec : null;
+    this.meta ??= await this.store.get("meta");
+    return { rec, startAt: this.meta?.pin && !admitted ? null : await this.startAt() };
+  }
+
+  /** The scheduled start (#218) in epoch ms, still ahead — from the engine, or a sleeping room's snapshot. */
+  async startAt() {
+    let s = this.engine?.scheduled ?? null;
+    if (!this.engine) {
+      const snap = await this.store.get("snap");
+      const x = snap?.s?.session?.sched;
+      if (x && Number.isFinite(x.left) && Number.isFinite(snap.at)) s = { at: snap.at + x.left, due: Boolean(x.due) };
+    }
+    return s && !s.due && s.at > this.now() ? Math.round(s.at) : null;
+  }
+
+  /**
+   * A right PIN reached the room (Worker admit v "pin"): refused exactly like a wrong one while
+   * this ipKey is locked or the room is closed; else its wrong-PIN entry is cleared. → null = in,
+   * or the denial {reason, retryIn?} (the Worker sends it on a socket of its own, close 4003).
+   */
+  async upgradeCheck(adm) {
+    if (adm?.v !== "pin") return null;
+    const r = await this.pins.right(adm.i);
+    if (r.wrote) this.meter.count("rows", r.wrote);
+    if (!r.deny) return null;
+    this.meter.count("conns"); // this upgrade reached the DO (one Worker + one DO request)
+    if (!this.sockets().length) this.meter.flush(true);
+    else this.meter.tick();
+    return { reason: r.deny, ...(r.retryIn ? { retryIn: r.retryIn } : {}) };
+  }
+
+  /**
+   * RPC from the Worker, wrong PIN only (admit.js decideUpgrade): count it in the PIN lock.
+   * → {deny, left?, retryIn?, wrote, alarms} — the Worker counts this request and its rows in its
+   * tally (no timer here). The organizer hears about repeated failures and the room closing.
+   */
+  async pinAttempt(ipKey) {
+    const r = await this.pins.wrong(String(ipKey ?? "?"));
+    let wrote = r.wrote;
+    let alarms = 0;
+    // The first wrong PIN of an empty room: an alarm so the lock is cleaned up after its 7 days
+    // (roomAlarm keeps it until then; an occupied room arms its alarm when it empties).
+    if (r.created && !this.sockets().length) {
+      await this.setAlarm(this.now() + this.L.roomTtlMs);
+      wrote += 1;
+      alarms += 1;
+    }
+    if (r.alert || r.closedNow) {
+      for (const s of this.peerMap().values()) {
+        if (!s.state?.org) continue;
+        if (r.alert) this.reply(s, "alert", { kind: "pin_failures", n: r.alert });
+        if (r.closedNow) this.reply(s, "pinClosed", {});
+      }
+    }
+    return { deny: r.deny, ...(r.left != null ? { left: r.left } : {}), ...(r.retryIn ? { retryIn: r.retryIn } : {}), wrote, alarms };
+  }
+
+  /** Frame budget of one socket: 0 = ok, else ms until it would be (then the socket is closed). */
+  overBudget(sock) {
+    const t = this.now();
+    const L = this.L;
+    let b = this.budgets.get(sock);
+    if (!b) this.budgets.set(sock, (b = { tokens: L.frameBurst, at: t, hourAt: t, hour: 0, minAt: t, min: 0 }));
+    b.tokens = Math.min(L.frameBurst, b.tokens + ((t - b.at) / 1000) * L.frameRate);
+    b.at = t;
+    if (t - b.hourAt >= 3600000) Object.assign(b, { hourAt: t, hour: 0 });
+    if (t - b.minAt >= 60000) Object.assign(b, { minAt: t, min: 0 });
+    b.hour += 1;
+    b.min += 1;
+    if (b.tokens < 1) return Math.max(1, Math.ceil(((1 - b.tokens) / L.frameRate) * 1000));
+    b.tokens -= 1;
+    if (b.hour > L.framesPerHour) return b.hourAt + 3600000 - t;
+    if (this.meter.stage >= 3 && b.min > L.squeezePerMin) return b.minAt + 60000 - t;
+    return 0;
+  }
+
+  /** A reaction this socket may spread now? (allowlist, ≤ reactsPerSec) */
+  reactOk(sock, emoji) {
+    if (!REACTIONS.has(emoji)) return false;
+    const b = this.budgets.get(sock);
+    if (!b) return true;
+    const sec = Math.floor(this.now() / 1000);
+    if (b.reactSec !== sec) Object.assign(b, { reactSec: sec, reacts: 0 });
+    return ++b.reacts <= this.L.reactsPerSec;
   }
 
   /** After a wake from hibernation: memory is empty but players are still connected. */
@@ -323,9 +525,10 @@ export class GameRoom {
     this.stats.rehydrated = (this.stats.rehydrated ?? 0) + 1;
   }
 
-  onOpen(sock) {
+  /** A socket connected; `adm` = the Worker's admit claim (kept in the attachment for the hello). */
+  onOpen(sock, adm = null) {
     const t = this.now();
-    sock.save({ openedAt: t, joined: false, wrong: 0 });
+    sock.save({ openedAt: t, joined: false, wrong: 0, ...(adm ? { adm: { v: adm.v, i: adm.i, c: adm.c, ...(adm.a ? { a: adm.a } : {}) } } : {}) });
     this.stats.conns += 1;
     this.meter.count("conns");
     const all = this.sockets();
@@ -351,14 +554,24 @@ export class GameRoom {
     this.meter.tick();
     const raw = typeof data === "string" ? data : new TextDecoder().decode(data);
     if (raw.length > this.L.maxFrame) return sock.close(1009, "too big");
+    const st = sock.state ?? {};
+    if (st.slowed) return; // already refused, closing
+    const wait = this.overBudget(sock);
+    if (wait) {
+      st.slowed = true;
+      this.stats.slowed = (this.stats.slowed ?? 0) + 1;
+      this.reply(sock, "denied", { reason: "slow", retryIn: wait });
+      return this.closeQ(sock, 4029, "slow");
+    }
     let m;
     try {
       m = JSON.parse(raw);
     } catch {
+      if (raw.length <= 16 && PINGISH.test(raw)) this.pingMiss();
       return;
     }
-    const st = sock.state ?? {};
     const t = typeof m?.t === "string" ? m.t : "?";
+    if (t === "ping" || (typeof m === "string" && PINGISH.test(m))) return this.pingMiss();
     this.stats.in += 1;
     this.stats.byType[t] = (this.stats.byType[t] ?? 0) + 1;
     if (!st.joined) {
@@ -366,6 +579,19 @@ export class GameRoom {
       return this.hello(sock, m.d ?? {});
     }
     await this.rehydrate();
+    await this.hostCheck(sock);
+    // Away (#213): anything but `away` from this socket says it is alive and on screen.
+    if (t === "away") return this.markAway(sock, st); // (its pings were tallied just above: they stop now)
+    if (st.awayAt != null) {
+      delete st.awayAt;
+      sock.save(st);
+    }
+    if (t === "here") return;
+    if (t === "bye") {
+      // Leaving for good: out of the room now (its close then changes nothing).
+      this.closeQ(sock, 1000, "bye");
+      return this.closed(sock);
+    }
     const t0 = performance.now();
     if (t === "action") {
       const sec = Math.floor(this.now() / 1000);
@@ -383,7 +609,10 @@ export class GameRoom {
           sock.save(st);
         }
       }
-    } else if (t === "react") this.engine.react(m.d?.emoji);
+    } else if (t === "react") {
+      if (this.reactOk(sock, m.d?.emoji)) this.engine.react(m.d.emoji);
+      else this.stats.reactsDropped = (this.stats.reactsDropped ?? 0) + 1;
+    }
     const took = performance.now() - t0;
     if (this.samples) this.samples.handle.push(took);
     this.stats.handleMs += took;
@@ -411,7 +640,7 @@ export class GameRoom {
       this.reply(sock, "denied", { reason: "bad" });
       return this.closeQ(sock, 4000, "bad hello");
     }
-    const g = await this.gate.check(d, st);
+    const g = await this.gate.check({ ...d, anonId }, st, st.adm ?? null);
     if (g.deny) {
       sock.save(st);
       this.reply(sock, "denied", { reason: g.deny, ...(g.retryIn ? { retryIn: g.retryIn } : {}) });
@@ -420,6 +649,7 @@ export class GameRoom {
     }
     this.meta = g.meta;
     await this.rehydrate();
+    await this.hostCheck(sock, anonId); // (the host itself back on a new socket: not gone)
     // One seat per device: a second socket for this anonId only with the seat's token.
     const holder = this.sockets().find((s) => s !== sock && s.state?.joined && s.state.anonId === anonId);
     // A public room mid-game (#136): someone new would only watch — the next room plays soon.
@@ -448,6 +678,9 @@ export class GameRoom {
     await this.issueSeat(sock, st);
     if (g.organizer && !g.claims?.o) this.reply(sock, "organizer", { token: await this.gate.tokenFor(this.meta, { o: 1 }, this.L.organizerTtlMs) });
     else if (g.organizer) this.reply(sock, "organizer", { token: d.organizerToken });
+    // Entered with the PIN: a pass for this device (12 h), so a reload does not ask again.
+    if (st.adm?.v === "pin") this.reply(sock, "pass", await signPass(this.secret, this.roomId, anonId, this.now()));
+    if (g.organizer && this.meta?.pin && (await this.pins.closed())) this.reply(sock, "pinClosed", {});
     this.ensureEngine().join(st.peer, st);
     if (auto) this.engine.configureAuto(auto.start, auto.ms); // the first one kept arms the lobby countdown
     // The new socket joins BEFORE the old one leaves (#115: a phone back from the share sheet
@@ -457,20 +690,30 @@ export class GameRoom {
   }
 
   onClose(sock) {
-    const run = this.chain.then(() => this.closed(sock));
+    const run = this.chain.then(async () => {
+      this.pingTally(sock);
+      await this.closed(sock);
+      await this.hostCheck(sock);
+    });
     this.chain = run.catch((e) => console.error("[edge-room]", e));
     return run;
   }
 
   async closed(sock) {
     const st = sock.state ?? {};
+    if (st.left) return; // already handled (bye / away sweep, then its close)
+    st.left = true;
     const left = st.joined;
+    // #213: a room woken from hibernation by this close is rebuilt WITH the leaver still in it —
+    // rebuilt without, the engine never knew them, its leave() changed nothing and nobody was told
+    // (everyone's count stayed). So: rebuild first, then the leave that tells everyone.
+    if (left) await this.rehydrate();
     st.joined = false;
     this._peers = null;
     sock.save(st);
     if (left) {
-      await this.rehydrate();
-      if (this.engine?.leave(st.peer)) this.engine = null; // empty: torn down (as snack-server)
+      // away (#213): a host's / quiz subject's grace counts from when they went to the background
+      if (this.engine?.leave(st.peer, st.awayAt != null ? { awaySince: st.awayAt } : undefined)) this.engine = null; // empty: torn down (as snack-server)
     }
     if (!this.sockets().some((s) => s !== sock && s.state?.joined)) {
       this.engine?.destroy();
@@ -487,13 +730,154 @@ export class GameRoom {
       }
       this.meter.count("rows", 1 + 3); // the alarm, and its deleteAll later (meta, lock?, snap?)
       this.meter.count("alarms"); // the alarm firing (a DO request; upper bound — emptying again replaces it)
-      await this.setAlarm(this.now() + this.L.roomTtlMs);
+      this.schedAt = null; // (the schedule left with the engine)
+      this.alarmAt = this.now() + this.L.roomTtlMs;
+      await this.setAlarm(this.alarmAt);
       this.meter.flush(true);
       this.statsSender?.flush(); // the room is idle: send its games now (not awaited)
     }
   }
 
+  /**
+   * `away` (#213): mark the socket, and make sure the room's alarm goes off by its deadline.
+   */
+  markAway(sock, st) {
+    if (st.awayAt == null) {
+      st.awayAt = this.now();
+      sock.save(st);
+    }
+    return this.armAlarm();
+  }
+
+  /** The engine's scheduled start needs a wake-up at `at` (#218; null = no longer). */
+  wakeAt(at) {
+    this.schedAt = at ?? null;
+    if (at == null || this.inAlarm) return; // (the alarm being handled sets the next one when done)
+    if (this.restoring) this.alarmAt ??= at; // set before the sleep — still in storage
+    else return this.armAlarm();
+  }
+
+  /** The earliest away deadline of a joined socket (#213), or null. */
+  nextAway() {
+    let next = null;
+    for (const s of this.sockets()) {
+      const st = s.state;
+      if (!st?.joined || st.awayAt == null) continue;
+      const due = st.awayAt + this.L.awayGraceMs;
+      next = next == null ? due : Math.min(next, due);
+    }
+    return next;
+  }
+
+  /**
+   * An occupied room's ONE alarm: the earliest of the away deadlines (#213) and the scheduled start
+   * (#218). Set only when that is earlier than the alarm already set (in memory — after a hibernation
+   * it may be set again, which is harmless); an alarm that fires early just sets the next one.
+   */
+  armAlarm() {
+    const t = this.now();
+    const due = [this.nextAway(), this.schedAt].filter((x) => x != null);
+    if (!due.length) return;
+    const at = Math.max(t, Math.min(...due));
+    if (this.alarmAt != null && this.alarmAt <= at && this.alarmAt > t) return;
+    this.alarmAt = at;
+    this.meter.count("rows"); // the alarm (a write)…
+    this.meter.count("alarms"); // …and its firing (a DO request)
+    return this.setAlarm(at);
+  }
+
+  /** Let go of every socket away longer than the grace (#213). */
+  async sweepAway() {
+    const t = this.now();
+    for (const s of this.sockets()) {
+      const st = s.state;
+      if (!st?.joined || st.awayAt == null || st.awayAt + this.L.awayGraceMs > t) continue;
+      this.stats.awayClosed = (this.stats.awayClosed ?? 0) + 1;
+      this.closeQ(s, AWAY_CLOSE, "away");
+      await this.closed(s);
+    }
+    await this.hostCheck(null); // #142 (the alarm then is set for what is next: onAlarm)
+  }
+
+  /** The host's socket now (null: no host room, nobody hosting, or not here). */
+  hostSock() {
+    const host = this.engine?.startRule === "host" ? this.engine._state.session.host : "";
+    if (!host) return null;
+    for (const s of this.peerMap().values()) if (s.state?.anonId === host) return s;
+    return null;
+  }
+
+  /**
+   * #142, inside an event that already woke the room (`by` = its socket, null for the alarm): a host
+   * phone gone without a word (no keepalive for hostStaleMs) leaves now — its grace counted from its
+   * last sign of life, so the role is handed over at once. Never on a timer of its own.
+   */
+  async hostCheck(by, anonId = null) {
+    const s = this.hostSock();
+    if (!s) return;
+    this.pingTally(s);
+    if (s === by || (anonId && s.state?.anonId === anonId)) return; // its own frame / hello: alive
+    const st = s.state;
+    const pongAt = s.pongAt?.() ?? null;
+    const seenAt = this.budgets.get(s)?.at ?? null;
+    const now = this.now();
+    if (!hostStale({ now, phase: this.engine._state.session.phase, away: st.awayAt != null, pongAt, seenAt, phaseAt: this.phaseAt ?? null, staleMs: this.L.hostStaleMs })) return;
+    this.stats.hostLost = (this.stats.hostLost ?? 0) + 1;
+    st.awayAt = Math.max(pongAt, seenAt ?? 0, this.phaseAt ?? 0); // the grace began at its last sign of life
+    s.save(st);
+    this.closeQ(s, LOST_CLOSE, "lost");
+    await this.closed(s);
+  }
+
+  /**
+   * #142 meter: the host's pings are answered without reaching the room, so they are estimated —
+   * one per pingEveryMs since the last tally (run on every event and the close) (kept in the socket's attachment: a hibernation forgets
+   * nothing), counted 1:1 as DO requests (whether CF counts them is not documented: the guard stays
+   * conservative). Over-counts a game's time (no pings then) rather than under-count; away time skipped.
+   */
+  pingTally(s) {
+    const st = s?.state;
+    if (!st?.joined || s.pongAt?.() == null || this.hostSock() !== s) return; // never pinged on this socket: nothing to count
+    const now = this.now();
+    if (st.awayAt != null) {
+      st.pingAt = now; // hidden: no pings meanwhile
+      return s.save(st);
+    }
+    const from = st.pingAt ?? st.openedAt ?? now; // (first tally: from the socket's open — rather too many than too few)
+    const n = Math.floor((now - from) / this.L.pingEveryMs);
+    if (n <= 0) return;
+    st.pingAt = from + n * this.L.pingEveryMs;
+    s.save(st);
+    this.meter.count("pings", n);
+    this.stats.pingsEst = (this.stats.pingsEst ?? 0) + n;
+  }
+
+  /** A ping-like frame the auto-response did not match: it woke the room (GB-s). Should stay 0. */
+  pingMiss() {
+    this.meter.count("pingMiss");
+    this.stats.pingMiss = (this.stats.pingMiss ?? 0) + 1;
+  }
+
   async onAlarm() {
+    if (this.sockets().some((s) => s.state?.joined)) {
+      // occupied: an away deadline (#213) and/or the scheduled start (#218) — both are checked, then
+      // the alarm is set for the next one (the 24 h cleanup is set again when the room empties)
+      const run = this.chain.then(async () => {
+        this.alarmAt = null;
+        this.inAlarm = true;
+        try {
+          await this.rehydrate();
+          await this.sweepAway();
+          this.engine?.wake();
+        } finally {
+          this.inAlarm = false;
+        }
+        if (this.sockets().some((s) => s.state?.joined)) await this.armAlarm();
+      });
+      this.chain = run.catch((e) => console.error("[edge-room]", e));
+      await run;
+      return false;
+    }
     if (this.sockets().length) return false;
     await this.resultChain;
     return roomAlarm({ store: this.store, now: this.now, setAlarm: this.setAlarm });
@@ -510,6 +894,8 @@ export class GameRoom {
     this.engine?.destroy();
     this.engine = null;
     this.meta = null;
+    this.alarmAt = null; // (the alarm itself is in storage: it still fires)
+    this.schedAt = null;
     // …and its usage counts not yet reported (a woken DO starts a fresh counter).
     this.meter.stop();
     this.meter = this.newMeter();

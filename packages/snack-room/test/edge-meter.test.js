@@ -66,7 +66,7 @@ function gameRoom(meter, roomId, limits = {}) {
 
 test("the guard runs on the free plan's own numbers: 100,000 DO requests/day, 70 % / 90 %", () => {
   assert.equal(FREE.doRequests, 100000);
-  assert.deepEqual(STAGES, { newRooms: 0.7, newJoins: 0.9 });
+  assert.deepEqual(STAGES, { newRooms: 0.7, newJoins: 0.9, squeeze: 0.95 });
 });
 
 test("meter: incoming WebSocket messages count 1:1, plus sockets, alarms and its own calls", async () => {
@@ -74,7 +74,7 @@ test("meter: incoming WebSocket messages count 1:1, plus sockets, alarms and its
   await m.add({ conns: 3, msgs: 1000, alarms: 2 });
   const r = await m.report();
   assert.equal(r.used.doRequests, 3 + 1000 + 2 + 1, "sockets + messages (1:1) + alarms + this add");
-  assert.deepEqual(r.doRequestsBy, { conns: 3, msgs: 1000, alarms: 2, meterCalls: 1 });
+  assert.deepEqual(r.doRequestsBy, { conns: 3, msgs: 1000, pings: 0, alarms: 2, meterCalls: 1 });
   assert.equal(r.used.workerRequests, 3);
   assert.equal(r.percent.doRequests, 1);
 });
@@ -105,7 +105,7 @@ test("a game room counts every incoming message 1:1 — refused and malformed on
   await g.room.onMessage(a, JSON.stringify({ t: "react", d: { emoji: "🔥" } }));
   await g.leave(a);
   const r = await meter.report();
-  assert.deepEqual(r.doRequestsBy, { conns: 1, msgs: 1 + 20 + 1 + 1, alarms: 1, meterCalls: 2 }, "hello + 20 votes + bad + react; the cleanup alarm; admit + one report");
+  assert.deepEqual(r.doRequestsBy, { conns: 1, msgs: 1 + 20 + 1 + 1, pings: 0, alarms: 1, meterCalls: 2 }, "hello + 20 votes + bad + react; the cleanup alarm; admit + one report");
   assert.equal(r.used.doRequests, 1 + 23 + 1 + 2);
   g.room.forget();
 });
@@ -122,7 +122,7 @@ test("a relay room counts auth and spoofed messages too", async () => {
   await relay.onClose(s, []);
   await sleep(5);
   const r = await meter.report();
-  assert.deepEqual(r.doRequestsBy, { conns: 1, msgs: 3, alarms: 1, meterCalls: 2 });
+  assert.deepEqual(r.doRequestsBy, { conns: 1, msgs: 3, pings: 0, alarms: 1, meterCalls: 2 });
 });
 
 test("metering costs no storage write per message: the meter writes once per report, the room never", async () => {
@@ -345,5 +345,5 @@ test("#191 a quiet relay room reports too", async () => {
   assert.equal(adds, 0);
   await sleep(80);
   assert.equal(adds, 1, "quiet → reported");
-  assert.deepEqual((await meter.report()).doRequestsBy, { conns: 1, msgs: 2, alarms: 0, meterCalls: 2 });
+  assert.deepEqual((await meter.report()).doRequestsBy, { conns: 1, msgs: 2, pings: 0, alarms: 0, meterCalls: 2 });
 });

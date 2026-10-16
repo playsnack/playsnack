@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { currentRoute, hrefTo, markFreshRoom, navigate } from "./backend";
-import { newRoomCode, playPath, roomIdFor, ROOM_PARAM } from "./links";
+import { currentRoute, EDGE_ROOM_SERVER, hrefTo, navigate, newFriendRoom } from "./backend";
+import { playPath, roomIdFor, ROOM_PARAM } from "./links";
 import { QUIZ_SLUG, deviceQuizStore, opensMakerPage } from "./quiz";
 import { BitePlayer } from "./BitePlayer.tsx";
 import { validate, type BiteDoc } from "@snack/bite";
@@ -8,7 +8,8 @@ import { HOST_ACTIONS } from "@snack/room/actions";
 import { LiveApp } from "./LiveApp.tsx";
 import { Discover } from "./Discover.tsx";
 import { NicknameGate } from "./NicknameGate.tsx";
-import { getNick, isNickAuto, setNick as saveNick, randomNick } from "./identity";
+import { getAnonId, getNick, isNickAuto, setNick as saveNick, randomNick } from "./identity";
+import { finishMakerRoom } from "./invite";
 import { redirectFor } from "./catalog";
 import { LoadingScreen, MessageScreen, goHome } from "./Screens";
 
@@ -46,21 +47,22 @@ export function App() {
   // code, LiveApp shows the bad-link screen (never the maker).
   const isMaker = route.name === "live" && opensMakerPage(route.slug, route.params);
   const isLive = route.name === "live" && !isMaker;
-  // A merged template's old link moves to the app it became — decided here,
+  // A merged template's old link (or a bare 나 맞히기 link → 스피드 퀴즈, #210) moves to the app it became — decided here,
   // before the player mounts, so the old app never loads or joins a room.
   // (index.json is preloaded with the page, see index.html.)
-  const [checkedSlug, setCheckedSlug] = useState<string | null>(null);
+  const [checkedLink, setCheckedLink] = useState<string | null>(null); // `slug?params`: the redirect depends on both
   useEffect(() => {
     if (!isLive) return;
     const slug = route.slug!;
+    const link = `${slug}?${route.params}`;
     let on = true;
-    redirectFor(slug).then((to) => {
+    redirectFor(slug, route.params).then((to) => {
       if (!on) return;
-      if (!to) return setCheckedSlug(slug);
+      if (!to) return setCheckedLink(link);
       location.replace(playPath(to, route.params));
     });
     return () => { on = false; };
-  }, [isLive, route.slug]);
+  }, [isLive, route.slug, String(route.params)]);
   // First-visit nickname onboarding (per-browser). Gate only the HOME / Create
   // entry — a direct share link auto-assigns a guest nick so play is never
   // blocked (frictionless virality; each browser still gets a name, editable
@@ -79,7 +81,7 @@ export function App() {
   if (isMaker) return <Suspense fallback={<LoadingScreen />}><QuizMakerPage nick={nick!} /></Suspense>;
   if (route.name === "create" && CreateApp) return <Suspense fallback={<LoadingScreen />}><CreateApp /></Suspense>;
   if (route.name === "live") {
-    if (checkedSlug !== route.slug) return <LoadingScreen />;
+    if (checkedLink !== `${route.slug}?${route.params}`) return <LoadingScreen />;
     // Keyed by the whole link: a different app or room (e.g. a friends-only
     // code) remounts the player and joins that room.
     return <LiveApp key={`${route.slug}?${route.params}`} slug={route.slug!} params={route.params} />;
@@ -93,13 +95,18 @@ export function App() {
 function QuizMakerPage({ nick }: { nick: string }) {
   return (
     <QuizMaker nick={nick} nickAuto={isNickAuto()} doneLabel="완료 · 친구 초대하러 가기" closeLabel="← 홈" onClose={goHome}
-      onDone={(pack) => {
+      pinOption={Boolean(EDGE_ROOM_SERVER)}
+      onDone={(pack, o) => {
         const store = deviceQuizStore();
-        const params = new URLSearchParams({ [ROOM_PARAM]: newRoomCode() });
-        store.rememberRoomPack(roomIdFor(QUIZ_SLUG, params), pack);
-        markFreshRoom(roomIdFor(QUIZ_SLUG, params)); // a new code: no host to wait for
-        store.clearDraft();
-        navigate(playPath(QUIZ_SLUG, params), { replace: true }); // Back goes where the maker was opened from, not into an empty maker
+        // The room server makes the code (and this device hosts it); with "비밀번호 걸기" (#208) the
+        // same one /mint makes the PIN room and this device keeps its pass + PIN. A failure keeps the
+        // maker open with its "다시 눌러 주세요" line (QuizMaker finish).
+        return finishMakerRoom(pack, o, {
+          slug: QUIZ_SLUG, anonId: getAnonId, mint: newFriendRoom, roomIdFor, roomParam: ROOM_PARAM,
+          rememberRoomPack: (id, p) => store.rememberRoomPack(id, p), clearDraft: () => store.clearDraft(),
+          // Back goes where the maker was opened from, not into an empty maker.
+          go: (params) => navigate(playPath(QUIZ_SLUG, params), { replace: true }),
+        });
       }} />
   );
 }

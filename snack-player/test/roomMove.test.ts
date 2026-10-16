@@ -1,12 +1,12 @@
-// #135 / #136 on the client (EdgeRoomTransport): a device that just made a friends room asks to
-// organize it (the organizer is the host); a public room's hello carries the app's start payload;
+// #135 / #136 on the client (EdgeRoomTransport): a device that just made a friends room presents
+// the room server's organizer ticket (/mint, #157) — the organizer is the host; a public room's hello carries the app's start payload;
 // `moveTo` mid-game reconnects quietly into the next room (never "failed", never "connected"
 // before that room's state), a refused next room sends it back to watch (`stay`); and the
 // "10초 뒤 시작" ticker (autoStart.ts).
 // node --import tsx --test snack-player/test/   (pnpm player:test)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EdgeRoomTransport, isNextRoom, LONE_RETURN_MS, type RoomMessage } from "../src/roomTransport.ts";
+import { EdgeRoomTransport, isNextRoom, LONE_RETURN_MS, rememberOrganizerTicket, type RoomMessage } from "../src/roomTransport.ts";
 import { autoStartLeft, autoStartTicker } from "../src/autoStart.ts";
 import type { PageEnv } from "../src/visibleTimer.ts";
 
@@ -55,9 +55,10 @@ const env: PageEnv = {
 };
 const AUTO = { start: { duration: 10000 }, ms: 10000 };
 
-function transport(slug: string, opts = {}, pageEnv: PageEnv = env) {
+function transport(slug: string, opts = {}, pageEnv: PageEnv = env, before?: () => void) {
   FakeWS.all = [];
   store.clear();
+  before?.();
   const t = new EdgeRoomTransport("wss://room.test", { slug, anonId: "dev-1", nick: "가나" }, opts);
   t.env = pageEnv;
   const seen: RoomMessage[] = [];
@@ -124,10 +125,12 @@ test("moveTo anywhere but this app's next room is not followed", () => {
   assert.equal(isNextRoom("tpl-a~ABCDEFGH", "tpl-a~ABCDEFGH.g2"), false, "a friends room never moves");
 });
 
-test("a room this device just made asks to organize it (the organizer = the host); a reload uses the organizer token instead", () => {
-  const { t, last } = transport("tpl-tap-battle~K7MNP2QRS4", { organize: true });
+test("a room this device just made presents its /mint organizer ticket (never `organize`); a reload uses the 12 h organizer token instead", () => {
+  const { t, last } = transport("tpl-tap-battle~K7MNP2QRS4ABCDE", {}, env, () => rememberOrganizerTicket("tpl-tap-battle~K7MNP2QRS4ABCDE", "orgt-1"));
   last().open();
-  assert.equal(last().sent[0].d.organize, true);
+  assert.equal(last().sent[0].d.organizerToken, "orgt-1");
+  assert.equal(last().sent[0].d.organize, undefined, "organize is gone from the hello (#157)");
+  assert.equal(last().url, "wss://room.test/room/tpl-tap-battle~K7MNP2QRS4ABCDE", "an open room's URL carries nothing");
   last().push("organizer", { token: "org-tok" });
   last().push("state", { sharedState: {}, participants: 1 });
   last().drop(1006);

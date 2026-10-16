@@ -15,10 +15,14 @@
 //                                               (what the MQTT last will did)
 // Control frames carry `ctl` and no `from`; mesh messages always carry `from`.
 //
-// Stored per room (and nothing else — no nicknames, messages or IPs):
-//   meta  {epoch, created, iter?, salt?, hash?}   epoch = random id of this incarnation
-//   lock  {fails, until, step, hour: [ts…]}       wrong-PIN limiter (only after a wrong PIN)
-// The alarm deletes both 24 h after the last socket leaves.
+// Stored per room (and nothing else — no nicknames, messages or IP addresses):
+//   meta     {epoch, created, org?, pin?, iter?, salt?, hash?}   epoch = random id of this incarnation
+//   lock     {fails, until, step, hour: [ts…]}   legacy wrong-PIN limiter (PBKDF2 PIN rooms, until PR 4)
+//   pinlock  {wrong, ip: {<ipKey>: {f, until, step}}, recent, exp}   v2 PIN rooms (#157), only after a
+//            wrong PIN. ipKey = a keyed 8-byte hash of the client's /32 (IPv4) or /64 (IPv6), never
+//            the address (admit.js ipKeyOf). Kept 7 days by its own `exp`, not with the room, so
+//            deleting the room cannot reset the 50-wrong cap.
+// The alarm deletes meta / lock / snap 24 h after the last socket leaves.
 
 export const LIMITS = {
   tokenTtlMs: 15 * 60 * 1000,
@@ -46,16 +50,10 @@ export const ROOM_ID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const PEER_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const PIN_RE = /^.{1,32}$/su;
 
+import { signToken, verifyToken, b64u, unb64u, verifyOrgt } from "./admit.js";
+export { signToken, verifyToken };
+
 const enc = new TextEncoder();
-const b64u = (bytes) => {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-};
-const unb64u = (s) => {
-  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-};
 const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 const randomId = (n = 12) => b64u(crypto.getRandomValues(new Uint8Array(n)));
 
@@ -71,34 +69,6 @@ const sameHex = (a, b) => {
   for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return d === 0;
 };
-
-const hmacKeys = new Map();
-const hmacKey = (secret) => {
-  let k = hmacKeys.get(secret);
-  if (!k) {
-    k = crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
-    hmacKeys.set(secret, k);
-  }
-  return k;
-};
-/** token = base64url(JSON {r, p, exp}) "." base64url(HMAC-SHA256) */
-export async function signToken(secret, payload) {
-  const body = b64u(enc.encode(JSON.stringify(payload)));
-  const sig = await crypto.subtle.sign("HMAC", await hmacKey(secret), enc.encode(body));
-  return `${body}.${b64u(new Uint8Array(sig))}`;
-}
-/** The payload if the signature is right, else null (expiry and room are the caller's checks). */
-export async function verifyToken(secret, token) {
-  if (typeof token !== "string" || token.length > 512) return null;
-  const [body, sig] = token.split(".");
-  if (!body || !sig) return null;
-  try {
-    const ok = await crypto.subtle.verify("HMAC", await hmacKey(secret), unb64u(sig), enc.encode(body));
-    return ok ? JSON.parse(new TextDecoder().decode(unb64u(body))) : null;
-  } catch {
-    return null;
-  }
-}
 
 /** An in-memory stand-in for DurableObjectStorage (get/put/delete/deleteAll). */
 export function memoryStore() {
@@ -125,16 +95,25 @@ export function memoryStore() {
  *     only, not for the free plan's 100,000/day limit — so every incoming message counts.)
  *   DO GB-s             = room-awake seconds × 0.128 GB
  *   SQLite rows written = rooms' own puts / deletes / alarms + the meter's own writes
+ *   + the Worker's own refusals (#157: forged codes, rate limits, wrong PINs …), batched per
+ *     isolate (admit.js WorkerTally): workerExtra (Worker requests), doExtra (PIN-lock RPCs), rows.
  * Stage 0 normal · 1 (≥ newRooms share of ANY limit): no new rooms · 2 (≥ newJoins): no new
- * joins except reconnects. Ongoing rooms always continue.
+ * joins except reconnects · 3 (≥ squeeze): also, a socket sending more than 1 frame/s over
+ * 60 s is closed. Ongoing rooms otherwise continue.
+ * New rooms per ipKey: at most `roomsPerIpHour` (memory only — a restarted meter forgets; best effort).
  */
 export const FREE = { workerRequests: 100000, doRequests: 100000, doGbSeconds: 13000, rowsWritten: 100000 };
-export const STAGES = { newRooms: 0.7, newJoins: 0.9 };
+export const STAGES = { newRooms: 0.7, newJoins: 0.9, squeeze: 0.95 };
+export const ROOMS_PER_IP_HOUR = 20;
 export const ROOM_FULL_TODAY = "room_full_today";
-const emptyDay = (day) => ({ day, rooms: 0, conns: 0, msgs: 0, alarms: 0, awakeMs: 0, rows: 0, doExtra: 0, workerExtra: 0, refusedRooms: 0, refusedJoins: 0 });
+// pings: the hosts' keepalive pings (#142) — answered by the auto-response without reaching a room,
+// so estimated by the rooms (game.js pingTally) and counted 1:1 as DO requests (conservative).
+// pingMiss: ping-like frames that did NOT match the auto-response (they woke a room) — should stay 0.
+const emptyDay = (day) => ({ day, rooms: 0, conns: 0, msgs: 0, pings: 0, pingMiss: 0, alarms: 0, awakeMs: 0, rows: 0, doExtra: 0, workerExtra: 0, refusedRooms: 0, refusedJoins: 0 });
 export class UsageMeter {
-  constructor({ store, now = Date.now, free = {}, stages = {} }) {
-    Object.assign(this, { store, now, free: { ...FREE, ...free }, stages: { ...STAGES, ...stages } });
+  constructor({ store, now = Date.now, free = {}, stages = {}, roomsPerIpHour = ROOMS_PER_IP_HOUR }) {
+    Object.assign(this, { store, now, free: { ...FREE, ...free }, stages: { ...STAGES, ...stages }, roomsPerIpHour });
+    this.byIp = new Map(); // ipKey → {start, n} new rooms this hour (memory only, bounded)
   }
   async today() {
     const day = new Date(this.now()).toISOString().slice(0, 10);
@@ -144,7 +123,7 @@ export class UsageMeter {
   static estimate(u) {
     return {
       workerRequests: u.conns + u.workerExtra,
-      doRequests: u.conns + u.msgs + u.alarms + u.doExtra,
+      doRequests: u.conns + u.msgs + u.pings + u.alarms + u.doExtra,
       doGbSeconds: Math.round((u.awakeMs / 1000) * 0.128),
       rowsWritten: u.rows,
     };
@@ -154,7 +133,20 @@ export class UsageMeter {
   }
   stageOf(u) {
     const top = Math.max(...Object.values(this.share(u)));
-    return top >= this.stages.newJoins ? 2 : top >= this.stages.newRooms ? 1 : 0;
+    return top >= this.stages.squeeze ? 3 : top >= this.stages.newJoins ? 2 : top >= this.stages.newRooms ? 1 : 0;
+  }
+  /** One more new room for this ipKey this hour? (memory only) */
+  ipRoom(ipKey) {
+    if (!ipKey) return true;
+    const t = this.now();
+    let e = this.byIp.get(ipKey);
+    if (!e || t - e.start >= 3600000) e = { start: t, n: 0 };
+    this.byIp.delete(ipKey);
+    this.byIp.set(ipKey, e);
+    if (this.byIp.size > 10000) this.byIp.delete(this.byIp.keys().next().value);
+    if (e.n >= this.roomsPerIpHour) return false;
+    e.n += 1;
+    return true;
   }
   async save(u) {
     u.doExtra += 1; // this call is a DO request
@@ -162,18 +154,20 @@ export class UsageMeter {
     await this.store.put("usage", u);
     return this.stageOf(u);
   }
-  /** May a new room open? → {ok, stage} (counted either way). */
-  async admit() {
+  /** May a new room open? → {ok, stage, slow?} (counted either way). slow = this ipKey made too many this hour. */
+  async admit({ ipKey } = {}) {
     const u = await this.today();
-    const ok = this.stageOf(u) === 0;
+    const free = this.stageOf(u) === 0;
+    const ipOk = free && this.ipRoom(ipKey);
+    const ok = free && ipOk;
     if (ok) u.rooms += 1;
     else u.refusedRooms += 1;
-    return { ok, stage: await this.save(u) };
+    return { ok, stage: await this.save(u), ...(free && !ipOk ? { slow: true } : {}) };
   }
-  /** A room's batched delta → {stage}. */
-  async add({ conns = 0, msgs = 0, alarms = 0, awakeMs = 0, rows = 0, refusedJoins = 0 } = {}) {
+  /** A room's (or the Worker's) batched delta → {stage}. */
+  async add({ conns = 0, msgs = 0, pings = 0, pingMiss = 0, alarms = 0, awakeMs = 0, rows = 0, refusedJoins = 0, workerExtra = 0, doExtra = 0 } = {}) {
     const u = await this.today();
-    Object.assign(u, { conns: u.conns + conns, msgs: u.msgs + msgs, alarms: u.alarms + alarms, awakeMs: u.awakeMs + awakeMs, rows: u.rows + rows, refusedJoins: u.refusedJoins + refusedJoins });
+    Object.assign(u, { conns: u.conns + conns, msgs: u.msgs + msgs, pings: u.pings + pings, pingMiss: u.pingMiss + pingMiss, alarms: u.alarms + alarms, awakeMs: u.awakeMs + awakeMs, rows: u.rows + rows, refusedJoins: u.refusedJoins + refusedJoins, workerExtra: u.workerExtra + workerExtra, doExtra: u.doExtra + doExtra });
     return { stage: await this.save(u) };
   }
   /** Today's numbers. countRequest: a GET /usage cache miss (one Worker request + one write). */
@@ -192,7 +186,8 @@ export class UsageMeter {
       free: this.free,
       used: UsageMeter.estimate(u),
       percent: pct,
-      doRequestsBy: { conns: u.conns, msgs: u.msgs, alarms: u.alarms, meterCalls: u.doExtra },
+      doRequestsBy: { conns: u.conns, msgs: u.msgs, pings: u.pings, alarms: u.alarms, meterCalls: u.doExtra },
+      pingMiss: u.pingMiss,
       rooms: u.rooms,
       refusedRooms: u.refusedRooms,
       refusedJoins: u.refusedJoins,
@@ -211,7 +206,7 @@ export class UsageMeter {
  * 00:00 UTC, so a stage heard yesterday no longer refuses anyone).
  */
 const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
-const zero = () => ({ conns: 0, msgs: 0, alarms: 0, rows: 0, refusedJoins: 0 });
+const zero = () => ({ conns: 0, msgs: 0, pings: 0, pingMiss: 0, alarms: 0, rows: 0, refusedJoins: 0 });
 export class UsageReporter {
   constructor({ usage, now = Date.now, everyMs = 30000, everyN = 1000, idleMs = 0, busy = () => false, setTimer, clearTimer }) {
     Object.assign(this, { usage, now, everyMs, everyN, idleMs, busy });
@@ -233,7 +228,7 @@ export class UsageReporter {
   /** Anything counted and not reported yet? */
   get pending() {
     const d = this.d;
-    return Boolean(d.conns || d.msgs || d.alarms || d.rows || d.refusedJoins);
+    return Boolean(d.conns || d.msgs || d.pings || d.pingMiss || d.alarms || d.rows || d.refusedJoins);
   }
   get stage() {
     return this.stageDay === utcDay(this.now()) ? this._stage : 0;
@@ -277,7 +272,7 @@ export class UsageReporter {
     this.stop();
     this.awakeSince = empty ? null : t;
     this.last = t;
-    if (!this.usage || !(d.conns || d.msgs || d.alarms || d.rows || d.awakeMs || d.refusedJoins)) return Promise.resolve();
+    if (!this.usage || !(d.conns || d.msgs || d.pings || d.pingMiss || d.alarms || d.rows || d.awakeMs || d.refusedJoins)) return Promise.resolve();
     return Promise.resolve(this.usage.add(d))
       .then((r) => {
         if (typeof r?.stage === "number") this.stage = r.stage;
@@ -459,24 +454,44 @@ export class RoomGate {
     return p && p.r === this.roomId && p.p === meta.epoch && p.exp > this.now() ? p : null;
   }
 
-  async check(m, st) {
+  /**
+   * `adm` = the Worker's admit claim for this socket (admit.js decideUpgrade; null = no Worker in
+   * front: the dumb relay and in-memory tests — today's rules, unchanged).
+   *   adm.c      may create the room (meta). No meta and no c → "expired".
+   *   v legacy   codes from before v2: `organize` / `pin` in the hello as before, on `~` ids only.
+   *   v open/pin/pass (v2 friends rooms): the organizer comes from a /mint ticket (`orgt`, in
+   *              organizerToken) — only when the room is created; `organize` / `pin` are ignored.
+   *   v pass     the pass's device (adm.a) must be the hello's anonId.
+   *   v seat     PIN room entered with a seat / organizer token: the token must hold for this epoch.
+   *   v public   a public id never gets an organizer or a PIN.
+   */
+  async check(m, st, adm = null) {
+    const legacy = !adm || adm.v === "legacy";
+    const friend = this.roomId.includes("~");
     const pin = m.pin == null || m.pin === "" ? null : String(m.pin);
-    if (pin !== null && !PIN_RE.test(pin)) return { deny: "bad", close: 4000 };
+    if (legacy && pin !== null && !PIN_RE.test(pin)) return { deny: "bad", close: 4000 };
+    if (adm?.v === "pass" && adm.a !== m.anonId) return { deny: "pin-required", close: 4003 };
     let meta = await this.store.get("meta");
     if (!meta) {
+      if (adm && !adm.c) return { deny: "expired", close: 4004 };
       // A new room (or one deleted after 24 h idle): the usage guard decides.
       if (this.usage) {
-        const a = await this.usage.admit();
-        if (this.meter) this.meter.stage = a.stage;
-        if (!a.ok) return { deny: ROOM_FULL_TODAY, close: 4029 };
+        const a = await this.usage.admit(adm?.i ? { ipKey: adm.i } : undefined);
+        if (this.meter && typeof a.stage === "number") this.meter.stage = a.stage;
+        if (!a.ok) return a.slow ? { deny: "slow", close: 4029, retryIn: 3600000 } : { deny: ROOM_FULL_TODAY, close: 4029 };
       }
       meta = { epoch: randomId(), created: this.now() };
-      if (pin !== null) {
-        meta.salt = randomId(16);
-        meta.iter = this.L.pinIterations;
-        meta.hash = await hashPin(pin, meta.salt, meta.iter);
+      if (legacy && (friend || !adm)) {
+        if (pin !== null) {
+          meta.salt = randomId(16);
+          meta.iter = this.L.pinIterations;
+          meta.hash = await hashPin(pin, meta.salt, meta.iter);
+        }
+        if (m.organize === true) meta.org = 1; // whoever creates it organizes it
+      } else if (friend && adm.v !== "public") {
+        if (await verifyOrgt(this.secret, m.organizerToken, this.roomId, this.now())) meta.org = 1;
+        if (adm.v === "pin" || adm.v === "pass" || adm.v === "seat") meta.pin = 1;
       }
-      if (m.organize === true) meta.org = 1; // whoever creates it organizes it
       await this.put("meta", meta);
       return { meta, organizer: Boolean(meta.org), created: true };
     }
@@ -484,12 +499,14 @@ export class RoomGate {
     if (org?.o === 1) return { meta, claims: org, organizer: true };
     const claims = await this.claims(meta, m.token);
     if (claims && !claims.o) return { meta, claims, organizer: false };
+    // A PIN room entered on a seat / organizer token that no longer holds (another epoch): ask for the PIN.
+    if (adm?.v === "seat") return { deny: "pin-required", close: 4003 };
     // Stage 2 (≥ 90 % of a free limit today): only players coming back (a valid token) get in.
     if ((this.meter?.stage ?? 0) >= 2) {
       this.meter.count("refusedJoins");
       return { deny: ROOM_FULL_TODAY, close: 4029 };
     }
-    if (!meta.hash) return { meta, organizer: false };
+    if (!meta.hash || !legacy) return { meta, organizer: false };
     if (pin === null) return { deny: "pin-required" };
 
     const t = this.now();
@@ -514,5 +531,88 @@ export class RoomGate {
     st.wrong = (st.wrong ?? 0) + 1;
     const close = st.wrong >= this.L.wrongPerConn ? 4003 : 0;
     return retryIn ? { deny: "locked", retryIn, close } : { deny: "pin", close };
+  }
+}
+
+/**
+ * v2 PIN rooms (#157): the wrong-PIN lock, per ipKey, plus a cap per code. One row `pinlock`
+ * {wrong, ip: {<ipKey>: {f, until, step}}, recent: [ts…], exp}, written only on a wrong PIN
+ * (and when a right PIN clears an ipKey's entry). A locked ipKey or a closed room is read, never
+ * written. `exp` = 7 days after the last wrong PIN, independent of the room's own 24 h cleanup.
+ *   ipKey: 5 wrong in a row → locked 1 min, doubling per lock up to 1 h; a right PIN resets it.
+ *   room:  50 wrong in all → closed: no new entry by PIN (pass / seat / organizer still get in).
+ * → wrong(ipKey): {deny: "pin", left} | {deny: "locked", retryIn} | {deny: "closed"} plus
+ *   wrote (rows written), created (first record — the caller arms the cleanup alarm), alert (n wrong
+ *   in the last 10 min, at every 5th), closedNow.
+ */
+export const PIN_LOCK = { lockAfter: 5, lockMs: 60 * 1000, maxLockMs: 60 * 60 * 1000, cap: 50, keepMs: 7 * 24 * 60 * 60 * 1000, alertEvery: 5, alertMs: 10 * 60 * 1000 };
+export class PinLock {
+  constructor({ store, now = Date.now, limits = {} }) {
+    Object.assign(this, { store, now, L: { ...PIN_LOCK, ...limits } });
+    this.chain = Promise.resolve();
+  }
+  /** One at a time (read → write). */
+  run(fn) {
+    const r = this.chain.then(fn);
+    this.chain = r.catch(() => {});
+    return r;
+  }
+  async read() {
+    const rec = await this.store.get("pinlock");
+    return rec && rec.exp > this.now() ? rec : null;
+  }
+  /** The refusal this ipKey gets now without a new try (null = may try). */
+  status(rec, ipKey) {
+    if (!rec) return null;
+    if (rec.wrong >= this.L.cap) return { deny: "closed" };
+    const e = rec.ip?.[ipKey];
+    const t = this.now();
+    // whole seconds: a right PIN while locked gets exactly the frame a wrong one gets
+    return e && e.until > t ? { deny: "locked", retryIn: Math.ceil((e.until - t) / 1000) * 1000 } : null;
+  }
+  /** Is the room closed to new PIN entries? */
+  async closed() {
+    const rec = await this.read();
+    return Boolean(rec && rec.wrong >= this.L.cap);
+  }
+  wrong(ipKey) {
+    return this.run(async () => {
+      const t = this.now();
+      const old = await this.read();
+      const s = this.status(old, ipKey);
+      if (s) return { ...s, wrote: 0 };
+      const rec = old ?? { wrong: 0, ip: {}, recent: [], exp: 0 };
+      const e = rec.ip[ipKey] ?? { f: 0, until: 0, step: this.L.lockMs };
+      rec.wrong += 1;
+      e.f += 1;
+      rec.recent = [...(rec.recent ?? []).filter((x) => t - x < this.L.alertMs), t].slice(-this.L.cap);
+      let out;
+      if (rec.wrong >= this.L.cap) out = { deny: "closed", closedNow: true };
+      else if (e.f >= this.L.lockAfter) {
+        e.until = t + e.step;
+        out = { deny: "locked", retryIn: e.step };
+        e.step = Math.min(e.step * 2, this.L.maxLockMs);
+        e.f = 0;
+      } else out = { deny: "pin", left: this.L.lockAfter - e.f };
+      rec.ip[ipKey] = e;
+      const keys = Object.keys(rec.ip);
+      if (keys.length > this.L.cap) delete rec.ip[keys[0]]; // cannot happen (≤ 1 entry per wrong PIN, ≤ cap wrong)
+      rec.exp = t + this.L.keepMs;
+      await this.store.put("pinlock", rec);
+      const n = rec.recent.length;
+      return { ...out, wrote: 1, created: !old, ...(n >= this.L.alertEvery && n % this.L.alertEvery === 0 ? { alert: n } : {}) };
+    });
+  }
+  /** A right PIN: refused like a wrong one while locked / closed; else this ipKey's entry is cleared. */
+  right(ipKey) {
+    return this.run(async () => {
+      const rec = await this.read();
+      const s = this.status(rec, ipKey);
+      if (s) return { ...s, wrote: 0 };
+      if (!rec?.ip?.[ipKey]) return { wrote: 0 };
+      delete rec.ip[ipKey];
+      await this.store.put("pinlock", rec);
+      return { wrote: 1 };
+    });
   }
 }

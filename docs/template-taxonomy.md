@@ -10,6 +10,7 @@ popularity grounding comes from GameAnalytics/Sensor Tower + the format evidence
 ## Home catalog fields (`snack-server/data/bite/index.json`)
 - `hidden: true` → off the home screen, old links still open it · `mergedInto: "<id>"` → old links redirect there.
 - `derivativeOf: "<id>"` → a follow-up candidate built on that game (data only, no extra UI).
+- `template: "<id>"` → this entry plays that entry's file as a game of its own (own card, link, public room, preview, counts). Why one template has two entries (#210): `speed-trivia-score` holds two games — a pack someone made (나 맞히기, the 대표작) or its built-in questions (스피드 퀴즈) — so 스피드 퀴즈 is `speed-quiz` with `"template": "speed-trivia-score"`, a 추천 후보 of its own; a bare 나 맞히기 link (no room code, no `?make=1`) opens it.
 
 ## Home tiers (대표작 / 추천작 / 추천 후보, #158)
 Hidden or merged games are never shown in any tier. Every shown game is in exactly one tier.
