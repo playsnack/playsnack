@@ -13,6 +13,9 @@ let hub = null;
 let URL_ = EXTERNAL;
 const RUN = Date.now().toString(36);
 const rid = (s) => `g-${RUN}-${s}`;
+// A friends room with a code from before v2 (10 symbols = legacy, #157): `organize` / `pin` in the hello as before.
+const LEGACY = () => Array.from({ length: 10 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
+const fid = (s) => `g-${RUN}-${s}~${LEGACY()}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 before(async () => {
@@ -74,7 +77,7 @@ test("nothing before hello: another first frame closes the socket", async () => 
 });
 
 test("organizer = host (#135): only the room's creator starts / resets; its token restores the role", async () => {
-  const room = rid("org");
+  const room = fid("org");
   const org = player(room, "org1");
   await org.hello({ organize: true });
   assert.ok(await org.until(() => org.frame((m) => m.t === "organizer")));
@@ -323,7 +326,7 @@ test("rename (#104): the room server renames in the lobby, refuses mid-game; the
 });
 
 test("a PIN room: the right PIN joins, a wrong one is refused", async () => {
-  const room = rid("pin");
+  const room = fid("pin");
   const a = player(room, "pa");
   await a.hello({ pin: "8080" });
   assert.ok(await a.until(() => a.frame((m) => m.t === "state")));

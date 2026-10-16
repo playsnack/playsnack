@@ -66,7 +66,7 @@ function gameRoom(meter, roomId, limits = {}) {
 
 test("the guard runs on the free plan's own numbers: 100,000 DO requests/day, 70 % / 90 %", () => {
   assert.equal(FREE.doRequests, 100000);
-  assert.deepEqual(STAGES, { newRooms: 0.7, newJoins: 0.9 });
+  assert.deepEqual(STAGES, { newRooms: 0.7, newJoins: 0.9, squeeze: 0.95 });
 });
 
 test("meter: incoming WebSocket messages count 1:1, plus sockets, alarms and its own calls", async () => {
