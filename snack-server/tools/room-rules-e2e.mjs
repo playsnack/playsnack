@@ -10,6 +10,7 @@
 //      there it waits; F comes mid-game too → moved to the same `.g2` → its countdown → E and F play.
 //   4. 혼자 옮겨진 사람: G is moved to `.g2` and stays alone; the link's room's game ends; H opens the
 //      link → the link's room (not moved); G's client goes back there (LONE_RETURN_MS) → G and H play.
+//   5. (#212) E and F's game ends: the result stays (10 s, no countdown); F taps 한 판 더 → both count down and play.
 // Usage: node snack-server/tools/room-rules-e2e.mjs [--skip-build] [--shots <dir>]
 // Ports: RULES_E2E_PORT (page, default 4713) · RULES_E2E_HUB_PORT (edge hub, default 4712).
 import { spawnSync } from "node:child_process";
@@ -190,6 +191,19 @@ try {
   await waitFor(async () => (await Promise.all([E, F].map(vars))).every((v) => v.sessionPhase === "play"), 20000, "E and F play in the next room");
   step("late arrivals: the next room started by itself → E and F play", (await Promise.all([E, F].map(vars))).every((v) => v.iAmSpectator !== true));
   await shot(E, "late-moved-play");
+
+  // ── 3b. #212: after the game the result stays — no automatic next game; anyone's 한 판 더 → lobby + countdown ──
+  await waitFor(async () => (await Promise.all([E, F].map(vars))).every((v) => v.sessionPhase === "result"), 30000, "E and F see the result");
+  await sleep(10000); // past the old 8 s hold
+  const [re, rf] = await Promise.all([E, F].map(vars));
+  step("result stays (#212): 10 s later still the result for both, no countdown", re.sessionPhase === "result" && rf.sessionPhase === "result" && re.autoStartIn === 0 && hub.room(g2id).core.engine._state.session.timers.length === 0, { phases: [re.sessionPhase, rf.sessionPhase], timers: hub.room(g2id).core.engine._state.session.timers.length });
+  step("result: everyone in a public room has 한 판 더", (await hasTarget(E, "againBtn")) && (await hasTarget(F, "againBtn")) && (await E.evaluate(texts)).againWaitMain === undefined);
+  await shot(F, "result-one-more");
+  await tapNode(F, "againBtn");
+  await waitFor(async () => (await Promise.all([E, F].map(vars))).every((v) => v.sessionPhase === "lobby" && v.autoStartIn > 0), 8000, "한 판 더 → both in the lobby, counting");
+  step("한 판 더 (F): both back in the lobby, '<n>초 뒤 시작 · 2명'", /^\d+초 뒤 시작 · 2명$/.test((await E.evaluate(texts)).startWaitMain ?? ""), { text: (await E.evaluate(texts)).startWaitMain });
+  await waitFor(async () => (await Promise.all([E, F].map(vars))).every((v) => v.sessionPhase === "play"), 20000, "the next game starts");
+  step("한 판 더: the next game started for both", true);
 
   // ── 4. moved alone, the link's room frees up (#141 review): a friend opening the link lands in
   //       the link's room — the one alone in `.g2` goes back there (LONE_RETURN_MS) and they play ──

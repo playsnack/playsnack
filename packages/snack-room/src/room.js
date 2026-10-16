@@ -1274,8 +1274,12 @@ export function createRoom(o) {
         watchHostAway();
       }
     },
-    /** A peer leaves. Returns true when the room is now empty (and torn down). */
-    leave(peerId) {
+    /**
+     * A peer leaves. Returns true when the room is now empty (and torn down). `awaySince`: it had
+     * been in the background since then (edge rooms, #213) — a host's / quiz subject's grace counts from it.
+     */
+    leave(peerId, { awaySince } = {}) {
+      const awayAt = Number.isFinite(awaySince) ? Math.min(now(), awaySince) : now();
       const peer = r.peers.get(peerId);
       if (!peer) return r.peers.size === 0;
       r.peers.delete(peerId);
@@ -1297,11 +1301,11 @@ export function createRoom(o) {
         syncVoteReveal(); // the last one still to pick left: everyone here has
       }
       if (gone && S.quizPack && peer.anonId === S.quizPack.subject.anonId) {
-        S.subjectAwayAt = now(); // counts as left only after SUBJECT_GRACE_MS
+        S.subjectAwayAt = awayAt; // counts as left only after SUBJECT_GRACE_MS
         watchSubjectAway();
       }
       if (gone && rule === "host" && peer.anonId === S.host) {
-        S.hostAwayAt = now(); // hands over only after HOST_GRACE_MS
+        S.hostAwayAt = awayAt; // hands over only after HOST_GRACE_MS
         watchHostAway();
       }
       if (gone && autoOn()) disarmAuto(); // too few left to start for: wait again (#141)

@@ -8,6 +8,8 @@
 //            (pin / organize: legacy codes only — #157 v2 rooms take the PIN at the Worker and the
 //            organizer from the /mint ticket `orgt` in organizerToken; public ids never get either)
 //   client → {t:"action", d:{name, payload, clientMsgId}} | {t:"react", d:{emoji}}
+//   client → {t:"away"}   the page went to the background (#213) · {t:"here"} back on screen, same socket
+//            · {t:"bye"} leaving for good (← 홈, the tab closing): out of the room at once
 //   room   → {t:"state"|"setVar"|"participants"|"reaction"|"actionAck", d}   (engine messages)
 //   room   → {t:"token", d:{token}}        seat token (reconnect without the PIN, seat takeover)
 //   room   → {t:"organizer", d:{token}}    to the room's creator (12 h organizer token)
@@ -35,6 +37,15 @@
 //   (`slug.g2`, `slug.g3`, … — the same for every late arrival, so they play together there:
 //   the first one waits there for the next) and is closed 4010. A new room goes through the same
 //   usage guard (RoomGate); refused, the client comes back here with `stay: true` and watches.
+//
+// Leaving (#213): a socket that closes leaves at once (the tab closed, ← 홈 — the client also says
+// `bye` first). A phone that only goes to the background keeps its socket open (iOS freezes the
+// page; the share sheet comes back), so it says `away`: still here for AWAY_GRACE_MS (no flicker
+// for a trip to KakaoTalk); not `here` / back on a new socket by then → the room closes that socket
+// (4011) and the person leaves — everyone's count goes down. The deadline is the room's storage
+// alarm (not a timer: the room can still hibernate meanwhile); one `away` (+ one `here`) per trip
+// to the background, nothing periodic. A phone that loses its network while on screen sends
+// nothing: the room only learns when the socket closes (issue #142: keepalive ping).
 //
 // Hibernation: engine state lives in memory; a pending engine timer (setTimeout) keeps the
 // DO awake through a game. Idle (lobby / result), the DO may hibernate and lose memory, so
@@ -68,7 +79,10 @@ export const GAME_LIMITS = {
   framesPerHour: 1800,
   reactsPerSec: 3, // more are dropped (not spread to everyone)
   squeezePerMin: 60, // usage stage 3 (≥ 95 %): a socket above 1 frame/s over 60 s is closed
+  awayGraceMs: 30000, // #213: in the background this long (no `here`, no new socket) → out of the room
 };
+/** Close code for a socket the room let go after AWAY_GRACE_MS in the background (the client comes back on its own). */
+export const AWAY_CLOSE = 4011;
 /** The reactions the player offers (snack-player LiveApp REACTIONS); anything else is dropped. */
 export const REACTIONS = new Set(["❤️", "🔥", "😂", "👍", "😮"]);
 // The next generation of a public room: `slug` → `slug.g2` → `slug.g3` … (deterministic, so every
@@ -478,6 +492,18 @@ export class GameRoom {
       return this.hello(sock, m.d ?? {});
     }
     await this.rehydrate();
+    // Away (#213): anything but `away` from this socket says it is alive and on screen.
+    if (t === "away") return this.markAway(sock, st);
+    if (st.awayAt != null) {
+      delete st.awayAt;
+      sock.save(st);
+    }
+    if (t === "here") return;
+    if (t === "bye") {
+      // Leaving for good: out of the room now (its close then changes nothing).
+      this.closeQ(sock, 1000, "bye");
+      return this.closed(sock);
+    }
     const t0 = performance.now();
     if (t === "action") {
       const sec = Math.floor(this.now() / 1000);
@@ -582,13 +608,19 @@ export class GameRoom {
 
   async closed(sock) {
     const st = sock.state ?? {};
+    if (st.left) return; // already handled (bye / away sweep, then its close)
+    st.left = true;
     const left = st.joined;
+    // #213: a room woken from hibernation by this close is rebuilt WITH the leaver still in it —
+    // rebuilt without, the engine never knew them, its leave() changed nothing and nobody was told
+    // (everyone's count stayed). So: rebuild first, then the leave that tells everyone.
+    if (left) await this.rehydrate();
     st.joined = false;
     this._peers = null;
     sock.save(st);
     if (left) {
-      await this.rehydrate();
-      if (this.engine?.leave(st.peer)) this.engine = null; // empty: torn down (as snack-server)
+      // away (#213): a host's / quiz subject's grace counts from when they went to the background
+      if (this.engine?.leave(st.peer, st.awayAt != null ? { awaySince: st.awayAt } : undefined)) this.engine = null; // empty: torn down (as snack-server)
     }
     if (!this.sockets().some((s) => s !== sock && s.state?.joined)) {
       this.engine?.destroy();
@@ -611,7 +643,57 @@ export class GameRoom {
     }
   }
 
+  /**
+   * `away` (#213): mark the socket, and make sure the room's alarm goes off by its deadline. One alarm
+   * for all: it is set only when this deadline is earlier than the one already set (in memory —
+   * after a hibernation it is set again, which is harmless).
+   */
+  markAway(sock, st) {
+    if (st.awayAt == null) {
+      st.awayAt = this.now();
+      sock.save(st);
+    }
+    const at = st.awayAt + this.L.awayGraceMs;
+    if (this.awayAlarmAt != null && this.awayAlarmAt <= at && this.awayAlarmAt > this.now()) return;
+    this.awayAlarmAt = at;
+    this.meter.count("rows"); // the alarm (a write)…
+    this.meter.count("alarms"); // …and its firing (a DO request)
+    return this.setAlarm(at);
+  }
+
+  /** Let go of every socket away longer than the grace (#213); the alarm again for the next one. */
+  async sweepAway() {
+    const t = this.now();
+    let next = null;
+    for (const s of this.sockets()) {
+      const st = s.state;
+      if (!st?.joined || st.awayAt == null) continue;
+      const due = st.awayAt + this.L.awayGraceMs;
+      if (due > t) {
+        next = next == null ? due : Math.min(next, due);
+        continue;
+      }
+      this.stats.awayClosed = (this.stats.awayClosed ?? 0) + 1;
+      this.closeQ(s, AWAY_CLOSE, "away");
+      await this.closed(s);
+    }
+    this.awayAlarmAt = null;
+    if (next != null && this.sockets().some((s) => s.state?.joined)) {
+      this.awayAlarmAt = next;
+      this.meter.count("rows");
+      this.meter.count("alarms");
+      await this.setAlarm(next);
+    }
+  }
+
   async onAlarm() {
+    if (this.sockets().some((s) => s.state?.joined)) {
+      // occupied: the alarm was an away deadline (#213); the 24 h cleanup is set again when the room empties
+      const run = this.chain.then(() => this.sweepAway());
+      this.chain = run.catch((e) => console.error("[edge-room]", e));
+      await run;
+      return false;
+    }
     if (this.sockets().length) return false;
     await this.resultChain;
     return roomAlarm({ store: this.store, now: this.now, setAlarm: this.setAlarm });
@@ -628,6 +710,7 @@ export class GameRoom {
     this.engine?.destroy();
     this.engine = null;
     this.meta = null;
+    this.awayAlarmAt = null; // (the alarm itself is in storage: it still fires)
     // …and its usage counts not yet reported (a woken DO starts a fresh counter).
     this.meter.stop();
     this.meter = this.newMeter();
