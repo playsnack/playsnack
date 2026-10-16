@@ -18,7 +18,7 @@ Hidden or merged games are never shown in any tier. Every shown game is in exact
 |---|---|---|
 | **대표작** | `"flagship": true` on exactly one app (today `speed-trivia-score` = 나 맞히기 퀴즈) | The one lime card at the top. Never repeated below (no `featured` on it). |
 | **추천작** | `"featured": n` (rank, 1 = first) **and** `"reviewedIn": "#<issue/PR>"` | Passed a real-phone check, or its fix is merged. Cards under "⭐ 추천작". |
-| **추천 후보** | neither | Still being fixed or not checked yet (실험작). Quiet list under "추천 후보"; still playable. |
+| **추천 후보** | neither | Still being fixed or not checked yet. Quiet list under "추천 후보" with the note "아직 다듬는 중이에요. 플레이는 할 수 있어요." — one name for the tier, never "실험작"; still playable. |
 
 **Moving up (추천 후보 → 추천작):** real-phone check passes, or the fix PR is merged → add `featured` + `reviewedIn` (that issue/PR) to the entry and add the id to `REVIEWED` in `snack-player/test/catalog.test.ts`. There is no implicit promotion: a rank without `reviewedIn` (or the reverse) stays a 추천 후보, and the test fails on it. A game that breaks again goes back down by removing both fields.
 

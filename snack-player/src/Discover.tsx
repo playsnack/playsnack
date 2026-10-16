@@ -114,7 +114,7 @@ export function Discover() {
         {!!apps?.candidates.length && (
           <>
             <h2 style={subTitle}>추천 후보 <span style={{ fontWeight: 600 }}>· {apps.candidates.length}</span></h2>
-            <p style={subNote}>아직 다듬는 중인 실험작이에요. 플레이는 할 수 있어요.</p>
+            <p style={subNote}>아직 다듬는 중이에요. 플레이는 할 수 있어요.</p>
             <div style={list} data-section="candidates">
               {apps.candidates.map((m) => (
                 <button key={m.id} style={row} data-app={m.id} onClick={() => open(m.id)}>
