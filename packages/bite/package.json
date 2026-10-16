@@ -2,7 +2,7 @@
   "name": "@snack/bite",
   "version": "0.1.0",
   "description": "Bite engine runtime — vars, phases, expressions, actions. Render-agnostic; runs in Node and browsers.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",

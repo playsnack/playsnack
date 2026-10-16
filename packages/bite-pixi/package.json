@@ -2,7 +2,7 @@
   "name": "@snack/bite-pixi",
   "version": "0.1.0",
   "description": "Bite renderer — draws a Bite app with Pixi and routes taps to the runtime.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "type": "module",
   "main": "./src/index.js",
   "scripts": { "test": "node --test test/" },
