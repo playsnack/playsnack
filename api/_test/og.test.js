@@ -4,7 +4,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  DEFAULT_DESCRIPTION, DEFAULT_TITLE, QUIZ_APP_ID, ROOM_LOOKUP_MS, _roomCache, cleanName, entryFor, isPinCode, isPreviewBot,
+  DEFAULT_DESCRIPTION, DEFAULT_TITLE, QUIZ_APP_ID, ROOM_LOOKUP_MS, SPEED_QUIZ_ID, _roomCache, cleanName, entryFor, isPinCode, isPreviewBot,
   lookupAbout, metaHandlers, ogMeta, roomCode,
 } from '../_lib/og.js';
 
@@ -29,11 +29,30 @@ test('a catalog slug → its title, tagline, own image, canonical url', () => {
 test('every catalog app gets its own image and a non-default title', () => {
   for (const e of catalog) {
     const m = ogMeta({ url: `${O}/p/tpl-${e.id}`, catalog, manifest });
-    const shown = e.mergedInto ?? e.id;
+    // A bare 나 맞히기 link (no code) opens 스피드 퀴즈 (#210), so it previews that.
+    const shown = e.mergedInto ?? (e.id === QUIZ_APP_ID ? SPEED_QUIZ_ID : e.id);
     assert.equal(m.app, shown, e.id);
     assert.ok(m.image.startsWith(`${O}/og/app/${shown}.png?v=`), e.id);
     assert.notEqual(m.title, DEFAULT_TITLE, e.id);
   }
+});
+
+test('나 맞히기 and 스피드 퀴즈 (one template, #210): each link its own title and picture', () => {
+  const quiz = ogMeta({ url: `${O}/p/tpl-${QUIZ_APP_ID}?room=${CODE}`, catalog, manifest });
+  assert.equal(quiz.title, '나 맞히기 퀴즈 — 나를 얼마나 알까?');
+  assert.equal(quiz.app, QUIZ_APP_ID);
+  assert.equal(quiz.image, `${O}/og/app/${QUIZ_APP_ID}.png?v=${manifest.apps[QUIZ_APP_ID]}`);
+  const speed = ogMeta({ url: `${O}/p/tpl-${SPEED_QUIZ_ID}`, catalog, manifest });
+  assert.equal(speed.title, '스피드 퀴즈 — 한 판 붙어 볼래?');
+  assert.equal(speed.app, SPEED_QUIZ_ID);
+  assert.equal(speed.image, `${O}/og/app/${SPEED_QUIZ_ID}.png?v=${manifest.apps[SPEED_QUIZ_ID]}`);
+  assert.notEqual(manifest.apps[SPEED_QUIZ_ID], manifest.apps[QUIZ_APP_ID], 'the two cards share a picture');
+  // A bare quiz link (old "스피드 퀴즈로 같이 하기") opens 스피드 퀴즈 — and says so.
+  const bare = ogMeta({ url: `${O}/p/tpl-${QUIZ_APP_ID}`, catalog, manifest });
+  assert.equal(bare.title, speed.title);
+  assert.equal(bare.url, `${O}/p/tpl-${QUIZ_APP_ID}`);
+  // The merged trivia race now lives in 스피드 퀴즈, not in 나 맞히기.
+  assert.equal(entryFor('tpl-race-trivia', catalog).id, SPEED_QUIZ_ID);
 });
 
 test('a merged app shows the app it now lives in', () => {

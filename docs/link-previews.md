@@ -34,6 +34,8 @@ node scripts/og-images.mjs --check  # 확인만
 | `/p/tpl-worldcup-food` | 야식 월드컵 — 친구랑 같이 골라 봐요 | 설치·가입 없이 링크만 열면 바로 시작해요. … | `og/app/worldcup-food.png` |
 | `/p/tpl-tap-battle` (같이) | 탭 배틀 — 한 판 붙어 볼래? | 링크를 받은 친구들과 같은 방에서 바로 시작해요. … | `og/app/tap-battle.png` |
 | `/p/<앱>?room=<코드>` | (앱 제목) | 친구가 방에 초대했어요. 링크를 열면 같은 방으로 바로 들어가요. | 앱 그림 |
+| `/p/tpl-speed-trivia-score?room=<코드>` (나 맞히기) | 나 맞히기 퀴즈 — 나를 얼마나 알까? | 친구가 방에 초대했어요. … | `og/app/speed-trivia-score.png` |
+| `/p/tpl-speed-quiz` (스피드 퀴즈: 같은 템플릿·기본 문제, #210) · 코드 없는 `/p/tpl-speed-trivia-score`도 이 카드(앱이 이리로 보냄) | 스피드 퀴즈 — 한 판 붙어 볼래? | 링크를 받은 친구들과 같은 방에서 바로 시작해요. … | `og/app/speed-quiz.png` |
 | `/p/tpl-speed-trivia-score?room=<코드>` + 방에 지난 판 결과 있음 | 민수 맞히기 · 나를 얼마나 알까? | 민수님에 대한 퀴즈예요. … | 앱 그림 |
 | `/p/tpl-race-tap` (합쳐진 앱) | 탭 배틀 — … | | `tap-battle.png` |
 | `/p/app-<hash>`, 모르는 슬러그 | 기본값 | 기본값 | `default.png` |
