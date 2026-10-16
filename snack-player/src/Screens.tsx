@@ -151,8 +151,12 @@ export type PinError = { reason: string; left?: number; retryIn?: number };
  *          and clears the field with the tries left; locked counts down and turns itself back on.
  * The PIN lives only in this field until it is handed over; the screen keeps no copy.
  */
-export function PinSheet({ mode, checking = false, error = null, onSubmit, onCancel, solo }: {
+export function PinSheet({ mode, checking = false, error = null, onSubmit, onCancel, solo, note, zIndex }: {
   mode: "set" | "enter"; checking?: boolean; error?: PinError | null; onSubmit: (pin: string) => void; onCancel?: () => void; solo?: Btn;
+  /** Set mode: the line under the title (default: a new link is made now). */
+  note?: string;
+  /** Over something higher than the room screens (the quiz maker, z 50–51). */
+  zIndex?: number;
 }) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -184,12 +188,12 @@ export function PinSheet({ mode, checking = false, error = null, onSubmit, onCan
   };
   const title = mode === "set" ? "비밀번호 4자리를 정해 주세요" : "비밀번호를 입력해 주세요";
   return (
-    <div style={pinScreen} role="dialog" aria-modal="true" aria-label={title} data-pin-mode={mode}>
+    <div style={zIndex ? { ...pinScreen, zIndex } : pinScreen} role="dialog" aria-modal="true" aria-label={title} data-pin-mode={mode}>
       <style>{BLOCK_CSS + PIN_CSS}</style>
       <div style={pinCol}>
         <h1 style={{ ...titleStyle, margin: 0, textAlign: "center" }}>{title}</h1>
         <p style={{ ...bodyStyle, textAlign: "center" }}>
-          {mode === "set" ? "새 초대 링크가 만들어지고, 들어올 때 한 번만 물어봐요" : checking ? "확인 중…" : "방장이 정한 4자리 숫자예요"}
+          {mode === "set" ? note ?? "새 초대 링크가 만들어지고, 들어올 때 한 번만 물어봐요" : checking ? "확인 중…" : "방장이 정한 4자리 숫자예요"}
         </p>
         <input
           ref={inputRef} key={shake} className={shake ? "snk-shake" : undefined} id="snack-pin" aria-label="비밀번호 4자리"
