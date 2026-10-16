@@ -30,7 +30,7 @@ function table(id, nicks, { random = () => 0.3, clock = [], down = [], up = [], 
     timers.set(h, { at: t + ms, fn, h });
   };
   // As the shell (snack-player spectate.ts forTemplate): its own room vars reach a template only if declared.
-  const SHELL_ROOM_VARS = new Set(["iAmSpectator", "spectators", "roomMode", "hostNick", "iAmHost"]);
+  const SHELL_ROOM_VARS = new Set(["iAmSpectator", "spectators", "roomMode", "hostNick", "iAmHost", "tapBatchMs"]);
   const declared = load(id).vars ?? {};
   const put = (app, k, v) => (SHELL_ROOM_VARS.has(k) && !Object.hasOwn(declared, k) ? undefined : app.setVar(k, v));
   const toDevice = (peerId, fn) => {

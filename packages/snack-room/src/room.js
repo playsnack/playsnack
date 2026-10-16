@@ -43,6 +43,8 @@ export const LATE_GRACE_MS = 2500;
 export const TAP_BATCH_MS = 250;
 export const TAP_BATCH_BIG_MS = 1000;
 export const TAP_BATCH_BIG_ROOM = 20; // more players than this → TAP_BATCH_BIG_MS
+// Most taps one `tally` may carry: a 1 s batch at TAP_RATE_MAX (15) with room to spare.
+export const TALLY_MAX_DELTA = 2 * TAP_RATE_MAX;
 export const tapBatchMsFor = (players) => (players > TAP_BATCH_BIG_ROOM ? TAP_BATCH_BIG_MS : TAP_BATCH_MS);
 const COUNTDOWN_STEP_MS = 1000;
 export const LEFT_MARK = "(나감)"; // ranking mark for a player who left the room (MP-12)
@@ -1020,8 +1022,15 @@ export function createRoom(o) {
       onActivity("vote", "투표함");
       ack(peerId, d.clientMsgId);
     } else if (name === "tally") {
-      const delta = Number(d?.payload?.delta);
-      r.coop += Number.isFinite(delta) ? delta : 1;
+      // Co-op taps, sent in batches (#190): only while a single play window is open (play, or
+      // the result's LATE_GRACE_MS for the last batch) — never in its 3·2·1, and a late batch
+      // never lands in the lobby / next game. Before any timed game a freeform tally still counts.
+      if (S.phase === "countdown" || (S.phase !== "play" && S.playMs > 0 && !inWindow())) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "closed" });
+      // A whole number of taps, 0..TALLY_MAX_DELTA per message (a forged {delta: 1e9} / negative can't move the total).
+      const raw = d?.payload?.delta;
+      const delta = raw == null ? 1 : Math.min(TALLY_MAX_DELTA, Math.max(0, Math.floor(Number(raw)) || 0));
+      if (delta === 0) return ack(peerId, d?.clientMsgId, { accepted: false, reason: "invalid_delta" });
+      r.coop += delta;
       took(anonId);
       onPoints(anonId, nick, 1);
       setVar("coopTotal", r.coop);
