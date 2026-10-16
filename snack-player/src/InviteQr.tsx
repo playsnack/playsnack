@@ -11,7 +11,7 @@ import { C, S, TOKENS } from "./tokens.gen";
  * and the "비밀번호 걸기" row — offered only while this device is alone in the room (`canSet`).
  */
 export type InvitePin = { value: string | null; canSet: boolean; onSet: () => void };
-type SheetProps = { url: string; onClose: () => void; onCopied?: () => void; pin?: InvitePin };
+type SheetProps = { url: string; onClose: () => void; onCopied?: () => void; pin?: InvitePin; manual?: boolean };
 
 const sheetBase: React.CSSProperties = {
   position: "fixed", inset: 0, zIndex: 50, background: C.bg, color: C.ink,

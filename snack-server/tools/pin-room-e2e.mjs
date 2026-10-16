@@ -10,8 +10,14 @@
 //      in (timed); a reload → back in without the PIN (pass).
 //   3. G (same address) gets it wrong until locked → the countdown; H hears about it (notice).
 //   4. a forged code → "링크가 만료됐어요" (no 다시 시도); 5. the public room joins as before.
+//   6. #208 나 맞히기 maker: "비밀번호 걸기" while making → 완료 → ONE /mint with the PIN → a
+//      20-symbol room the maker hosts; a friend gets the PIN screen. Default off: 완료 → a plain room
+//      whose lobby shows "비밀번호 걸기" next to 친구 초대하기 while alone, gone once a friend is in.
+//   7. #209 a computer (1280×800, mouse, Chromium with navigator.share stubbed in): 친구 초대하기
+//      copies the link (clipboard read back) with "링크를 복사했어요" — navigator.share never called.
 // Usage: node snack-server/tools/pin-room-e2e.mjs [--skip-build] [--shots <dir>]
 // Ports: PIN_E2E_PORT (page, default 4931) · PIN_E2E_HUB_PORT (edge hub, default 4930).
+// PIN_E2E_OUT: the build folder (default <tmp>/snack-pin-room-e2e-dist).
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -28,10 +34,11 @@ const SKIP_BUILD = argv.includes("--skip-build");
 const SHOTS = argv.includes("--shots") ? argv[argv.indexOf("--shots") + 1] : null;
 const PORT = Number(process.env.PIN_E2E_PORT || 4931);
 const HUB_PORT = Number(process.env.PIN_E2E_HUB_PORT || 4930);
-const OUT = join(tmpdir(), "snack-pin-room-e2e-dist");
+const OUT = process.env.PIN_E2E_OUT || join(tmpdir(), "snack-pin-room-e2e-dist");
 const BASE = `http://127.0.0.1:${PORT}`;
 const SLUG = "tpl-tap-battle";
 const PUBLIC_SLUG = "tpl-coop-tap-goal";
+const QUIZ = "tpl-speed-trivia-score";
 const ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -91,6 +98,26 @@ const shot = async (page, name) => {
   mkdirSync(SHOTS, { recursive: true });
   await page.screenshot({ path: join(SHOTS, `pin-${name}.png`) });
 };
+/** A screenshot under its own name (no "pin-" prefix). */
+const shotAs = async (page, name) => {
+  if (!SHOTS) return;
+  mkdirSync(SHOTS, { recursive: true });
+  await page.screenshot({ path: join(SHOTS, `${name}.png`) });
+};
+/** /mint calls this page made (the request bodies). */
+const watchMint = (page) => {
+  page.mints = [];
+  page.on("request", (r) => { if (new URL(r.url()).pathname === "/mint") page.mints.push(r.postData() ?? ""); });
+};
+/** The maker page with every suggested question answered (its first option). */
+async function makeQuiz(page) {
+  await go(page, `${BASE}/p/${QUIZ}?make=1`);
+  await page.getByRole("heading", { name: "나 맞히기 만들기" }).waitFor({ state: "visible", timeout: 15000 });
+  const cards = page.locator('section[aria-label^="질문 "]');
+  const n = await cards.count();
+  for (let i = 0; i < n; i++) await cards.nth(i).locator('.blk[aria-pressed]').first().click();
+  return n;
+}
 const pinScreen = (page) => page.locator('[data-pin-mode="enter"]');
 const typePin = async (page, pin) => {
   const input = page.locator("#snack-pin");
@@ -223,6 +250,120 @@ try {
   await go(P, `${BASE}/p/${PUBLIC_SLUG}`);
   await waitFor(async () => (await vars(P)).roster?.includes("퍼블릭"), 15000, "P in the public room");
   step("public room: joins as before (no PIN, no code, no token in the URL)", (await pinScreen(P).count()) === 0 && P.sockets.every((s) => !/[?&](k|pin)=/.test(s.url)));
+
+  // ── 6. #208: the PIN chosen while making the quiz → one /mint with it ──
+  const M = await phone(b1, "메이커", logs);
+  watchMint(M);
+  const qn = await makeQuiz(M);
+  const done = M.getByRole("button", { name: "완료 · 친구 초대하러 가기" });
+  const row = M.getByTestId("maker-pin-row");
+  const rowOff = (await row.getAttribute("aria-checked")) === "false" && /비밀번호 걸기/.test((await row.textContent()) ?? "");
+  const rowBox = await row.boundingBox();
+  const doneBox = await done.boundingBox();
+  await row.click();
+  await M.locator('[data-pin-mode="set"]').waitFor({ state: "visible", timeout: 5000 });
+  await M.locator("#snack-pin").fill("4821");
+  await M.locator('[data-pin-mode="set"]').getByRole("button", { name: "확인", exact: true }).click();
+  await M.locator('[data-pin-mode="set"]').waitFor({ state: "detached", timeout: 5000 });
+  const rowOn = (await row.getAttribute("aria-checked")) === "true" && /비밀번호\s*4821/.test((await row.textContent()) ?? "");
+  await shotAs(M, "pin-maker");
+  step("maker: '비밀번호 걸기' off by default, right above 완료; set → the row says 비밀번호 4821 (no room made yet)",
+    qn >= 5 && rowOff && rowOn && rowBox && doneBox && rowBox.y < doneBox.y && doneBox.y - (rowBox.y + rowBox.height) < 40 && M.mints.length === 0,
+    { qn, rowOff, rowOn, rowY: rowBox?.y, doneY: doneBox?.y, mints: M.mints.length });
+  await done.click();
+  await waitFor(async () => codeOf(M.url()).length === 20 && (await vars(M)).iAmHost === true, 15000, "M hosts a 20-symbol PIN room");
+  await sleep(500);
+  const mintBody = JSON.parse(M.mints[0] ?? "{}");
+  step("maker 완료 with a PIN: exactly one /mint (with the PIN) → a 20-symbol room the maker hosts on its pass (never typed it)",
+    M.mints.length === 1 && mintBody.pin === "4821" && typeof mintBody.anonId === "string" && (await pinScreen(M).count()) === 0 && !M.sockets.some((s) => s.url.includes("pin=")),
+    { mints: M.mints.length, code: codeOf(M.url()).length });
+  const bandPinM = M.getByTestId("band-pin");
+  await bandPinM.waitFor({ state: "visible", timeout: 8000 });
+  const bandPinText = (await bandPinM.textContent()) ?? "";
+  step("maker PIN room lobby: the PIN shows next to 친구 초대하기 while alone", /비밀번호\s*4821/.test(bandPinText), { bandPinText });
+  const F2 = await phone(b2, "프렌드투", logs);
+  await go(F2, M.url());
+  await pinScreen(F2).waitFor({ state: "visible", timeout: 10000 });
+  const f2Sockets = F2.sockets.length;
+  await typePin(F2, "4821");
+  await waitFor(async () => (await vars(F2)).roster?.length === 2, 10000, "F2 in the maker's PIN room");
+  step("maker PIN room: the friend gets the PIN screen first (no socket), 4821 → in", f2Sockets === 0 && (await vars(F2)).iAmHost === false);
+  await bandPinM.waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
+  step("maker PIN room: the lobby's PIN button is gone once a friend is in", (await M.getByTestId("band-pin").count()) === 0);
+  await M.context().close();
+  await F2.context().close();
+
+  // default off: one tap, a plain room; the lobby offers the PIN next to 친구 초대하기 while alone
+  const Q = await phone(b1, "큐", logs);
+  watchMint(Q);
+  await makeQuiz(Q);
+  await Q.getByRole("button", { name: "완료 · 친구 초대하러 가기" }).click();
+  await waitFor(async () => codeOf(Q.url()).length === 15 && (await vars(Q)).iAmHost === true, 15000, "Q hosts a plain quiz room");
+  await sleep(500);
+  const qMint = JSON.parse(Q.mints[0] ?? "{}");
+  const bandQ = Q.getByTestId("band-pin");
+  await bandQ.waitFor({ state: "visible", timeout: 8000 });
+  const invBox = await Q.getByRole("button", { name: "친구 초대 링크 보내기" }).boundingBox();
+  const pinBox = await bandQ.boundingBox();
+  await shotAs(Q, "invite-pin-row");
+  step("maker 완료 untouched (default off): one /mint, no PIN → a 15-symbol room; lobby: '비밀번호 걸기' beside 친구 초대하기 (same row)",
+    Q.mints.length === 1 && qMint.pin === undefined && /비밀번호\s*걸기/.test((await bandQ.textContent()) ?? "") && invBox && pinBox && Math.abs(invBox.y - pinBox.y) < 2 && pinBox.x > invBox.x,
+    { mints: Q.mints.length, invBox, pinBox });
+  // the narrowest phones (320×568, 360×640): 친구 초대하기 · 비밀번호 걸기 · QR still share the band, no text cut
+  const fits = [];
+  for (const [w, h] of [[320, 568], [360, 640]]) {
+    await Q.setViewportSize({ width: w, height: h });
+    await waitFor(() => Q.evaluate((w) => document.querySelector('[aria-label="QR 코드로 초대하기"]')?.getBoundingClientRect().right <= w - 16, w), 5000, `the band at ${w}px`);
+    await sleep(300);
+    const m = await Q.evaluate(() => {
+      const els = [document.querySelector('[aria-label="친구 초대 링크 보내기"]'), document.querySelector('[data-testid="band-pin"]'), document.querySelector('[aria-label="QR 코드로 초대하기"]')];
+      return els.map((e) => e && { sw: e.scrollWidth, cw: e.clientWidth, sh: e.scrollHeight, ch: e.clientHeight, r: e.getBoundingClientRect().right });
+    });
+    fits.push({ w, m });
+    await shotAs(Q, `invite-pin-row-${w}`);
+  }
+  await Q.setViewportSize({ width: 390, height: 844 });
+  step("lobby band at 320 / 360 px: all three buttons in, no text overflow",
+    fits.every(({ w, m }) => m.every((x) => x && x.sw <= x.cw + 1 && x.sh <= x.ch + 1 && x.r <= w)), { fits });
+  const R2 = await phone(b2, "알투", logs);
+  await go(R2, Q.url());
+  await waitFor(async () => (await vars(R2)).roster?.length === 2, 15000, "R2 in Q's room");
+  await bandQ.waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
+  step("lobby: '비밀번호 걸기' hidden once a friend joined (no PIN screen for the friend)", (await Q.getByTestId("band-pin").count()) === 0 && (await pinScreen(R2).count()) === 0);
+  await Q.context().close();
+  await R2.context().close();
+
+  // ── 7. #209: on a computer 친구 초대하기 copies — the share menu never opens ──
+  const dctx = await b1.newContext({ viewport: { width: 1280, height: 800 } });
+  await dctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
+  await dctx.addInitScript(() => {
+    localStorage.setItem("snack_nick", "데스크톱");
+    globalThis.__shareCalls = 0;
+    // Mac Safari / Windows Chrome have navigator.share: stand one in for Chromium here.
+    Object.defineProperty(navigator, "share", { configurable: true, value: async () => { globalThis.__shareCalls++; } });
+  });
+  const D = await dctx.newPage();
+  D.sockets = [];
+  D.on("console", (m) => logs.push(`desktop ${m.type()}: ${m.text()}`));
+  D.on("pageerror", (e) => logs.push(`desktop pageerror: ${e.message}`));
+  await go(D, `${BASE}/p/${QUIZ}`);
+  await scene(D);
+  await D.getByRole("button", { name: "친구끼리 하는 방 만들기" }).click();
+  await waitFor(async () => codeOf(D.url()).length === 15 && (await vars(D)).iAmHost === true, 15000, "D hosts a friends quiz room");
+  const dInvite = D.getByRole("button", { name: "친구 초대 링크 보내기" });
+  await dInvite.waitFor({ state: "visible", timeout: 8000 });
+  await dInvite.click();
+  const toast = D.getByTestId("invite-copied");
+  await toast.waitFor({ state: "visible", timeout: 5000 });
+  await sleep(450); // the toast's rise-in
+  await shotAs(D, "desktop-copied");
+  const toastText = (await toast.textContent()) ?? "";
+  const clip = await D.evaluate(() => navigator.clipboard.readText()).catch((e) => `ERR ${e}`);
+  const shareCalls = await D.evaluate(() => globalThis.__shareCalls);
+  step("desktop: 친구 초대하기 copies the room link — '링크를 복사했어요' + the QR hint; navigator.share never called",
+    shareCalls === 0 && clip.startsWith(BASE) && codeOf(clip) === codeOf(D.url()) && /링크를 복사했어요/.test(toastText) && /QR/.test(toastText),
+    { shareCalls, clip, toastText });
+  await dctx.close();
 } catch (e) {
   step("run", false, { error: String(e?.message ?? e), logs: logs.slice(-40) });
 } finally {

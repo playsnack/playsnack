@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { currentRoute, hrefTo, navigate, newFriendRoom } from "./backend";
+import { currentRoute, EDGE_ROOM_SERVER, hrefTo, navigate, newFriendRoom } from "./backend";
 import { playPath, roomIdFor, ROOM_PARAM } from "./links";
 import { QUIZ_SLUG, deviceQuizStore, opensMakerPage } from "./quiz";
 import { BitePlayer } from "./BitePlayer.tsx";
@@ -8,7 +8,8 @@ import { HOST_ACTIONS } from "@snack/room/actions";
 import { LiveApp } from "./LiveApp.tsx";
 import { Discover } from "./Discover.tsx";
 import { NicknameGate } from "./NicknameGate.tsx";
-import { getNick, isNickAuto, setNick as saveNick, randomNick } from "./identity";
+import { getAnonId, getNick, isNickAuto, setNick as saveNick, randomNick } from "./identity";
+import { finishMakerRoom } from "./invite";
 import { redirectFor } from "./catalog";
 import { LoadingScreen, MessageScreen, goHome } from "./Screens";
 
@@ -93,16 +94,18 @@ export function App() {
 function QuizMakerPage({ nick }: { nick: string }) {
   return (
     <QuizMaker nick={nick} nickAuto={isNickAuto()} doneLabel="완료 · 친구 초대하러 가기" closeLabel="← 홈" onClose={goHome}
-      onDone={async (pack) => {
+      pinOption={Boolean(EDGE_ROOM_SERVER)}
+      onDone={(pack, o) => {
         const store = deviceQuizStore();
-        // The room server makes the code (and this device hosts it); a failure keeps the maker
-        // open with its "다시 눌러 주세요" line (QuizMaker finish).
-        const room = await newFriendRoom(QUIZ_SLUG); // marks it fresh: no host to wait for
-        if (!room.ok) throw new Error(`mint ${room.error}`);
-        const params = new URLSearchParams({ [ROOM_PARAM]: room.code });
-        store.rememberRoomPack(roomIdFor(QUIZ_SLUG, params), pack);
-        store.clearDraft();
-        navigate(playPath(QUIZ_SLUG, params), { replace: true }); // Back goes where the maker was opened from, not into an empty maker
+        // The room server makes the code (and this device hosts it); with "비밀번호 걸기" (#208) the
+        // same one /mint makes the PIN room and this device keeps its pass + PIN. A failure keeps the
+        // maker open with its "다시 눌러 주세요" line (QuizMaker finish).
+        return finishMakerRoom(pack, o, {
+          slug: QUIZ_SLUG, anonId: getAnonId, mint: newFriendRoom, roomIdFor, roomParam: ROOM_PARAM,
+          rememberRoomPack: (id, p) => store.rememberRoomPack(id, p), clearDraft: () => store.clearDraft(),
+          // Back goes where the maker was opened from, not into an empty maker.
+          go: (params) => navigate(playPath(QUIZ_SLUG, params), { replace: true }),
+        });
       }} />
   );
 }

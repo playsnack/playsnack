@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ANSWER_MS, OPTION_MAX, OPTIONS_MAX, OPTIONS_MIN, Q_MAX, QUESTIONS_MAX, QUESTIONS_MIN, TITLE_MAX,
   addOption, addSuggested, blankQuestion, buildQuizPack, capText, deviceQuizStore, draftFromPack, draftProblems, editOption, editQuestion,
@@ -13,6 +13,8 @@ import {
 import { NICK_MAX } from "./nick";
 import { BLOCK_CSS, pill, primaryBtn, secondaryBtn } from "./ui";
 import { TOKENS, C, S, R, blockShadow } from "./tokens.gen";
+// Loaded on use: Screens pulls in backend (build env), and QuizMaker's parts are unit-tested in Node.
+const PinSheet = lazy(() => import("./Screens").then((m) => ({ default: m.PinSheet })));
 
 // "나 맞히기" maker (no AI, no login). Fast path: 10 suggested questions about
 // me, I tap my real answer on each; ✕ drops a card, "다른 질문" swaps it for an
@@ -34,8 +36,11 @@ type Props = {
   closeLabel: string;
   /** A line under the heading (e.g. in a room: "다음 판은 내 퀴즈로 해요"). */
   note?: string;
-  onDone: (pack: QuizPack) => void | Promise<void>;
+  /** `pin`: the 4 digits chosen with "비밀번호 걸기" (only when `pinOption`). */
+  onDone: (pack: QuizPack, o: { pin?: string }) => void | Promise<void>;
   onClose: () => void;
+  /** Offer "비밀번호 걸기" by the finish button (#208: the maker page, edge rooms only). Off by default. */
+  pinOption?: boolean;
 };
 
 /** A text field that never cuts the text while an IME is composing a syllable
@@ -57,7 +62,7 @@ function Field({ value, onText, onEditEnd, multiline, ...rest }: {
     : <input {...(rest as React.InputHTMLAttributes<HTMLInputElement>)} {...handlers} />;
 }
 
-export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone, onClose }: Props) {
+export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone, onClose, pinOption = false }: Props) {
   const store = deviceQuizStore();
   // The draft plus its in-memory undo/redo history (quizHistory.ts; not stored).
   const [state, setState] = useState<MakerState>(() => {
@@ -77,6 +82,9 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
   const [error, setError] = useState<string | null>(null);
   const [recent] = useState<QuizPack[]>(() => store.recentPacks());
   const listEnd = useRef<HTMLDivElement>(null);
+  // "비밀번호 걸기" (#208): the PIN lives only here until 완료 hands it to /mint — never in the draft.
+  const [pin, setPin] = useState<string | null>(null);
+  const [pinAsk, setPinAsk] = useState(false);
 
   // Keep the draft on the device after every change (in memory if storage fails).
   useEffect(() => {
@@ -142,7 +150,7 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
       const pack = buildQuizPack(draft);
       // The name the creator picked is their nickname from now on (no longer a guest name).
       if (draft.nameNeeded && pack.about) setNick(pack.about);
-      await onDone(pack);
+      await onDone(pack, pinOption && pin ? { pin } : {});
     } catch (e) {
       console.warn("[quiz] finish failed", e);
       setError("퀴즈를 넘기지 못했어요. 다시 눌러 주세요.");
@@ -175,7 +183,7 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
   return (
     <div style={shell}>
       <style>{BLOCK_CSS + INPUT_CSS}</style>
-      <div style={{ ...column, paddingBottom: 170 }}>
+      <div style={{ ...column, paddingBottom: pinOption ? 236 : 170 }}>
         <div style={headerRow}>
           <button className="blk" style={pill} onClick={onClose}>{closeLabel}</button>
         </div>
@@ -254,13 +262,36 @@ export function QuizMaker({ nick, nickAuto, doneLabel, closeLabel, note, onDone,
               )}
             </div>
           )}
+          {pinOption && <PinRow pin={pin} onToggle={() => (pin ? setPin(null) : setPinAsk(true))} />}
           <div style={{ display: "flex", gap: S.s3 }}>
             <button className="blk" style={{ ...secondaryBtn, width: "auto", flex: "none", padding: `0 ${S.s4}px` }} disabled={!n} onClick={() => setView("preview")}>미리보기</button>
             <button className="blk" style={{ ...primaryBtn, ...(ready ? null : disabledBtn) }} disabled={!ready || busy} onClick={() => void finish()} aria-disabled={!ready}>{doneLabel}</button>
           </div>
         </div>
       </div>
+      {pinAsk && (
+        <Suspense fallback={null}>
+          <PinSheet mode="set" zIndex={60} note="완료하면 이 비밀번호가 걸린 초대 링크가 만들어져요. 친구는 들어올 때 한 번만 입력해요"
+            onSubmit={(p) => { setPin(p); setPinAsk(false); }} onCancel={() => setPinAsk(false)} />
+        </Suspense>
+      )}
     </div>
+  );
+}
+
+/** "비밀번호 걸기" by 완료 (#208): off by default (one tap to finish without one); on → the PIN. */
+function PinRow({ pin, onToggle }: { pin: string | null; onToggle: () => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={Boolean(pin)} onClick={onToggle} style={pinRow} data-testid="maker-pin-row"
+      aria-label={pin ? `비밀번호 걸기 켜짐, ${pin}` : "비밀번호 걸기"}>
+      <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+        <span style={{ display: "block", color: C.ink }}>{pin ? <>비밀번호 <span style={{ color: C.accent, letterSpacing: "0.12em" }}>{pin}</span></> : "비밀번호 걸기"}</span>
+        <span style={{ display: "block", color: C.inkMuted, fontWeight: 600, fontSize: TOKENS.size.bodySm }}>
+          {pin ? "링크를 보낼 때 비밀번호도 함께 알려 주세요" : "링크가 퍼져도 비밀번호를 아는 친구만 들어와요"}
+        </span>
+      </span>
+      <span aria-hidden="true" style={{ ...track, ...(pin ? trackOn : null) }}><span style={{ ...knob, ...(pin ? knobOn : null) }} /></span>
+    </button>
   );
 }
 
@@ -431,6 +462,20 @@ const answerDot: React.CSSProperties = {
   border: `${TOKENS.border.block}px solid ${C.borderBlock}`, borderRadius: R.block, font: `800 16px ${TOKENS.font.body}`,
 };
 const answerDotOn: React.CSSProperties = { background: C.accent, borderColor: C.accentInk };
+const pinRow: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: S.s3, width: "100%", minHeight: 52, padding: `${S.s1}px ${S.s3}px`,
+  background: C.surface, border: `${TOKENS.border.hairline}px solid ${C.borderBlock}`, borderRadius: R.block, cursor: "pointer",
+  font: `700 ${TOKENS.size.bodyMd}px ${TOKENS.font.body}`, lineHeight: 1.35, wordBreak: "keep-all",
+};
+const track: React.CSSProperties = {
+  position: "relative", flex: "none", width: 46, height: 28, borderRadius: 14, background: C.surface2,
+  border: `${TOKENS.border.hairline}px solid ${C.hairline}`, boxSizing: "border-box",
+};
+const trackOn: React.CSSProperties = { background: C.accent, borderColor: C.accent };
+const knob: React.CSSProperties = {
+  position: "absolute", top: 3, left: 3, width: 20, height: 20, borderRadius: 10, background: C.inkMuted, transition: "left 120ms ease-out",
+};
+const knobOn: React.CSSProperties = { left: 21, background: C.accentInk };
 const disabledBtn: React.CSSProperties = { opacity: 0.4, cursor: "not-allowed", boxShadow: "none", transform: "none" };
 const footer: React.CSSProperties = {
   position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 51, background: C.bg, borderTop: `${TOKENS.border.block}px solid ${C.borderBlock}`,
