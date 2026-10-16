@@ -1,7 +1,7 @@
 {
   "bite": 1,
   "meta": {
-    "name": "야식 월드컵",
+    "name": "야식 월드컵 투표",
     "multi": true
   },
   "frame": [
@@ -291,7 +291,7 @@
             "id": "navL",
             "use": "NavBar",
             "props": {
-              "title": "야식 월드컵",
+              "title": "야식 월드컵 투표",
               "subtitle": "대기실"
             }
           },
@@ -428,7 +428,7 @@
             "id": "navC",
             "use": "NavBar",
             "props": {
-              "title": "야식 월드컵",
+              "title": "야식 월드컵 투표",
               "subtitle": "곧 시작!"
             }
           },
@@ -485,7 +485,7 @@
             "id": "navP",
             "use": "NavBar",
             "props": {
-              "title": "야식 월드컵",
+              "title": "야식 월드컵 투표",
               "subtitle": "월드컵!"
             }
           },
@@ -651,7 +651,7 @@
             "id": "navR",
             "use": "NavBar",
             "props": {
-              "title": "야식 월드컵",
+              "title": "야식 월드컵 투표",
               "subtitle": "우승"
             }
           },
