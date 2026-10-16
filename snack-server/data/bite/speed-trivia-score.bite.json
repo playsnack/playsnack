@@ -92,7 +92,11 @@
     "roomPin": false,
     "hostNick": "",
     "iAmHost": false,
-    "autoStartIn": 0
+    "autoStartIn": 0,
+    "startAt": 0,
+    "startIn": 0,
+    "startAtText": "",
+    "reduceMotion": false
   },
   "room": {
     "start": {
@@ -523,6 +527,42 @@
             "grow": 1
           },
           {
+            "id": "schedCard",
+            "box": "column",
+            "width": "fill",
+            "height": 76,
+            "gap": 2,
+            "align": "center",
+            "justify": "center",
+            "fill": "{startIn > 0 && startIn < 60 ? '#d9ff00' : '#16181c'}",
+            "stroke": {
+              "color": "#d9ff00",
+              "width": 2
+            },
+            "opacity": "{startIn > 0 && startIn < 60 && !reduceMotion && startIn % 2 == 1 ? 0.78 : 1}",
+            "show": "roomMode == 'host' && startAt > 0",
+            "children": [
+              {
+                "id": "schedMain",
+                "text": "{startIn > 0 ? (floor(startIn / 60) + ':' + pad(startIn % 60, 2) + ' 뒤 시작!') : '친구가 오면 바로 시작해요'}",
+                "size": 28,
+                "weight": 800,
+                "color": "{startIn > 0 && startIn < 60 ? '#0b0c0e' : '#d9ff00'}",
+                "align": "center",
+                "lines": 1
+              },
+              {
+                "id": "schedSub",
+                "text": "{startIn > 0 ? (startAtText + ' 시작 · 지금 ' + roster.length + '명') : '한 명 더 오면 3·2·1 바로 시작'}",
+                "size": 14,
+                "weight": 600,
+                "color": "{startIn > 0 && startIn < 60 ? '#0b0c0e' : '#9aa3af'}",
+                "align": "center",
+                "lines": 1
+              }
+            ]
+          },
+          {
             "id": "lobbyStatus",
             "text": "{quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject ? (quizInfo.about + ' 님이 나갔어요 · 대신 시작할 수 있어요') : (quizInfo.custom ? (iAmSubject && roster.length >= 2 ? '준비 완료 · 시작하기를 눌러요' : '') : (roster.length >= 2 ? '' : '친구를 초대하면 같이 할 수 있어요'))}",
             "width": "fill",
@@ -536,7 +576,7 @@
             "id": "startBtn",
             "use": "PrimaryButton",
             "props": {
-              "label": "시작하기 🚀"
+              "label": "{roomMode == 'host' && startAt > 0 ? '지금 시작 🚀' : '시작하기 🚀'}"
             },
             "onTap": [
               {
@@ -565,9 +605,37 @@
             "id": "waitBtn",
             "use": "GhostButton",
             "props": {
-              "label": "{packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2)) ? (roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 시작해요' : (autoStartIn + '초 뒤 시작 · ' + roster.length + '명')) : '방장이 시작하길 기다리는 중') : (packPending != '' ? '준비 중…' : (quizInfo.custom && !iAmSubject ? (quizInfo.about + ' 님이 시작하면 바로 시작돼요') : '친구를 기다리는 중…'))}"
+              "label": "{packPending == '' && (!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) && !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2)) ? (roomMode == 'auto' ? (roster.length < 2 ? '한 명 더 오면 시작해요' : (autoStartIn + '초 뒤 시작 · ' + roster.length + '명')) : (startAt > 0 ? '시간이 되면 저절로 시작해요' : '방장이 시작하길 기다리는 중')) : (packPending != '' ? '준비 중…' : (quizInfo.custom && !iAmSubject ? (roomMode == 'host' && startAt > 0 ? '시간이 되면 저절로 시작해요' : (quizInfo.about + ' 님이 시작하면 바로 시작돼요')) : '친구를 기다리는 중…'))}"
             },
             "show": "phase == 'lobby' ? (packPending != '' || !(!quizInfo.custom || (iAmSubject && roster.length >= 2) || (quizInfo.custom && quizInfo.subjectHere === false && !iAmSubject)) || !(roomMode == '' || quizInfo.custom || (roomMode == 'host' && iAmHost) || (roomMode == 'auto' && autoStartIn <= 0 && roster.length >= 2))) : false"
+          },
+          {
+            "id": "schedBtn",
+            "use": "GhostButton",
+            "props": {
+              "label": "{startAt > 0 ? '예약 취소' : '⏰ 시작 시간 정하기'}"
+            },
+            "show": "roomMode == 'host' && (quizInfo.custom ? iAmSubject : iAmHost)",
+            "onTap": [
+              {
+                "if": "phase == 'lobby' && roomMode == 'host' && (quizInfo.custom ? iAmSubject : iAmHost)",
+                "then": [
+                  {
+                    "if": "startAt > 0",
+                    "then": [
+                      {
+                        "emit": "unschedule"
+                      }
+                    ],
+                    "else": [
+                      {
+                        "emit": "scheduleOpen"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "id": "inviteBand",
