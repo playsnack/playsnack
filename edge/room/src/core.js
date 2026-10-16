@@ -106,7 +106,10 @@ export const FREE = { workerRequests: 100000, doRequests: 100000, doGbSeconds: 1
 export const STAGES = { newRooms: 0.7, newJoins: 0.9, squeeze: 0.95 };
 export const ROOMS_PER_IP_HOUR = 20;
 export const ROOM_FULL_TODAY = "room_full_today";
-const emptyDay = (day) => ({ day, rooms: 0, conns: 0, msgs: 0, alarms: 0, awakeMs: 0, rows: 0, doExtra: 0, workerExtra: 0, refusedRooms: 0, refusedJoins: 0 });
+// pings: the hosts' keepalive pings (#142) — answered by the auto-response without reaching a room,
+// so estimated by the rooms (game.js pingTally) and counted 1:1 as DO requests (conservative).
+// pingMiss: ping-like frames that did NOT match the auto-response (they woke a room) — should stay 0.
+const emptyDay = (day) => ({ day, rooms: 0, conns: 0, msgs: 0, pings: 0, pingMiss: 0, alarms: 0, awakeMs: 0, rows: 0, doExtra: 0, workerExtra: 0, refusedRooms: 0, refusedJoins: 0 });
 export class UsageMeter {
   constructor({ store, now = Date.now, free = {}, stages = {}, roomsPerIpHour = ROOMS_PER_IP_HOUR }) {
     Object.assign(this, { store, now, free: { ...FREE, ...free }, stages: { ...STAGES, ...stages }, roomsPerIpHour });
@@ -120,7 +123,7 @@ export class UsageMeter {
   static estimate(u) {
     return {
       workerRequests: u.conns + u.workerExtra,
-      doRequests: u.conns + u.msgs + u.alarms + u.doExtra,
+      doRequests: u.conns + u.msgs + u.pings + u.alarms + u.doExtra,
       doGbSeconds: Math.round((u.awakeMs / 1000) * 0.128),
       rowsWritten: u.rows,
     };
@@ -162,9 +165,9 @@ export class UsageMeter {
     return { ok, stage: await this.save(u), ...(free && !ipOk ? { slow: true } : {}) };
   }
   /** A room's (or the Worker's) batched delta → {stage}. */
-  async add({ conns = 0, msgs = 0, alarms = 0, awakeMs = 0, rows = 0, refusedJoins = 0, workerExtra = 0, doExtra = 0 } = {}) {
+  async add({ conns = 0, msgs = 0, pings = 0, pingMiss = 0, alarms = 0, awakeMs = 0, rows = 0, refusedJoins = 0, workerExtra = 0, doExtra = 0 } = {}) {
     const u = await this.today();
-    Object.assign(u, { conns: u.conns + conns, msgs: u.msgs + msgs, alarms: u.alarms + alarms, awakeMs: u.awakeMs + awakeMs, rows: u.rows + rows, refusedJoins: u.refusedJoins + refusedJoins, workerExtra: u.workerExtra + workerExtra, doExtra: u.doExtra + doExtra });
+    Object.assign(u, { conns: u.conns + conns, msgs: u.msgs + msgs, pings: u.pings + pings, pingMiss: u.pingMiss + pingMiss, alarms: u.alarms + alarms, awakeMs: u.awakeMs + awakeMs, rows: u.rows + rows, refusedJoins: u.refusedJoins + refusedJoins, workerExtra: u.workerExtra + workerExtra, doExtra: u.doExtra + doExtra });
     return { stage: await this.save(u) };
   }
   /** Today's numbers. countRequest: a GET /usage cache miss (one Worker request + one write). */
@@ -183,7 +186,8 @@ export class UsageMeter {
       free: this.free,
       used: UsageMeter.estimate(u),
       percent: pct,
-      doRequestsBy: { conns: u.conns, msgs: u.msgs, alarms: u.alarms, meterCalls: u.doExtra },
+      doRequestsBy: { conns: u.conns, msgs: u.msgs, pings: u.pings, alarms: u.alarms, meterCalls: u.doExtra },
+      pingMiss: u.pingMiss,
       rooms: u.rooms,
       refusedRooms: u.refusedRooms,
       refusedJoins: u.refusedJoins,
@@ -202,7 +206,7 @@ export class UsageMeter {
  * 00:00 UTC, so a stage heard yesterday no longer refuses anyone).
  */
 const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
-const zero = () => ({ conns: 0, msgs: 0, alarms: 0, rows: 0, refusedJoins: 0 });
+const zero = () => ({ conns: 0, msgs: 0, pings: 0, pingMiss: 0, alarms: 0, rows: 0, refusedJoins: 0 });
 export class UsageReporter {
   constructor({ usage, now = Date.now, everyMs = 30000, everyN = 1000, idleMs = 0, busy = () => false, setTimer, clearTimer }) {
     Object.assign(this, { usage, now, everyMs, everyN, idleMs, busy });
@@ -224,7 +228,7 @@ export class UsageReporter {
   /** Anything counted and not reported yet? */
   get pending() {
     const d = this.d;
-    return Boolean(d.conns || d.msgs || d.alarms || d.rows || d.refusedJoins);
+    return Boolean(d.conns || d.msgs || d.pings || d.pingMiss || d.alarms || d.rows || d.refusedJoins);
   }
   get stage() {
     return this.stageDay === utcDay(this.now()) ? this._stage : 0;
@@ -268,7 +272,7 @@ export class UsageReporter {
     this.stop();
     this.awakeSince = empty ? null : t;
     this.last = t;
-    if (!this.usage || !(d.conns || d.msgs || d.alarms || d.rows || d.awakeMs || d.refusedJoins)) return Promise.resolve();
+    if (!this.usage || !(d.conns || d.msgs || d.pings || d.pingMiss || d.alarms || d.rows || d.awakeMs || d.refusedJoins)) return Promise.resolve();
     return Promise.resolve(this.usage.add(d))
       .then((r) => {
         if (typeof r?.stage === "number") this.stage = r.stage;

@@ -8,7 +8,12 @@
 //   reload     C reloads (stays in the room: no leave, or only a short blip)
 //   hidden     C's page goes to the background and is frozen (as iOS does) and never comes back
 //   offline    C's network is cut while on screen (context.setOffline) and never comes back —
-//              reported only: nothing reaches the room until the socket closes (needs #142's ping)
+//              reported only: a guest sends nothing periodic, so the room learns when the socket closes
+//   hostoffline  the HOST (A, first in) loses its network on screen (#142): its keepalive pings stop;
+//              B reacts at ~25 s (host still there) and ~50 s → the room calls the host gone: B sees
+//              2명 and becomes the host within 45–75 s of the cut
+//   hostplay   a normal game with the host's keepalive on (lobby → play → result): nobody is called
+//              gone, the host's pings reach the auto-response (pongs > 0), pingMiss 0
 // For each: how long until A sees 👥 2명 (the chip) and 참가자 2명 (the roster), and the room's
 // own roster. --report prints the timings only (no pass/fail): the reproduction for the issue.
 // Ports 4992 (hub) / 4993 (vite) — not shared with other gates (HUB_PORT / VITE_PORT override).
@@ -82,6 +87,23 @@ async function device(path, nick) {
 const roster = (p) => p.evaluate(() => globalThis.__snackRuntime?.vars?.roster ?? null);
 const chipN = async (p) => Number(/👥\s*(\d+)/.exec((await p.locator("[aria-live=polite]").first().textContent().catch(() => "")) ?? "")?.[1] ?? NaN);
 const roomRoster = (room) => hub.room(room)?.core.engine?._state.roster.size ?? 0;
+const iAmHost = (p) => p.evaluate(() => globalThis.__snackRuntime?.vars?.iAmHost === true).catch(() => false);
+const phaseOf = (p) => p.evaluate(() => globalThis.__snackRuntime?.vars?.sessionPhase ?? null).catch(() => null);
+async function react(p) {
+  await p.getByRole("button", { name: "이모지 반응 보내기" }).click();
+  await p.getByRole("button", { name: "❤️" }).click();
+}
+/** A (first in: the host), B, C in a fresh friends room. */
+async function three() {
+  const room = `tpl-tap-battle~${code()}`;
+  const path = `p/tpl-tap-battle?room=${room.split("~")[1]}`;
+  const A = await device(path, "에이");
+  if (!(await until(() => iAmHost(A.page), 15000))) throw new Error("A does not host");
+  const B = await device(path, "비");
+  const C = await device(path, "씨");
+  if (!(await until(async () => (await roster(A.page))?.length === 3 && (await roster(B.page))?.length === 3, 15000))) throw new Error("three in");
+  return { room, A, B, C, all: [A, B, C] };
+}
 const inMessages = (room) => hub.history().get(`room:${room}`)?.in ?? 0;
 
 /** A, B, C in a fresh friends room; `leave(C)` is the case; → timings as A sees them. */
@@ -168,7 +190,50 @@ const cases = {
   },
   async offline() {
     const r = await scenario("offline", (C) => C.ctx.setOffline(true), { waitMs: 45000 });
-    console.log(`info offline on screen: ${r?.rosterAt == null ? "not seen as gone (known gap — needs a keepalive, #142)" : `gone after ${r.rosterAt} ms`}`);
+    console.log(`info offline guest on screen: ${r?.rosterAt == null ? "not seen as gone (guests send nothing periodic — only the host keeps alive, #142)" : `gone after ${r.rosterAt} ms`}`);
+  },
+  async hostoffline() {
+    const { room, A, B, all } = await three();
+    const r = hub.room(room);
+    await sleep(1000);
+    const pongs0 = hub.counts.pongs;
+    check(pongs0 > 0, `hostoffline: the host's page pings (pongs ${pongs0})`);
+    await A.ctx.setOffline(true); // airplane mode / a tunnel, the screen still on
+    const t0 = Date.now();
+    await sleep(25000);
+    await react(B.page); // an event that wakes the room anyway
+    await sleep(1500);
+    check((await roster(B.page))?.length === 3 && !(await iAmHost(B.page)), "hostoffline: ~25 s after the cut the host is still there (not judged early)");
+    await sleep(Math.max(0, 50000 - (Date.now() - t0)));
+    await react(B.page);
+    let goneAt = null;
+    let hostAt = null;
+    while (Date.now() - t0 < 75000 && (goneAt == null || hostAt == null)) {
+      if (goneAt == null && (await roster(B.page))?.length === 2 && (await chipN(B.page)) === 2) goneAt = Date.now() - t0;
+      if (hostAt == null && (await iAmHost(B.page))) hostAt = Date.now() - t0;
+      await sleep(100);
+    }
+    console.log(`  hostoffline: B sees 2명 after ${goneAt ?? "never"} ms · B hosts after ${hostAt ?? "never"} ms · room hostLost ${r.core.stats.hostLost ?? 0} · pingMiss ${r.core.stats.pingMiss ?? 0}`);
+    check(goneAt != null && goneAt >= 45000 && goneAt <= 75000, `hostoffline: the guest sees the host gone within 45–75 s (${goneAt} ms)`);
+    check(hostAt != null && hostAt <= 75000, `hostoffline: hand-over to the guest (${hostAt} ms)`);
+    check((r.core.stats.pingMiss ?? 0) === 0, "hostoffline: pingMiss 0");
+    for (const d of all) await d.ctx.close().catch(() => {});
+  },
+  async hostplay() {
+    const { room, A, B, C, all } = await three();
+    const r = hub.room(room);
+    const pongs0 = hub.counts.pongs;
+    await A.page.evaluate(() => globalThis.__snackRuntime.tap("startBtn")); // 시작하기 (on the canvas)
+    const played = await until(async () => (await phaseOf(B.page)) === "play", 10000);
+    const ended = played && (await until(async () => (await phaseOf(B.page)) === "result", 25000));
+    await sleep(2000);
+    const rosters = [(await roster(A.page))?.length, (await roster(B.page))?.length, (await roster(C.page))?.length];
+    console.log(`  hostplay: played ${played} · result ${ended} · rosters ${rosters} · pongs +${hub.counts.pongs - pongs0} · hostLost ${r.core.stats.hostLost ?? 0} · pingMiss ${r.core.stats.pingMiss ?? 0}`);
+    check(played && ended, "hostplay: lobby → play → result");
+    check(rosters.every((n) => n === 3) && (await iAmHost(A.page)), "hostplay: everyone still in, A still hosts");
+    check((r.core.stats.hostLost ?? 0) === 0 && (r.core.stats.pingMiss ?? 0) === 0, "hostplay: nobody called gone, pingMiss 0");
+    check(hub.counts.pongs - pongs0 >= 1, "hostplay: the host pinged again in the result");
+    for (const d of all) await d.ctx.close().catch(() => {});
   },
 };
 try {

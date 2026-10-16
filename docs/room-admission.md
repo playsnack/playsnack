@@ -184,6 +184,7 @@ W = Worker requests, D = DO requests (incoming WS messages 1:1), R = rows writte
 | Wrong PIN (counted) | D1 R1 | W1 D1 R1 (first one in an empty room: +1 R +1 D for its cleanup alarm) |
 | Wrong PIN while locked / closed | D1 R0 | W1 D1 R0 |
 | Rate-limited, forged code, bad Origin, `/relay`, PIN-room result without `k` | W1 D1–2+, R2 if it created a room | **W1 D0 R0** |
+| Host keepalive (#142): host on screen in lobby / result, `"ping"` every 20 s | — | **W0, GB-s 0** (auto-response); D ≤ 180 / room-hour counted 1:1 in the meter as `pings` (whether CF counts them is undocumented) = 0.18 % of 100k/day per room-hour; a non-matching ping wakes the DO → `pingMiss` (must stay 0) |
 
 The Worker's own refusals are counted in the meter (`workerExtra` → Worker requests, RPCs → `doExtra`, their rows),
 batched per isolate: one meter call per 200 counted requests or per 60 s, checked on the next request — no timer,

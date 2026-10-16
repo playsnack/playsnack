@@ -385,6 +385,13 @@ export class ServerTransport extends BaseTransport {
   private send(m: { t: string; d: unknown }) {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
   }
+
+  /** A raw text frame on the open socket (the edge keepalive's exact "ping"). → sent? */
+  protected sendRaw(s: string): boolean {
+    if (!this.ws || this.ws.readyState !== 1) return false;
+    this.ws.send(s);
+    return true;
+  }
 }
 
 /**
@@ -408,6 +415,10 @@ export class EdgeRoomTransport extends ServerTransport {
   private here = 0;
   private phase = "lobby";
   private loneTimer: VisibleTimer | null = null;
+  /** This device hosts the room (방장, the room's per-player `iAmHost`). */
+  private iAmHost = false;
+  private pingTimer: unknown = null;
+  private offPingVis: (() => void) | null = null;
 
   /**
    * The PIN typed for a PIN room (#157): rides in the socket URL (`?pin=`, the Worker checks and
@@ -543,10 +554,59 @@ export class EdgeRoomTransport extends ServerTransport {
       this.here = Number(m.d?.participants) || 0;
       const sh = m.d?.sharedState as Record<string, unknown> | undefined;
       this.phase = typeof sh?.sessionPhase === "string" ? sh.sessionPhase : "lobby";
+      this.iAmHost = sh?.iAmHost === true;
     } else if (m.t === "participants") this.here = Number(m.d?.count) || 0;
     else if (m.t === "setVar" && m.d?.id === "sessionPhase") this.phase = String(m.d.value);
+    else if (m.t === "setVar" && m.d?.id === "iAmHost") return this.keepalive((this.iAmHost = m.d.value === true));
     else return;
+    this.keepalive(m.t !== "participants");
     this.watchAlone();
+  }
+
+  /**
+   * Host keepalive (#142): a host phone that lost its network on screen (airplane mode, a tunnel)
+   * sends nothing, so the room could not tell it is gone. Only the host, only with the page on
+   * screen, only in the lobby / result (during play its own traffic and the game's timers keep the
+   * room going) sends the exact text frame "ping" every PING_EVERY_MS — the room's Durable Object
+   * answers it without waking (setWebSocketAutoResponse; any other text WOULD wake it) and keeps
+   * the time, which the room reads when something else wakes it (edge/room game.js hostLost).
+   * `now`: also one ping at once (became host, entered the lobby / result, a new socket's state).
+   * Nobody else sends anything periodic.
+   */
+  private keepalive(now = false) {
+    const on = this.iAmHost && (this.phase === "lobby" || this.phase === "result") && this.connState === "connected" && !isHidden(this.env);
+    if (!on) return this.stopPing();
+    if (now || this.pingTimer == null) this.ping();
+  }
+
+  private ping() {
+    this.stopPing();
+    if (!this.sendRaw(PING_TEXT)) return;
+    const gen = this.gen;
+    this.pingTimer = this.env.setTimeout(() => {
+      this.pingTimer = null;
+      if (gen === this.gen) this.keepalive(true);
+    }, PING_EVERY_MS);
+  }
+
+  private stopPing() {
+    if (this.pingTimer != null) this.env.clearTimeout(this.pingTimer);
+    this.pingTimer = null;
+  }
+
+  connect() {
+    super.connect();
+    this.offPingVis?.();
+    const doc = this.env.doc;
+    // hidden → no pings (the `away` frame covers the background); back on screen → one at once
+    const vis = () => (isHidden(this.env) ? this.stopPing() : this.keepalive(true));
+    doc?.addEventListener("visibilitychange", vis);
+    this.offPingVis = () => doc?.removeEventListener("visibilitychange", vis);
+  }
+
+  protected stop() {
+    this.stopPing();
+    super.stop();
   }
 
   /**
@@ -578,9 +638,16 @@ export class EdgeRoomTransport extends ServerTransport {
 
   close() {
     this.clearLone();
+    this.offPingVis?.();
+    this.offPingVis = null;
     super.close();
   }
 }
+
+/** The host keepalive frame (#142): exactly this text — the room's auto-response matches it byte for byte. */
+export const PING_TEXT = "ping";
+/** Host keepalive period (#142): ≤ 180 frames per room-hour; the room calls a host gone after 45 s without one. */
+export const PING_EVERY_MS = 20000;
 
 /**
  * Alone (no one else, no game running) this long on screen in a room a public room moved us to:
