@@ -52,6 +52,9 @@
 - name: "severity: minor"
   color: "F9D0C4"
   description: Small or edge-case issue.
+- name: "stage: beta"
+  color: "BFDADC"
+  description: Work that applies to the current beta service.
 - name: "area: snack-player"
   color: "1D76DB"
   description: React player app.
