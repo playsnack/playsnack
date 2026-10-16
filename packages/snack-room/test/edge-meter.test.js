@@ -231,3 +231,119 @@ test("a stage heard yesterday does not refuse today: the stage is scoped to its 
   assert.ok(m3.frame("token"));
   room.forget();
 });
+
+/** A fake clock for a whole room (engine timers, send queue, quiet report): advance(ms) runs what is due. */
+function fakeClock(start = Date.UTC(2026, 9, 15, 3, 0, 0)) {
+  let t = start;
+  let seq = 0;
+  const timers = new Map();
+  const tick = () => new Promise((r) => setImmediate(r));
+  return {
+    now: () => t,
+    setTimer: (fn, ms) => {
+      const h = ++seq;
+      timers.set(h, { at: t + ms, fn, h });
+      return h;
+    },
+    clearTimer: (h) => timers.delete(h),
+    async advance(ms) {
+      const end = t + ms;
+      for (;;) {
+        await tick();
+        const n = [...timers.values()].filter((x) => x.at <= end).sort((a, b) => a.at - b.at || a.h - b.h)[0];
+        if (!n) break;
+        timers.delete(n.h);
+        t = n.at;
+        n.fn();
+      }
+      t = end;
+      await tick();
+    },
+  };
+}
+
+/** A game room on a fake clock; hello / action helpers; meter calls counted. */
+function clockedRoom(roomId, limits = {}) {
+  const clock = fakeClock();
+  const meter = new UsageMeter({ store: memoryStore(), now: clock.now });
+  const calls = { add: 0 };
+  const usage = { admit: () => meter.admit(), add: (d) => (calls.add++, meter.add(d)) };
+  const socks = [];
+  const room = new GameRoom({ roomId, store: memoryStore(), secret: "s", usage, now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer, limits: { reportMs: 60000, ...limits }, sockets: () => socks });
+  const join = async (anonId, extra = {}) => {
+    const s = sock();
+    socks.push(s);
+    room.onOpen(s);
+    await room.onMessage(s, JSON.stringify({ t: "hello", d: { slug: roomId, anonId, nick: anonId, ...extra } }));
+    return s;
+  };
+  let n = 0;
+  const act = (s, name, payload) => room.onMessage(s, JSON.stringify({ t: "action", d: { name, payload, clientMsgId: `c${++n}` } }));
+  const requests = async () => (await meter.report()).doRequestsBy;
+  return { clock, meter, calls, room, join, act, requests };
+}
+
+test("#191 a quiet room reports before it can hibernate: what it counted survives the hibernation", async () => {
+  assert.equal(LIMITS.idleFlushMs, 5000, "quiet 5 s → report (a DO hibernates after ~10 s without events)");
+  const g = clockedRoom("lobby-hibernate");
+  for (const id of ["h1", "h2", "h3"]) {
+    await g.join(id); // 3 sockets + 3 hellos, then everyone waits in the lobby
+    await g.clock.advance(1000);
+  }
+  assert.equal(g.calls.add, 0, "no report while people keep arriving (and none by the 60 s window)");
+  await g.clock.advance(2999);
+  assert.equal(g.calls.add, 0, "< 5 s quiet: not yet");
+  await g.clock.advance(4000); // the lobby snapshot (+1 s, a counted row) + 5 s quiet — still < 10 s without events
+  assert.equal(g.calls.add, 1, "quiet → one report, before the DO could hibernate");
+  g.room.forget(); // the DO hibernates: memory gone
+  const by = await g.requests();
+  assert.equal(by.conns, 3);
+  assert.equal(by.msgs, 3, "the lobby's hellos reached the meter before the hibernation");
+  await g.clock.advance(60000);
+  assert.equal(g.calls.add, 1, "one meter call for the quiet spell (not one per message); nothing new → no more");
+
+  // The same lobby without the quiet report: the hibernation loses them (the bug).
+  const old = clockedRoom("lobby-hibernate-old", { idleFlushMs: 0 });
+  for (const id of ["o1", "o2", "o3"]) await old.join(id);
+  await old.clock.advance(20000);
+  old.room.forget();
+  assert.equal((await old.requests()).msgs, 0, "before #191: 3 sockets + 3 hellos never reached the meter");
+});
+
+test("#191 a running game does not report in its pauses; the quiet report comes once the result is up", async () => {
+  const g = clockedRoom("quiet-game~AB12");
+  const a = await g.join("ga", { organize: true }); // friends room: the organizer hosts (no auto-start timers)
+  const b = await g.join("gb");
+  await g.act(a, "start", { duration: 10000 });
+  await g.clock.advance(3000); // 3·2·1
+  for (let i = 1; i <= 4; i++) {
+    await g.act(a, "taps", { count: i * 3 });
+    await g.act(b, "taps", { count: i * 2 });
+    await g.clock.advance(250);
+  }
+  await g.clock.advance(8000); // a pause mid-game: engine timers pending → the DO stays awake
+  assert.equal(g.calls.add, 0, "no meter call in a pause of a running game");
+  await g.clock.advance(1000); // play ends (10 s) → result: a host room's result has no engine timer
+  await g.act(a, "taps", { count: 13 }); // the final batch, inside LATE_GRACE_MS
+  await g.clock.advance(7000); // the result snapshot (+1 s) + 5 s quiet
+  assert.equal(g.calls.add, 1, "quiet in the result → one report");
+  g.room.forget(); // hibernates in the result
+  const by = await g.requests();
+  assert.equal(by.msgs, 2 + 1 + 8 + 1, "2 hellos + start + 8 batches + the final one — all reached the meter");
+  assert.equal(by.conns, 2);
+});
+
+test("#191 a quiet relay room reports too", async () => {
+  const meter = new UsageMeter({ store: memoryStore() });
+  let adds = 0;
+  const usage = { admit: () => meter.admit(), add: (d) => (adds++, meter.add(d)) };
+  const relay = new RoomRelay({ roomId: "relay-quiet", store: memoryStore(), secret: "s", usage, limits: { reportMs: 60000, idleFlushMs: 30 } });
+  const s = sock();
+  relay.onOpen(s, [s]);
+  await relay.onMessage(s, JSON.stringify({ t: "auth", peer: "q1" }), [s]);
+  await relay.onMessage(s, JSON.stringify({ from: "q1", t: "here" }), [s]);
+  assert.equal(adds, 0);
+  await sleep(80);
+  assert.equal(adds, 1, "quiet → reported");
+  assert.deepEqual((await meter.report()).doRequestsBy, { conns: 1, msgs: 2, alarms: 0, meterCalls: 2 });
+});

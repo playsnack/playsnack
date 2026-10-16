@@ -96,7 +96,7 @@ export class GameRoom {
     this.resultChain = Promise.resolve();
     this.L = { ...GAME_LIMITS, ...limits };
     this.timers = { setTimer: setTimer ?? ((fn, ms) => setTimeout(fn, ms)), clearTimer: clearTimer ?? ((h) => clearTimeout(h)) };
-    this.meter = new UsageReporter({ usage, now, everyMs: this.L.reportMs, everyN: this.L.reportEvery });
+    this.meter = this.newMeter();
     this.gate = new RoomGate({ roomId, store, secret, usage, now, limits: this.L, meter: this.meter });
     this.engine = null;
     this.meta = null;
@@ -113,6 +113,22 @@ export class GameRoom {
     this.coalesceTimer = null;
     this._peers = null;
     Object.assign(this.stats, { fanoutMs: 0, fanoutMaxMs: 0, fanoutMaxBytes: 0, fanoutMaxTo: 0, handleMaxMs: 0, chunks: 0, chunkMs: 0, chunkMaxMs: 0 });
+  }
+
+  /**
+   * The room's usage counter. Quiet for idleFlushMs and no game running (no engine timer — only
+   * then can the DO hibernate, header) → it reports, so a hibernation loses nothing (#191).
+   */
+  newMeter() {
+    return new UsageReporter({
+      usage: this.usage,
+      now: this.now,
+      everyMs: this.L.reportMs,
+      everyN: this.L.reportEvery,
+      idleMs: this.L.idleFlushMs,
+      busy: () => Boolean(this.engine?._state.session.timers.length),
+      ...this.timers,
+    });
   }
 
   peers() {
@@ -494,5 +510,9 @@ export class GameRoom {
     this.engine?.destroy();
     this.engine = null;
     this.meta = null;
+    // …and its usage counts not yet reported (a woken DO starts a fresh counter).
+    this.meter.stop();
+    this.meter = this.newMeter();
+    this.gate.meter = this.meter;
   }
 }
