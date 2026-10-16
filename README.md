@@ -88,6 +88,7 @@ pnpm bite:check                                  # browser: layout == Node layou
 node snack-server/tools/gate-all.mjs             # templates: layout, content, consistency, oracle, multiplayer sync
 node snack-server/tools/gate-all.mjs --battery   # + AI generation reliability (needs an OpenAI key)
 SIM_MESH=1 node snack-server/tools/multiclient-sim.mjs   # multiplayer sync over the public broker, no server
+node snack-server/tools/live-e2e.mjs --base https://develop.playsnack.pages.dev   # released room features on a deployed site, real browsers (live: --base https://playsnack.pages.dev)
 ```
 
 ## Contributing
